@@ -167,11 +167,14 @@ class MusicHandler:
         )
         if "error" in data:
             logger.warning(f"Bot 进入语音频道失败: {data['error']}")
-        else:
-            logger.info(f"Bot 已进入语音频道: {self.names.channel(voice_ch_id)}")
-            # 通过 Agora RTC 实际加入语音房间
-            self._join_agora_room(data)
+            self.sender.send_message(
+                f"进入语音频道失败: {data['error']}，请稍后再试。",
+                channel=channel, area=area,
+            )
+            return False
 
+        logger.info(f"Bot 已进入语音频道: {self.names.channel(voice_ch_id)}")
+        self._join_agora_room(data)
         self._voice_channel_id = voice_ch_id
         self._voice_channel_area = area
         self._voice_enter_time = time.time()
@@ -694,9 +697,13 @@ class MusicHandler:
                         name = info.get("name", "未知")
                         artists = info.get("artists", "未知")
                         pos = info.get("position", "?")
+                        try:
+                            pos_int = int(pos)
+                        except (ValueError, TypeError):
+                            pos_int = 0
                         current = self.queue.get_current()
                         is_playing = current is not None
-                        actual = int(pos) + (1 if is_playing else 0)
+                        actual = pos_int + (1 if is_playing else 0)
                         text = f"[Web 点歌] {name} - {artists}\n已加入队列 (位置: {actual})"
                         self.sender.send_message(text, channel=ch, area=ar)
                 except Exception as e:

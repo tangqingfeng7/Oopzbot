@@ -81,8 +81,9 @@ class NeteaseCloud:
         return results
 
     def get_song_url(self, song_id: int) -> Optional[str]:
-        """获取歌曲播放 URL"""
-        data = self._get("/song/url/v1", params={"id": song_id, "level": "standard"})
+        """获取歌曲播放 URL。level 可选 standard(体积小/弱网友好) 或 exhigh(音质更好)。"""
+        level = NETEASE_CLOUD.get("audio_quality", "standard")
+        data = self._get("/song/url/v1", params={"id": song_id, "level": level})
         if not data or data.get("code") != 200:
             return None
 

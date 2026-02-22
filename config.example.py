@@ -64,7 +64,11 @@ REDIS_CONFIG = {
 NETEASE_CLOUD = {
     "base_url": "http://localhost:3000",   # 网易云音乐 API 服务地址
     "cookie": "",                          # 可选，登录后的 MUSIC_U Cookie
-    "auto_start_path": "NeteaseCloudMusicApi",  # 相对于项目根目录，留空则不自动启动  # 相对于项目根目录，留空则不自动启动
+    "auto_start_path": "NeteaseCloudMusicApi",  # 相对于项目根目录，留空则不自动启动
+    # 弱网优化（网络差、播放卡顿时可调大超时与重试，或使用 standard 音质）
+    "audio_download_timeout": 120,         # 单次下载读超时(秒)
+    "audio_download_retries": 2,           # 失败后重试次数
+    "audio_quality": "standard",           # standard=标准(体积小) / exhigh=较高音质
 }
 
 # 豆包 AI 配置（火山方舟，OpenAI 兼容接口）

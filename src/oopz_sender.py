@@ -799,7 +799,10 @@ class OopzSender:
             result = resp.json()
             if not result.get("status"):
                 return []
-            return result.get("data", {}).get("roles", [])
+            data = result.get("data")
+            if not isinstance(data, dict):
+                return []
+            return data.get("roles", [])
         except Exception as e:
             logger.error(f"获取可分配角色异常: {e}")
             return []

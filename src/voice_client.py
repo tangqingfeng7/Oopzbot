@@ -14,7 +14,7 @@ import queue
 import random
 import threading
 import time
-from typing import Optional
+from typing import Optional, Tuple
 
 import requests as http_requests
 
@@ -319,19 +319,16 @@ class VoiceClient:
         self._identity_thread = None
 
     def _do_play(self, url: str):
-        """后台线程：下载音频 → 派发到 Playwright 线程 → Agora 推流"""
+        """后台线程：流式下载音频（带超时与重试）→ 派发到 Playwright → Agora 推流"""
         self._playing = True
         try:
-            logger.info(f"正在下载音频: {url[:80]}...")
-            resp = http_requests.get(url, timeout=60, stream=False)
-            resp.raise_for_status()
-            audio_data = resp.content
+            audio_data, content_type = self._download_audio_with_retry(url)
+            if audio_data is None or self._stop_event.is_set():
+                return
+
             logger.info(f"音频下载完成: {len(audio_data)} bytes")
-
             b64 = base64.b64encode(audio_data).decode("ascii")
-
-            content_type = resp.headers.get("Content-Type", "audio/mpeg")
-            if "octet-stream" in content_type:
+            if "octet-stream" in (content_type or ""):
                 content_type = "audio/mpeg"
 
             result = self._run_on_pw(
@@ -361,3 +358,50 @@ class VoiceClient:
             logger.error(f"Agora 推流异常: {e}")
         finally:
             self._playing = False
+
+    def _download_audio_with_retry(self, url: str) -> Tuple[Optional[bytes], str]:
+        """流式下载音频，弱网时使用更长超时与重试。返回 (音频数据, content_type)。"""
+        try:
+            from config import NETEASE_CLOUD
+            connect_timeout = 15
+            read_timeout = NETEASE_CLOUD.get("audio_download_timeout", 120)
+            max_retries = NETEASE_CLOUD.get("audio_download_retries", 2)
+        except Exception:
+            connect_timeout, read_timeout, max_retries = 15, 120, 2
+
+        last_error = None
+        content_type = "audio/mpeg"
+        for attempt in range(max_retries + 1):
+            if self._stop_event.is_set():
+                return None, content_type
+            try:
+                logger.info(f"正在下载音频 ({attempt + 1}/{max_retries + 1}): {url[:80]}...")
+                resp = http_requests.get(
+                    url,
+                    timeout=(connect_timeout, read_timeout),
+                    stream=True,
+                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36", "Referer": "https://music.163.com/"},
+                )
+                resp.raise_for_status()
+                content_type = resp.headers.get("Content-Type") or "audio/mpeg"
+
+                chunks = []
+                for chunk in resp.iter_content(chunk_size=65536):
+                    if self._stop_event.is_set():
+                        return None, content_type
+                    if chunk:
+                        chunks.append(chunk)
+                data = b"".join(chunks)
+                if data:
+                    return data, content_type
+            except http_requests.RequestException as e:
+                last_error = e
+                logger.warning(f"音频下载尝试 {attempt + 1} 失败: {e}")
+                if attempt < max_retries:
+                    backoff = 2 * (attempt + 1)
+                    logger.info(f"{backoff}s 后重试...")
+                    time.sleep(backoff)
+
+        if last_error:
+            raise last_error
+        return None, content_type
