@@ -25,7 +25,7 @@
 - **Python** 3.10+
 - **Redis**（队列与播放状态）
 - **Node.js** 18+（用于网易云音乐 API）
-- **Playwright + Chromium**（语音频道 Agora 推流）
+- **语音频道推流**：Playwright + Chromium，或 Selenium + Chrome/Edge（Windows 上若遇 greenlet 错误会自动用 Selenium，见 [配置说明](docs/configuration.md#agora-语音频道-agora_app_id)）
 
 ---
 
@@ -35,6 +35,7 @@
 
 ```shell
 pip install -r requirements.txt
+# 语音频道推流：推荐执行 playwright install chromium；若仅用 Selenium 回退则需本机安装 Chrome 或 Edge
 playwright install chromium
 ```
 

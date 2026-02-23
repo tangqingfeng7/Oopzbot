@@ -5,16 +5,18 @@
 - Python 3.10+
 - Redis 服务器
 - Node.js 18+（运行网易云音乐 API 服务）
-- Playwright + Chromium（语音频道推流）
+- **语音频道推流**：Playwright + Chromium，或 Selenium + Chrome/Edge（见下方说明）
 
 ## 1. 安装 Python 依赖
 
 ```shell
 pip install -r requirements.txt
-
-# 安装 Playwright 浏览器（语音频道推流需要）
-playwright install chromium
 ```
+
+**语音频道推流（Agora）二选一即可：**
+
+- **推荐**：`playwright install chromium`（安装 Playwright 自带的 Chromium）
+- **若 Windows 出现 greenlet DLL 错误**：程序会自动改用 Selenium，需本机已安装 [Chrome](https://www.google.com/chrome/) 或 Edge；驱动由 `webdriver-manager` 或 Selenium 自动管理。详见 [配置说明 - Agora 语音频道](configuration.md#agora-语音频道-agora_app_id)。
 
 ## 2. 部署网易云音乐 API
 

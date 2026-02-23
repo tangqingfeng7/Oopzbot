@@ -9,3 +9,5 @@ aiohttp
 python-multipart
 psutil
 playwright
+selenium
+webdriver-manager

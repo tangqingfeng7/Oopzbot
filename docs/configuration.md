@@ -114,12 +114,30 @@ copy private_key.example.py private_key.py
 
 ### Agora 语音频道 (`agora_app_id`)
 
-`OOPZ_CONFIG["agora_app_id"]` 为 Oopz 平台使用的 Agora App ID，用于语音频道推流。通过 Playwright 控制无头 Chromium 运行 Agora Web SDK，全平台兼容。
+`OOPZ_CONFIG["agora_app_id"]` 为 Oopz 平台使用的 Agora App ID，用于语音频道推流。通过无头浏览器运行 Agora Web SDK。
 
-```bash
-pip install playwright
-playwright install chromium
-```
+#### 浏览器后端
+
+| 后端 | 说明 |
+|------|------|
+| **Playwright**（优先） | 安装：`pip install playwright` 后执行 `playwright install chromium`。Linux/macOS 推荐。 |
+| **Selenium**（回退） | 当 Playwright 不可用时自动启用（如 Windows 上 greenlet DLL 错误）。需已安装 `selenium`、`webdriver-manager`（见 `requirements.txt`），以及本机 **Chrome** 或 **Edge** 浏览器。 |
+
+程序会依次尝试：Playwright → Selenium（Chrome，含 webdriver-manager / Selenium Manager）→ Selenium（Edge，仅 Windows）。启动成功时日志会显示 `后端=playwright` 或 `后端=selenium`。
+
+#### 故障排除
+
+- **“DLL load failed while importing _greenlet”**  
+  Windows 上 Playwright 依赖的 greenlet 可能缺 VC++ 运行库。无需处理，程序会自动改用 Selenium；确保已安装 Chrome 或 Edge 并执行 `pip install -r requirements.txt`。
+
+- **“Unable to obtain driver for chrome”**  
+  Selenium 无法找到或下载 ChromeDriver。可尝试：  
+  1. 确认本机已安装 [Chrome](https://www.google.com/chrome/) 或 Edge，并重新运行 `python main.py`（会尝试多种方式及 Edge）。  
+  2. 手动下载与 Chrome 版本匹配的 [ChromeDriver](https://googlechromelabs.github.io/chrome-for-testing/)（如 chromedriver-win64.zip），解压后将 `chromedriver.exe` 所在目录加入系统 **PATH**。  
+  3. Edge 驱动可从此处下载并加入 PATH：[Edge WebDriver](https://developer.microsoft.com/en-us/microsoft-edge/tools/webdriver/)。
+
+- **不启用语音推流**  
+  在 `OOPZ_CONFIG` 中不填 `agora_app_id`（或留空），则不会初始化浏览器，音乐点歌仍可用，仅无法在语音频道内播放。
 
 ## private_key.py
 
