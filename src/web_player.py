@@ -183,9 +183,28 @@ KEY_WEB_COMMANDS = "music:web_commands"
 _liked_ids_cache: list = []
 
 
+def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
+    """按关键词过滤歌曲（歌名、歌手、专辑，不区分大小写）"""
+    if not keyword or not keyword.strip():
+        return songs
+    k = keyword.strip().lower()
+    out = []
+    for s in songs:
+        name = (s.get("name") or "").lower()
+        artists = (s.get("artists") or "").lower()
+        album = (s.get("album") or "").lower()
+        if k in name or k in artists or k in album:
+            out.append(s)
+    return out
+
+
 @app.get("/api/liked")
-def api_liked(page: int = Query(1, ge=1), limit: int = Query(30, ge=1, le=50)):
-    """获取喜欢的音乐列表（分页）"""
+def api_liked(
+    page: int = Query(1, ge=1),
+    limit: int = Query(30, ge=1, le=50),
+    keyword: Optional[str] = Query(None),
+):
+    """获取喜欢的音乐列表（分页）。若传 keyword 则在全部喜欢中搜索后分页返回。"""
     global _liked_ids_cache
     try:
         nc = _get_netease()
@@ -197,12 +216,28 @@ def api_liked(page: int = Query(1, ge=1), limit: int = Query(30, ge=1, le=50)):
         if not _liked_ids_cache:
             return JSONResponse({"songs": [], "total": 0, "page": 1, "pages": 0})
 
+        if keyword and keyword.strip():
+            # 在全部喜欢中搜索：分批拉取详情后过滤再分页
+            all_ids = list(_liked_ids_cache)
+            batch_size = 50
+            all_songs = []
+            for i in range(0, len(all_ids), batch_size):
+                chunk = all_ids[i : i + batch_size]
+                details = nc.get_song_details_batch(chunk)
+                all_songs.extend(details)
+            filtered = _filter_songs_by_keyword(all_songs, keyword)
+            total = len(filtered)
+            pages = (total + limit - 1) // limit if total else 1
+            page = min(page, max(1, pages))
+            start = (page - 1) * limit
+            page_songs = filtered[start : start + limit]
+            return JSONResponse({"songs": page_songs, "total": total, "page": page, "pages": pages})
+        # 无关键词：按原逻辑分页
         total = len(_liked_ids_cache)
         pages = (total + limit - 1) // limit
         page = min(page, pages)
         start = (page - 1) * limit
-        page_ids = _liked_ids_cache[start:start + limit]
-
+        page_ids = _liked_ids_cache[start : start + limit]
         details = nc.get_song_details_batch(page_ids)
         return JSONResponse({"songs": details, "total": total, "page": page, "pages": pages})
     except Exception as e:

@@ -51,6 +51,13 @@ class QueueManager:
             return song
         return None
 
+    def peek_next(self) -> Optional[dict]:
+        """查看队首下一首（不弹出），用于预加载"""
+        data = self.redis.lindex(KEY_QUEUE, 0)
+        if data:
+            return json.loads(data)
+        return None
+
     def get_queue(self, start: int = 0, end: int = -1) -> list:
         """获取队列列表"""
         items = self.redis.lrange(KEY_QUEUE, start, end)

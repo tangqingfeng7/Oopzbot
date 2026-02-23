@@ -266,6 +266,7 @@ class MusicHandler:
                   str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
             daemon=True,
         ).start()
+        self._preload_next_song_if_any()
 
         # 发送通知
         text = self._build_now_playing_text("切换到下一首", next_song)
@@ -425,6 +426,7 @@ class MusicHandler:
                       str(data.get("id", "")), data.get("duration", 0)),
                 daemon=True,
             ).start()
+            self._preload_next_song_if_any()
         else:
             pos = self.queue.add_to_queue(song_data)
             actual = pos + 1 + (1 if current_song or is_playing else 0)
@@ -523,6 +525,7 @@ class MusicHandler:
                               str(data.get("id", "")), data.get("duration", 0)),
                         daemon=True,
                     ).start()
+                    self._preload_next_song_if_any()
 
                     user_name = self.names.user(user) if user else "未知用户"
                     text = (
@@ -763,6 +766,8 @@ class MusicHandler:
                                       str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
                                 daemon=True,
                             ).start()
+                            # 预加载队首下一首，减少切歌时的下载延迟与卡顿
+                            self._preload_next_song_if_any()
 
                             text = self._build_now_playing_text("自动播放", next_song)
                             self.sender.send_message(
@@ -788,6 +793,17 @@ class MusicHandler:
     # ------------------------------------------------------------------
     # 内部方法
     # ------------------------------------------------------------------
+
+    def _preload_next_song_if_any(self):
+        """若队列中还有下一首且带 URL，则后台预加载其音频，减少切歌卡顿。"""
+        if not self.voice or not self.voice.available:
+            return
+        try:
+            next_item = self.queue.peek_next()
+            if next_item and next_item.get("url"):
+                self.voice.preload_audio(next_item["url"])
+        except Exception as e:
+            logger.debug(f"预加载下一首失败（忽略）: {e}")
 
     def _stream_to_voice_channel(self, url: str, name: str, channel: str, area: str,
                                  song_id: str = None, duration_ms: int = 0):
@@ -905,6 +921,7 @@ class MusicHandler:
                       str(data.get("id", "")), data.get("duration", 0)),
                 daemon=True,
             ).start()
+            self._preload_next_song_if_any()
         else:
             pos = self.queue.add_to_queue(song_data)
             actual = pos + 1 + (1 if current_song or is_playing else 0)

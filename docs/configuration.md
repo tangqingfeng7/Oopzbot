@@ -43,6 +43,8 @@ copy private_key.example.py private_key.py
 | `audio_download_retries` | 下载失败后重试次数（默认 `2`） |
 | `audio_quality` | 音质档位：`"standard"`（体积小/弱网友好）或 `"exhigh"`（音质更好） |
 
+推流播放时会自动预加载队首下一首，减少切歌间隙与卡顿；弱网下可适当调大 `audio_download_timeout`、`audio_download_retries`，或使用 `audio_quality: "standard"`。
+
 ### 豆包 AI 聊天 (`DOUBAO_CONFIG`)
 
 | 配置项 | 说明 |

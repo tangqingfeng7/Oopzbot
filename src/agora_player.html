@@ -73,6 +73,7 @@ window.agoraPlayLocal = async (base64Data, mimeType) => {
     });
     audioTrack.startProcessAudioBuffer({ loop: false });
     await client.publish([audioTrack]);
+    URL.revokeObjectURL(objectUrl);
     _state = "playing";
     return { ok: true, duration: audioTrack.duration };
   } catch (e) {

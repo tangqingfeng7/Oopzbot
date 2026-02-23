@@ -43,6 +43,9 @@ class VoiceClient:
         self._play_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
         self._identity_stop = threading.Event()
+        # 下一首预加载缓存：url -> (bytes, content_type)，仅保留一份以减少切歌间隙
+        self._preloaded: dict = {}
+        self._preload_lock = threading.Lock()
         self._identity_thread: Optional[threading.Thread] = None
 
         # 浏览器专用线程 + 任务队列；任务格式 (method, args_list, result_holder, error_holder, done_event)
@@ -335,15 +338,40 @@ class VoiceClient:
             return False
 
     def play_audio(self, url: str):
-        """下载音频并通过 Agora 推流到语音频道。"""
+        """下载音频并通过 Agora 推流到语音频道；若该 URL 已预加载则直接使用，减少卡顿。"""
         if not self._available:
             return
         self.stop_audio()
         self._stop_event.clear()
-        self._play_thread = threading.Thread(
-            target=self._do_play, args=(url,), daemon=True
-        )
+        with self._preload_lock:
+            cached = self._preloaded.pop(url, None)
+        if cached:
+            audio_data, content_type = cached
+            self._play_thread = threading.Thread(
+                target=self._do_play, args=(None,), kwargs={"audio_data": audio_data, "content_type": content_type},
+                daemon=True,
+            )
+        else:
+            self._play_thread = threading.Thread(
+                target=self._do_play, args=(url,), daemon=True
+            )
         self._play_thread.start()
+
+    def preload_audio(self, url: str):
+        """后台预加载指定 URL 的音频，供下次 play_audio 直接使用，减少切歌时的下载延迟。"""
+        if not url or not self._available:
+            return
+        def _task():
+            try:
+                data, content_type = self._download_audio_with_retry(url)
+                if data and not self._stop_event.is_set():
+                    with self._preload_lock:
+                        self._preloaded.clear()
+                        self._preloaded[url] = (data, content_type)
+                    logger.debug(f"预加载完成: {len(data)} bytes")
+            except Exception as e:
+                logger.debug(f"预加载失败（忽略）: {e}")
+        threading.Thread(target=_task, daemon=True).start()
 
     def stop_audio(self):
         """停止当前音频推流。"""
@@ -465,15 +493,16 @@ class VoiceClient:
             self._identity_thread.join(timeout=5)
         self._identity_thread = None
 
-    def _do_play(self, url: str):
-        """后台线程：流式下载音频（带超时与重试）→ 派发到 Playwright → Agora 推流"""
+    def _do_play(self, url: Optional[str] = None, audio_data: Optional[bytes] = None, content_type: str = "audio/mpeg"):
+        """后台线程：使用预加载数据或下载音频 → 派发到浏览器 → Agora 推流"""
         self._playing = True
         try:
-            audio_data, content_type = self._download_audio_with_retry(url)
+            if audio_data is None and url:
+                audio_data, content_type = self._download_audio_with_retry(url)
             if audio_data is None or self._stop_event.is_set():
                 return
 
-            logger.info(f"音频下载完成: {len(audio_data)} bytes")
+            logger.info(f"音频就绪: {len(audio_data)} bytes" + (" (预加载)" if url is None else ""))
             b64 = base64.b64encode(audio_data).decode("ascii")
             if "octet-stream" in (content_type or ""):
                 content_type = "audio/mpeg"
@@ -528,7 +557,8 @@ class VoiceClient:
                 content_type = resp.headers.get("Content-Type") or "audio/mpeg"
 
                 chunks = []
-                for chunk in resp.iter_content(chunk_size=65536):
+                chunk_size = 262144  # 256KB，减少读次数、弱网下更稳
+                for chunk in resp.iter_content(chunk_size=chunk_size):
                     if self._stop_event.is_set():
                         return None, content_type
                     if chunk:

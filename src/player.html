@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Oopz Music Player</title>
+<link rel="icon" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/wyy.png" type="image/png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -295,6 +296,7 @@ body::after{
 .lyrics-controls{
   position:absolute;top:.75rem;right:.75rem;z-index:20;
   display:flex;align-items:center;gap:.375rem;
+  flex-wrap:wrap;
 }
 .lyric-toggle{
   display:flex;align-items:center;gap:.25rem;
@@ -306,6 +308,23 @@ body::after{
 .lyric-toggle:hover{background:rgba(255,255,255,.08);border-color:rgba(255,255,255,.12);color:var(--text-secondary)}
 .lyric-toggle.active{background:var(--primary-bg);color:var(--primary-light);border-color:var(--primary-border)}
 .lyric-toggle svg{width:.75rem;height:.75rem}
+.lyric-sync-popover{
+  position:absolute;top:100%;right:0;margin-top:.35rem;z-index:30;
+  padding:.5rem .75rem;border-radius:.5rem;
+  background:rgba(18,18,22,.98);border:1px solid var(--border);
+  box-shadow:0 8px 24px rgba(0,0,0,.4);
+  font-size:.75rem;color:var(--text-secondary);
+  display:none;flex-wrap:wrap;align-items:center;gap:.5rem;
+}
+.lyric-sync-popover.open{display:flex}
+.lyric-sync-popover span{font-weight:500;color:var(--text-muted)}
+.lyric-sync-popover button{
+  padding:.2rem .4rem;border-radius:.25rem;font-size:.6875rem;font-weight:600;
+  background:rgba(255,255,255,.06);border:1px solid var(--border);color:var(--text);
+  transition:all .15s var(--ease-out);
+}
+.lyric-sync-popover button:hover{background:rgba(255,255,255,.1);border-color:var(--border-light)}
+.lyric-sync-popover button:active{transform:scale(.96)}
 
 .lyrics-scroll{
   flex:1;overflow-y:auto;
@@ -701,10 +720,21 @@ body::after{
     <div class="lyrics-container">
       <!-- Toggle Buttons -->
       <div class="lyrics-controls" id="lyricsControls" style="display:none">
-        <button class="lyric-toggle" id="btnSync" title="歌词同步调节">
-          <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
-          同步
-        </button>
+        <div style="position:relative">
+          <button class="lyric-toggle" id="btnSync" title="歌词同步调节">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            <span id="btnSyncLabel">同步</span>
+          </button>
+          <div class="lyric-sync-popover" id="lyricSyncPopover">
+            <span>偏移：</span>
+            <button type="button" data-delta="-1">-1s</button>
+            <button type="button" data-delta="-0.5">-0.5s</button>
+            <button type="button" data-delta="0.5">+0.5s</button>
+            <button type="button" data-delta="1">+1s</button>
+            <button type="button" data-reset>重置</button>
+            <span id="lyricSyncValue">0s</span>
+          </div>
+        </div>
         <button class="lyric-toggle" id="btnTrans" title="显示翻译">
           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="m22 22-5-10-5 10"/><path d="M14 18h6"/></svg>
           译
@@ -763,6 +793,10 @@ body::after{
         </button>
       </div>
     </div>
+    <div class="search-input-wrap" style="border-bottom:1px solid var(--border);padding:.5rem 1rem">
+      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+      <input type="text" id="likedSearchInput" placeholder="在全部喜欢中搜索歌曲、歌手、专辑..." autocomplete="off" spellcheck="false">
+    </div>
     <div id="likedBody">
       <div class="search-loading">
         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>
@@ -800,7 +834,7 @@ body::after{
   let lyrics = [];
   let tLyrics = [];
   let activeLine = -1;
-  let volume = 50;
+  let volume = Math.min(100, Math.max(0, parseInt(localStorage.getItem('webVolume'), 10) || 50));
   let showTrans = false;
   let apiOk = true;
   let lastStatusError = 0;
@@ -808,6 +842,12 @@ body::after{
   let currentDuration = 0;
   let isSeeking = false;
   let volumeDebounce = null;
+  let _savedVolumeApplied = false;
+  /** 上次从服务端拿到的进度（秒）及收到时的时间戳，用于本地插值，使歌词与进度条在轮询间隔内平滑更新 */
+  let _progressBase = 0;
+  let _progressBaseTime = 0;
+  /** 歌词整体偏移（秒），用于手动微调不同步；持久化到 localStorage */
+  let lyricOffsetSec = parseFloat(localStorage.getItem('lyricOffset')) || 0;
 
   function fmtTime(sec){
     if(!sec||sec<0) sec=0;
@@ -862,11 +902,24 @@ body::after{
 
   function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
+  /** 用当前进度更新进度条、当前时间、歌词高亮（progress 为秒，已含偏移在外部加） */
+  function updateProgressUI(progress){
+    const sec = Math.max(0, Math.min(progress, currentDuration));
+    if(currentDuration>0){
+      const pct=Math.min(sec/currentDuration*100,100);
+      $('progressFill').style.width=pct+'%';
+      $('progressThumb').style.left=pct+'%';
+    }
+    $('timeCur').textContent=fmtTime(sec);
+    highlightLyric(sec);
+  }
+
   function highlightLyric(progress){
     if(!lyrics.length) return;
+    const t = progress + lyricOffsetSec;
     let idx=-1;
     for(let i=lyrics.length-1;i>=0;i--){
-      if(progress>=lyrics[i].time){idx=i;break;}
+      if(t>=lyrics[i].time){idx=i;break;}
     }
     if(idx===activeLine) return;
     activeLine=idx;
@@ -963,19 +1016,31 @@ body::after{
       badge.classList.toggle('paused',isPaused);
 
       if(d.volume!==undefined && !volumeDebounce){
-        volume=d.volume;
-        $('volumeFill').style.width=volume+'%';
-        $('volumeThumb').style.left=volume+'%';
-        $('volumePct').textContent=volume+'%';
+        if(!_savedVolumeApplied){
+          _savedVolumeApplied=true;
+          const saved=Math.min(100,Math.max(0,parseInt(localStorage.getItem('webVolume'),10)||50));
+          volume=saved;
+          $('volumeFill').style.width=volume+'%';
+          $('volumeThumb').style.left=volume+'%';
+          $('volumePct').textContent=volume+'%';
+          fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
+        }else{
+          volume=d.volume;
+          $('volumeFill').style.width=volume+'%';
+          $('volumeThumb').style.left=volume+'%';
+          $('volumePct').textContent=volume+'%';
+        }
       }
 
+      _progressBase = d.progress;
+      _progressBaseTime = Date.now();
       if(!isSeeking){
-        const pct=d.duration>0?Math.min(d.progress/d.duration*100,100):0;
-        $('progressFill').style.width=pct+'%';
-        $('progressThumb').style.left=pct+'%';
-        $('timeCur').textContent=fmtTime(d.progress);
+        if(isPaused){
+          updateProgressUI(d.progress);
+        }else{
+          updateProgressUI(d.progress);
+        }
       }
-      highlightLyric(d.progress);
     }catch(e){
       const now=Date.now();
       if(now-lastStatusError>5000){
@@ -996,6 +1061,9 @@ body::after{
   }
 
   let _lastStatus = null;
+  /** 上次渲染的队列 id 列表，用于避免无变化时重绘导致闪烁 */
+  let _lastQueueKey = null;
+
   async function fetchQueue(){
     try{
       const r=await fetch('/api/queue');
@@ -1012,6 +1080,15 @@ body::after{
       }
       for(const s of waitQueue) fullQueue.push(s);
 
+      /* 生成当前队列的“指纹”，无变化则不再重绘 */
+      const queueKey = fullQueue.length + '-' + fullQueue.map(s=>s.id).join(',');
+      if(queueKey === _lastQueueKey){
+        $('queueCount').textContent=fullQueue.length+' 首';
+        return;
+      }
+      const wasEmpty = !_lastQueueKey || _lastQueueKey === '0-';
+      _lastQueueKey = queueKey;
+
       $('queueCount').textContent=fullQueue.length+' 首';
 
       if(!fullQueue.length){
@@ -1022,10 +1099,14 @@ body::after{
       }
 
       const hasCurrent=fullQueue.length>0&&fullQueue[0]._current;
+      /* 仅当从空变为有列表时播放一次入场动画 */
+      const animateEnter = wasEmpty;
       el.innerHTML=fullQueue.map((s,i)=>{
         const isCurrent=!!s._current;
         const redisIdx=hasCurrent?i-1:i;
-        return `<div class="queue-item q-enter${isCurrent?' now-playing':''}" data-idx="${i}" style="animation-delay:${i*40}ms">
+        const enterClass = animateEnter ? ' q-enter' : '';
+        const enterStyle = animateEnter ? ` style="animation-delay:${i*40}ms"` : '';
+        return `<div class="queue-item${enterClass}${isCurrent?' now-playing':''}" data-idx="${i}"${enterStyle}>
           <div class="q-drag"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg></div>
           <span class="q-idx">${i+1}</span>
           <img class="q-cover" src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
@@ -1066,6 +1147,48 @@ body::after{
       }else{toast(d.error||'操作失败');}
     }catch(e){toast('操作失败');}
   };
+
+  function applyLyricOffset(offset){
+    lyricOffsetSec = Math.round(offset * 10) / 10;
+    if(lyricOffsetSec === 0) lyricOffsetSec = 0;
+    localStorage.setItem('lyricOffset', String(lyricOffsetSec));
+    $('lyricSyncValue').textContent = (lyricOffsetSec >= 0 ? '+' : '') + lyricOffsetSec + 's';
+    $('btnSync').classList.toggle('active', lyricOffsetSec !== 0);
+    $('btnSyncLabel').textContent = lyricOffsetSec === 0 ? '同步' : (lyricOffsetSec > 0 ? '+' : '') + lyricOffsetSec + 's';
+    if(currentId && !isPaused && currentDuration){
+      const localProgress = _progressBase + (Date.now() - _progressBaseTime)/1000;
+      highlightLyric(Math.min(localProgress, currentDuration));
+    }
+  }
+  function initLyricSyncUI(){
+    $('lyricSyncValue').textContent = (lyricOffsetSec >= 0 ? '+' : '') + lyricOffsetSec + 's';
+    $('btnSync').classList.toggle('active', lyricOffsetSec !== 0);
+    $('btnSyncLabel').textContent = lyricOffsetSec === 0 ? '同步' : (lyricOffsetSec > 0 ? '+' : '') + lyricOffsetSec + 's';
+  }
+  $('btnSync').addEventListener('click',function(e){
+    e.stopPropagation();
+    const pop=$('lyricSyncPopover');
+    pop.classList.toggle('open');
+  });
+  $('lyricSyncPopover').addEventListener('click',function(e){
+    e.stopPropagation();
+    const btn=e.target.closest('button');
+    if(!btn) return;
+    if(btn.dataset.reset){
+      applyLyricOffset(0);
+      toast('歌词偏移已重置');
+      return;
+    }
+    const delta=parseFloat(btn.dataset.delta);
+    if(!isNaN(delta)){
+      applyLyricOffset(lyricOffsetSec + delta);
+      toast('歌词已' + (delta > 0 ? '延后' : '提前') + ' ' + Math.abs(delta) + ' 秒');
+    }
+  });
+  document.addEventListener('click',function(){
+    $('lyricSyncPopover').classList.remove('open');
+  });
+  initLyricSyncUI();
 
   $('btnTrans').addEventListener('click',function(){
     showTrans=!showTrans;
@@ -1112,7 +1235,10 @@ body::after{
         dragging=false;
         const t=seekTo(e);
         if(t!==undefined){
+          _progressBase=t;
+          _progressBaseTime=Date.now();
           fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'seek',time:Math.round(t)})});
+          highlightLyric(t);
         }
         setTimeout(()=>{isSeeking=false},300);
       }
@@ -1132,6 +1258,7 @@ body::after{
     }
     function sendVolume(){
       clearTimeout(volumeDebounce);
+      localStorage.setItem('webVolume', String(volume));
       volumeDebounce=setTimeout(()=>{
         fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
         setTimeout(()=>{volumeDebounce=null},1000);
@@ -1146,8 +1273,32 @@ body::after{
 
   let _likedPage=1;
   let _likedPages=1;
+  let _likedSearchKeyword = '';
+
+  function renderLikedList(songsToShow){
+    const body=$('likedBody');
+    if(!songsToShow.length){
+      body.innerHTML='<div class="search-empty">'+(_likedSearchKeyword?'未找到匹配的歌曲':'喜欢列表为空')+'</div>';
+      body.style.opacity='1';body.style.transform='';
+      return;
+    }
+    body.innerHTML='<div class="search-results">'+songsToShow.filter(s=>s&&s.id).map((s,i)=>`
+      <div class="search-item" data-id="${s.id}" style="animation-delay:${i*25}ms">
+        <img src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
+        <div class="s-info">
+          <div class="s-name">${esc(s.name||'未知歌曲')}</div>
+          <div class="s-meta">${esc(s.artists||'未知')} · ${esc(s.album||'')}</div>
+        </div>
+        <span class="s-dur">${s.durationText||''}</span>
+        <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})" title="加入播放队列">${_addedIds.has(s.id)?'已在队列':'加入队列'}</button>
+      </div>
+    `).join('')+'</div>';
+    body.scrollTop=0;
+  }
 
   window.openLiked=function(){
+    _likedSearchKeyword='';
+    $('likedSearchInput').value='';
     $('likedOverlay').classList.add('open');
     loadLiked(1);
   };
@@ -1155,14 +1306,18 @@ body::after{
     $('likedOverlay').classList.remove('open');
   };
   window.refreshLiked=async function(){
-    $('likedBody').innerHTML='<div class="search-loading"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 1 1-6.219-8.56"/></svg>刷新中...</div>';
+    $('likedBody').innerHTML='<div class="search-loading"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-6.219-8.56"/></svg>刷新中...</div>';
     $('likedPager').style.display='none';
     try{ await fetch('/api/liked/refresh',{method:'POST'}); }catch(e){}
+    _likedSearchKeyword='';
+    $('likedSearchInput').value='';
     loadLiked(1);
   };
   window.loadLiked=async function(page){
     if(page<1) page=1;
     const body=$('likedBody');
+    const kw=_likedSearchKeyword.trim();
+    const url='/api/liked?page='+page+'&limit=30'+(kw?'&keyword='+encodeURIComponent(kw):'');
 
     body.style.transition='opacity .15s ease-out, transform .15s ease-out';
     body.style.opacity='0';
@@ -1171,7 +1326,7 @@ body::after{
     await new Promise(r=>setTimeout(r,160));
 
     try{
-      const r=await fetch('/api/liked?page='+page+'&limit=30');
+      const r=await fetch(url);
       const d=await r.json();
       if(d.error){
         body.innerHTML='<div class="search-empty">'+esc(d.error)+'</div>';
@@ -1182,33 +1337,19 @@ body::after{
       const songs=d.songs||[];
       _likedPage=d.page||1;
       _likedPages=d.pages||1;
-      $('likedStats').textContent='('+d.total+' 首)';
+      $('likedStats').textContent=kw ? '共 '+d.total+' 条结果' : '('+d.total+' 首)';
       if(!songs.length){
-        body.innerHTML='<div class="search-empty">喜欢列表为空</div>';
+        body.innerHTML='<div class="search-empty">'+(kw?'未找到匹配的歌曲':'喜欢列表为空')+'</div>';
         $('likedPager').style.display='none';
         body.style.opacity='1';body.style.transform='';
         return;
       }
-      body.innerHTML='<div class="search-results">'+songs.filter(s=>s&&s.id).map((s,i)=>`
-        <div class="search-item" data-id="${s.id}" style="animation-delay:${i*25}ms">
-          <img src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-          <div class="s-info">
-            <div class="s-name">${esc(s.name||'未知歌曲')}</div>
-            <div class="s-meta">${esc(s.artists||'未知')} · ${esc(s.album||'')}</div>
-          </div>
-          <span class="s-dur">${s.durationText||''}</span>
-          <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})">${_addedIds.has(s.id)?'已添加':'添加'}</button>
-        </div>
-      `).join('')+'</div>';
-
-      body.scrollTop=0;
-
+      renderLikedList(songs);
       requestAnimationFrame(()=>{
         body.style.transition='opacity .3s cubic-bezier(.2,.6,.35,1), transform .3s cubic-bezier(.2,.6,.35,1)';
         body.style.opacity='1';
         body.style.transform='translateY(0)';
       });
-
       $('likedPager').style.display='flex';
       $('likedPrev').disabled=(_likedPage<=1);
       $('likedNext').disabled=(_likedPage>=_likedPages);
@@ -1219,6 +1360,14 @@ body::after{
       body.style.opacity='1';body.style.transform='';
     }
   };
+
+  let _likedSearchTimer=null;
+  $('likedSearchInput').addEventListener('input',function(){
+    _likedSearchKeyword=this.value.trim();
+    clearTimeout(_likedSearchTimer);
+    _likedSearchTimer=setTimeout(()=>loadLiked(1), 320);
+  });
+  $('likedSearchInput').addEventListener('keydown',function(e){ if(e.key==='Escape') this.blur(); });
 
   $('likedPrev').addEventListener('click',function(){ loadLiked(_likedPage-1); });
   $('likedNext').addEventListener('click',function(){ loadLiked(_likedPage+1); });
@@ -1277,7 +1426,7 @@ body::after{
             <div class="s-meta">${esc(s.artists||'未知')} · ${esc(s.album||'')}</div>
           </div>
           <span class="s-dur">${s.durationText||''}</span>
-          <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})">${_addedIds.has(s.id)?'已添加':'添加'}</button>
+          <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})" title="加入播放队列">${_addedIds.has(s.id)?'已在队列':'加入队列'}</button>
         </div>
       `).join('')+'</div>';
     }catch(e){
@@ -1309,6 +1458,14 @@ body::after{
       toast('添加失败：网络错误');
     }
   };
+
+  /** 进度/歌词平滑：在两次 status 轮询之间用本地时间插值，避免歌词只按 1 秒跳变 */
+  function tickProgress(){
+    if(!currentId||isPaused||isSeeking||!currentDuration) return;
+    const localProgress = _progressBase + (Date.now() - _progressBaseTime)/1000;
+    updateProgressUI(Math.min(localProgress, currentDuration));
+  }
+  setInterval(tickProgress, 150);
 
   fetchStatus();
   fetchQueue();

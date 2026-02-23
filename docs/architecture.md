@@ -177,7 +177,7 @@ Agora RTC (语音频道)
 | GET | `/api/queue` | 播放队列 |
 | GET | `/api/lyric?id=<song_id>` | 歌词 + 翻译歌词 |
 | GET | `/api/search?keyword=<kw>&limit=<n>` | 搜索歌曲 |
-| GET | `/api/liked?page=<n>&limit=<n>` | 喜欢的音乐列表（分页） |
+| GET | `/api/liked?page=<n>&limit=<n>[&keyword=<kw>]` | 喜欢的音乐（分页）；带 `keyword` 时在全部喜欢中搜索后分页 |
 | POST | `/api/add` | 添加歌曲到队列（同时发送频道通知） |
 | POST | `/api/control` | 播放控制（action: next/stop/pause/resume/seek/volume） |
 | POST | `/api/queue/action` | 队列操作（action: remove/top, index） |
