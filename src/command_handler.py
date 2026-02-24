@@ -288,7 +288,7 @@ class CommandHandler:
         # 记录消息历史（用于撤回功能）
         if message_id:
             self._recent_messages.append({
-                "messageId": message_id,
+                "messageId": str(message_id) if message_id is not None else "",
                 "channel": channel,
                 "area": area,
                 "content": content[:50],
@@ -504,6 +504,26 @@ class CommandHandler:
                     self.sender.send_message("用法: @bot 可分配角色用户名", channel=channel, area=area)
                 return
 
+        # 给身份组: @bot 给身份组 <用户> <身份组名或ID>
+        for prefix in ("给身份组", "添加身份组", "addrole"):
+            if text.startswith(prefix):
+                rest = text[len(prefix):].strip().split(None, 1)
+                if len(rest) >= 2:
+                    self._cmd_give_role(rest[0], rest[1], channel, area)
+                else:
+                    self.sender.send_message("用法: @bot 给身份组 用户 身份组名或ID", channel=channel, area=area)
+                return
+
+        # 取消身份组: @bot 取消身份组 <用户> <身份组名或ID>
+        for prefix in ("取消身份组", "移除身份组", "removerole"):
+            if text.startswith(prefix):
+                rest = text[len(prefix):].strip().split(None, 1)
+                if len(rest) >= 2:
+                    self._cmd_remove_role(rest[0], rest[1], channel, area)
+                else:
+                    self.sender.send_message("用法: @bot 取消身份组 用户 身份组名或ID", channel=channel, area=area)
+                return
+
         # 搜索成员: @bot 搜索<关键词>
         for prefix in ("搜索成员", "搜索", "找人"):
             if text.startswith(prefix):
@@ -597,7 +617,14 @@ class CommandHandler:
             self._cmd_block_list(channel, area)
             return
 
-        # 撤回消息
+        # 批量撤回 N 条
+        m = re.match(r"撤回\s*(\d+)\s*条", text)
+        if m:
+            count = int(m.group(1))
+            self._cmd_recall_multiple(count, channel, area)
+            return
+
+        # 撤回消息（单条：消息ID 或 最后）
         if text.startswith("撤回"):
             message_id = text[2:].strip()
             self._cmd_recall_message(message_id, channel, area)
@@ -612,13 +639,6 @@ class CommandHandler:
         # 清理历史（播放历史 + 日志）
         if text in ("清理历史", "清理记录", "清除历史", "清空历史", "清理数据"):
             self._cmd_clear_history(channel, area)
-            return
-        
-        # 批量撤回消息
-        m = re.match(r"撤回(\d+)条", text)
-        if m:
-            count = int(m.group(1))
-            self._cmd_recall_multiple(count, channel, area)
             return
 
         # 帮助
@@ -1047,6 +1067,74 @@ class CommandHandler:
 
         self.sender.send_message("\n".join(lines), channel=channel, area=area)
 
+    def _cmd_give_role(self, target: str, role_arg: str, channel: str, area: str):
+        """给目标用户添加身份组。role_arg 为身份组名或 roleID。"""
+        from name_resolver import get_resolver
+        uid = self._resolve_target(target)
+        if not uid:
+            self.sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
+            return
+        name = get_resolver().user(uid)
+        roles = self.sender.get_assignable_roles(uid, area=area)
+        if not roles:
+            self.sender.send_message(f"没有可分配给 {name} 的身份组", channel=channel, area=area)
+            return
+        role_id = None
+        role_arg_stripped = role_arg.strip()
+        for r in roles:
+            rid = r.get("roleID")
+            rname = (r.get("name") or "").strip()
+            if str(rid) == role_arg_stripped or rname == role_arg_stripped:
+                role_id = rid
+                break
+        if role_id is None:
+            self.sender.send_message(
+                f"未找到身份组 \"{role_arg}\"。可用 /roles {target} 查看可分配列表",
+                channel=channel, area=area,
+            )
+            return
+        result = self.sender.edit_user_role(uid, role_id, add=True, area=area)
+        if "error" in result:
+            self.sender.send_message(f"[x] 给 {name} 添加身份组失败: {result['error']}", channel=channel, area=area)
+        else:
+            self.sender.send_message(f"[ok] {result.get('message', f'已给 {name} 添加身份组')}", channel=channel, area=area)
+
+    def _cmd_remove_role(self, target: str, role_arg: str, channel: str, area: str):
+        """取消目标用户的指定身份组。role_arg 为身份组名或 roleID。"""
+        from name_resolver import get_resolver
+        uid = self._resolve_target(target)
+        if not uid:
+            self.sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
+            return
+        name = get_resolver().user(uid)
+        detail = self.sender.get_user_area_detail(uid, area=area)
+        if "error" in detail:
+            self.sender.send_message(f"获取用户角色失败: {detail['error']}", channel=channel, area=area)
+            return
+        role_list = detail.get("list") or []
+        if not role_list:
+            self.sender.send_message(f"{name} 当前没有可取消的身份组", channel=channel, area=area)
+            return
+        role_id = None
+        role_arg_stripped = role_arg.strip()
+        for r in role_list:
+            rid = r.get("roleID")
+            rname = (r.get("name") or "").strip()
+            if rid is not None and (str(rid) == role_arg_stripped or rname == role_arg_stripped):
+                role_id = rid
+                break
+        if role_id is None:
+            self.sender.send_message(
+                f"未找到身份组 \"{role_arg}\"。可用 /role {target} 查看其当前角色",
+                channel=channel, area=area,
+            )
+            return
+        result = self.sender.edit_user_role(uid, role_id, add=False, area=area)
+        if "error" in result:
+            self.sender.send_message(f"[x] 取消 {name} 身份组失败: {result['error']}", channel=channel, area=area)
+        else:
+            self.sender.send_message(f"[ok] {result.get('message', f'已取消 {name} 的该身份组')}", channel=channel, area=area)
+
     # ------------------------------------------------------------------
     # 搜索域成员
     # ------------------------------------------------------------------
@@ -1338,6 +1426,30 @@ class CommandHandler:
                 self.sender.send_message("用法: /roles 用户名", channel=channel, area=area)
             return
 
+        # /addrole <用户> <身份组名或ID> - 给身份组
+        if command == "/addrole":
+            if len(parts) >= 3:
+                role_arg = " ".join(parts[2:]).strip()
+                if role_arg:
+                    self._cmd_give_role(parts[1], role_arg, channel, area)
+                else:
+                    self.sender.send_message("用法: /addrole 用户 身份组名或ID", channel=channel, area=area)
+            else:
+                self.sender.send_message("用法: /addrole 用户 身份组名或ID\n示例: /addrole 皇 管理员", channel=channel, area=area)
+            return
+
+        # /removerole <用户> <身份组名或ID> - 取消身份组
+        if command == "/removerole":
+            if len(parts) >= 3:
+                role_arg = " ".join(parts[2:]).strip()
+                if role_arg:
+                    self._cmd_remove_role(parts[1], role_arg, channel, area)
+                else:
+                    self.sender.send_message("用法: /removerole 用户 身份组名或ID", channel=channel, area=area)
+            else:
+                self.sender.send_message("用法: /removerole 用户 身份组名或ID\n示例: /removerole 皇 管理员", channel=channel, area=area)
+            return
+
         # /search <关键词> - 搜索域成员
         if command == "/search":
             keyword = " ".join(parts[1:]) if len(parts) > 1 else None
@@ -1526,8 +1638,12 @@ class CommandHandler:
         )
         if "error" in result:
             err = result["error"]
+            hint = ""
+            if "record not found" in (err or "").lower() or "服务异常" in (err or ""):
+                hint = "\n提示: 该消息可能已撤回/过期，或消息 ID 无效（请用长按消息复制得到的完整 ID）。"
+            mid_preview = (message_id[:24] + "…") if len(str(message_id)) > 24 else str(message_id)
             self.sender.send_message(
-                f"[x] 撤回失败: {err}\n消息ID: {message_id[:24]}…",
+                f"[x] 撤回失败: {err}\n消息ID: {mid_preview}{hint}",
                 channel=channel, area=area,
             )
         else:
@@ -1752,102 +1868,59 @@ class CommandHandler:
         role_label = "管理员" if is_admin else "普通用户"
 
         lines = [
-            "╔══════════════════════════════╗",
-            f"║   Oopz Bot · 命令帮助 [{role_label}]  ║",
-            "╚══════════════════════════════╝",
+            "**Oopz Bot · 命令帮助** [" + role_label + "]",
             "",
-            "◆ 游戏查询",
-            "┌─────────────────────────────┐",
-            "│ @bot 战绩<名#编号>  查LOL战绩 │",
-            "│ @bot 查封号<QQ号>   查封号状态 │",
-            "│ /zj <名#编号>    /lol <QQ号>  │",
-            "└─────────────────────────────┘",
+            "**游戏查询**",
+            "@bot 战绩<名#编号>  查LOL战绩  |  @bot 查封号<QQ号>  查封号状态",
+            "/zj <名#编号>  |  /lol <QQ号>",
             "",
-            "✧ AI 功能",
-            "┌─────────────────────────────┐",
-            "│ @bot 画<描述>    AI 生成图片  │",
-            "│ @bot <任意内容>  AI 智能聊天  │",
-            "│ @bot 每日一句    每日名言     │",
-            "│ /daily                       │",
-            "└─────────────────────────────┘",
+            "**AI 功能**",
+            "@bot 画<描述>  AI 生成图片  |  @bot <任意内容>  AI 智能聊天",
+            "@bot 每日一句  每日名言  |  /daily",
             "",
-            "☰ 个人信息",
-            "┌─────────────────────────────┐",
-            "│ @bot 个人信息    个人基本信息  │",
-            "│ @bot 我的资料    自身详细资料  │",
-            "│ /me  /myinfo                 │",
-            "└─────────────────────────────┘",
+            "**个人信息**",
+            "@bot 个人信息  个人基本信息  |  @bot 我的资料  自身详细资料",
+            "/me  |  /myinfo",
         ]
 
         if is_admin:
             lines += [
                 "",
-                "♬ 音乐播放",
-                "┌─────────────────────────────┐",
-                "│ @bot 播放<歌名>  搜索并播放   │",
-                "│ @bot 停止        停止播放     │",
-                "│ @bot 下一首      切换下一首   │",
-                "│ @bot 队列        查看播放队列  │",
-                "│ @bot 随机        随机播放喜欢  │",
-                "│ @bot 喜欢列表    喜欢的音乐   │",
-                "│ /bf <歌名>  /st  /next  /queue │",
-                "│ /like  /like list  /like play  │",
-                "└─────────────────────────────┘",
+                "**音乐播放**",
+                "@bot 播放<歌名>  搜索并播放  |  @bot 停止  停止播放  |  @bot 下一首  切换下一首",
+                "@bot 队列  查看播放队列  |  @bot 随机  随机播放喜欢  |  @bot 喜欢列表  喜欢的音乐",
+                "/bf <歌名>  /st  /next  /queue  |  /like  /like list  /like play",
                 "",
-                "☰ 成员查询",
-                "┌─────────────────────────────┐",
-                "│ @bot 成员        域成员在线   │",
-                "│ @bot 查看<用户>  他人详细资料  │",
-                "│ @bot 搜索<关键词> 搜索域成员   │",
-                "│ /members /whois /search      │",
-                "└─────────────────────────────┘",
+                "**成员查询**",
+                "@bot 成员  域成员在线  |  @bot 查看<用户>  他人详细资料  |  @bot 搜索<关键词>  搜索域成员",
+                "/members  /whois  /search",
                 "",
-                "▷ 语音频道",
-                "┌─────────────────────────────┐",
-                "│ @bot 语音        语音在线成员  │",
-                "│ @bot 进入频道<ID> 进入指定频道 │",
-                "│ /voice    /enter <频道ID>    │",
-                "└─────────────────────────────┘",
+                "**语音频道**",
+                "@bot 语音  语音在线成员  |  @bot 进入频道<ID>  进入指定频道",
+                "/voice  /enter <频道ID>",
                 "",
-                "◈ 角色管理",
-                "┌─────────────────────────────┐",
-                "│ @bot 角色<用户>       域内角色 │",
-                "│ @bot 可分配角色<用户> 角色列表 │",
-                "│ /role <用户>   /roles <用户>  │",
-                "└─────────────────────────────┘",
+                "**角色管理**",
+                "@bot 角色<用户>  域内角色  |  @bot 可分配角色<用户>  角色列表",
+                "@bot 给身份组 <用户><身份组>  |  @bot 取消身份组 <用户><身份组>",
+                "/role  /roles  /addrole  /removerole",
                 "",
-                "▣ 管理操作",
-                "┌─────────────────────────────┐",
-                "│ @bot 禁言<用户> [分钟]  禁言  │",
-                "│ @bot 解禁<用户>        解除   │",
-                "│ @bot 禁麦<用户>        禁麦   │",
-                "│ @bot 解麦<用户>        解除   │",
-                "│ @bot 移出域<用户> 踢出域     │",
-                "│ @bot 解封<用户> 解除域内封禁 │",
-                "│ @bot 封禁列表  域封禁名单   │",
-                "│ /禁言  /解禁  /禁麦  /解麦    │",
-                "│ /ban  /unblock  /blocklist   │",
-                "├─────────────────────────────┤",
-                "│ @bot 撤回<消息ID>  撤回消息   │",
-                "│ @bot 撤回最后      撤回最后   │",
-                "│ @bot 撤回N条    批量撤回≤100  │",
-                "│ /recall <ID|last|数量>       │",
-                "├─────────────────────────────┤",
-                "│ @bot 自动撤回      查看状态   │",
-                "│ @bot 自动撤回 开 [秒]  开启   │",
-                "│ @bot 自动撤回 关       关闭   │",
-                "│ /autorecall                  │",
-                "├─────────────────────────────┤",
-                "│ @bot 清理历史    清理历史日志  │",
-                "│ /clear history               │",
-                "└─────────────────────────────┘",
+                "**管理操作**",
+                "@bot 禁言<用户> [分钟]  禁言  |  @bot 解禁<用户>  解除  |  @bot 禁麦  @bot 解麦",
+                "@bot 移出域<用户>  踢出域  |  @bot 解封<用户>  解除域内封禁  |  @bot 封禁列表  域封禁名单",
+                "/禁言  /解禁  /禁麦  /解麦  |  /ban  /unblock  /blocklist",
+                "@bot 撤回<消息ID>  撤回最后  撤回N条  |  /recall <ID|last|数量>",
+                "@bot 自动撤回  查看/开 [秒]/关  |  /autorecall",
+                "@bot 清理历史  清理历史日志  |  /clear history",
             ]
 
         lines += [
             "",
-            "┌─────────────────────────────┐",
-            "│ [!] 发送脏话/违规内容将被自动禁言│",
-            "└─────────────────────────────┘",
+            "*发送脏话/违规内容将被自动禁言*",
         ]
 
-        self.sender.send_message("\n".join(lines), channel=channel, area=area)
+        self.sender.send_message(
+            "\n".join(lines),
+            channel=channel,
+            area=area,
+            styleTags=["IMPORTANT"],
+        )

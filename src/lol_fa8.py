@@ -80,6 +80,62 @@ _RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})')
 _RE_HERO = re.compile(r"英雄:\s*(\d+)\s*个")
 _RE_SKIN = re.compile(r"皮肤:\s*(\d+)\s*个")
 
+# 英雄英文 ID（API/图片路径用）→ 中文名，用于最近对局展示
+CHAMPION_EN_TO_CN = {
+    "Aatrox": "亚托克斯", "Ahri": "阿狸", "Akali": "阿卡丽", "Akshan": "阿克尚",
+    "Alistar": "阿利斯塔", "Amumu": "阿木木", "Anivia": "艾尼维亚", "Annie": "安妮",
+    "Aphelios": "厄斐琉斯", "Ashe": "艾希", "AurelionSol": "奥瑞利安·索尔", "Azir": "阿兹尔",
+    "Bard": "巴德", "Belveth": "卑尔维斯", "Blitzcrank": "布里茨", "Brand": "布兰德",
+    "Braum": "布隆", "Caitlyn": "凯特琳", "Camille": "卡蜜尔", "Cassiopeia": "卡西奥佩娅",
+    "Chogath": "科加斯", "Corki": "库奇", "Darius": "德莱厄斯", "Diana": "黛安娜",
+    "DrMundo": "蒙多", "Draven": "德莱文", "Ekko": "艾克", "Elise": "伊莉丝",
+    "Evelynn": "伊芙琳", "Ezreal": "伊泽瑞尔", "Fiddlesticks": "费德提克", "Fiora": "菲奥娜",
+    "Fizz": "菲兹", "Galio": "加里奥", "Gangplank": "普朗克", "Garen": "盖伦",
+    "Gnar": "纳尔", "Gragas": "古拉加斯", "Graves": "格雷福斯", "Gwen": "格温",
+    "Hecarim": "赫卡里姆", "Heimerdinger": "黑默丁格", "Illaoi": "俄洛伊", "Irelia": "艾瑞莉娅",
+    "Ivern": "艾翁", "Janna": "迦娜", "JarvanIV": "嘉文四世", "Jax": "贾克斯",
+    "Jayce": "杰斯", "Jhin": "烬", "Jinx": "金克丝", "Kaisa": "卡莎",
+    "Kalista": "卡莉丝塔", "Karma": "卡尔玛", "Karthus": "卡尔萨斯", "Kassadin": "卡萨丁",
+    "Katarina": "卡特琳娜", "Kayle": "凯尔", "Kayn": "凯隐", "Kennen": "凯南",
+    "Khazix": "卡兹克", "Kindred": "千珏", "Kled": "克烈", "KogMaw": "克格莫",
+    "Leblanc": "乐芙兰", "LeeSin": "李青", "Leona": "蕾欧娜", "Lillia": "莉莉娅",
+    "Lissandra": "丽桑卓", "Lucian": "卢锡安", "Lulu": "璐璐", "Lux": "拉克丝",
+    "Malphite": "墨菲特", "Malzahar": "马尔扎哈", "Maokai": "茂凯", "MasterYi": "易",
+    "MissFortune": "厄运小姐", "Mordekaiser": "莫德凯撒", "Morgana": "莫甘娜", "Nami": "娜美",
+    "Nasus": "内瑟斯", "Nautilus": "诺提勒斯", "Neeko": "妮蔻", "Nidalee": "奈德丽",
+    "Nocturne": "梦魇", "Nunu": "努努", "Olaf": "奥拉夫", "Orianna": "奥莉安娜",
+    "Ornn": "奥恩", "Pantheon": "潘森", "Poppy": "波比", "Pyke": "派克",
+    "Qiyana": "奇亚娜", "Quinn": "奎因", "Rakan": "洛", "Rammus": "拉莫斯",
+    "RekSai": "雷克塞", "Rell": "芮尔", "Renata": "烈娜塔", "Renekton": "雷克顿",
+    "Rengar": "雷恩加尔", "Riven": "锐雯", "Rumble": "兰博", "Ryze": "瑞兹",
+    "Samira": "萨弥拉", "Sejuani": "瑟庄妮", "Senna": "赛娜", "Seraphine": "萨勒芬妮",
+    "Sett": "瑟提", "Shaco": "萨科", "Shen": "慎", "Shyvana": "希瓦娜",
+    "Singed": "辛吉德", "Sion": "赛恩", "Sivir": "希维尔", "Skarner": "斯卡纳",
+    "Sona": "娑娜", "Soraka": "索拉卡", "Swain": "斯维因", "Sylas": "塞拉斯",
+    "Syndra": "辛德拉", "TahmKench": "塔姆", "Taliyah": "塔莉垭", "Talon": "泰隆",
+    "Taric": "塔里克", "Teemo": "提莫", "Thresh": "锤石", "Tristana": "崔丝塔娜",
+    "Trundle": "特朗德尔", "Tryndamere": "泰达米尔", "TwistedFate": "崔斯特", "Twitch": "图奇",
+    "Udyr": "乌迪尔", "Urgot": "厄加特", "Varus": "韦鲁斯", "Vayne": "薇恩",
+    "Veigar": "维迦", "Velkoz": "维克兹", "Vex": "薇古丝", "Vi": "蔚",
+    "Viego": "佛耶戈", "Viktor": "维克托", "Vladimir": "弗拉基米尔", "Volibear": "沃利贝尔",
+    "Warwick": "沃里克", "Xayah": "霞", "Xerath": "泽拉斯", "XinZhao": "赵信",
+    "Yasuo": "亚索", "Yone": "永恩", "Yorick": "约里克", "Yuumi": "悠米",
+    "Zac": "扎克", "Zed": "劫", "Zeri": "泽丽", "Ziggs": "吉格斯",
+    "Zilean": "基兰", "Zoe": "佐伊", "Zyra": "婕拉",
+}
+
+
+def _champion_cn(en_key: str) -> str:
+    """将英雄英文 ID 转为中文名，未知则返回原样"""
+    if not en_key:
+        return en_key
+    key = en_key.strip()
+    if key in CHAMPION_EN_TO_CN:
+        return CHAMPION_EN_TO_CN[key]
+    # 兼容小写或首字母大写的 key（如 neeko -> Neeko）
+    key_alt = key[0].upper() + key[1:].lower() if len(key) > 1 else key.upper()
+    return CHAMPION_EN_TO_CN.get(key_alt, en_key)
+
 
 def _parse_mastery(html: str) -> list[dict]:
     """从 mastery HTML 中解析英雄熟练度列表"""
@@ -434,9 +490,10 @@ class FA8Handler:
                 if matches:
                     lines.append("  最近对局:")
                     for m in matches[:5]:
-                        icon = "✓" if m["result"] == "胜利" else "✗"
+                        icon = "赢" if m["result"] == "胜利" else "输"
+                        champ_cn = _champion_cn(m["champion"])
                         lines.append(
-                            f"    {icon} {m['mode']} {m['champion']} "
+                            f"    {icon} {m['mode']} {champ_cn} "
                             f"{m['kda']} 评分{m['score']} "
                             f"[{m['duration']}] {m['date']}"
                         )

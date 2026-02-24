@@ -231,7 +231,7 @@ class OopzSender:
             area:    区域 ID（默认取配置）
             channel: 频道 ID（默认取配置）
             auto_recall: 是否自动撤回。None=按配置决定，False=不撤回，True=强制撤回
-            **kwargs: attachments, mentionList, referenceMessageId 等可选字段
+            **kwargs: attachments, mentionList, referenceMessageId, styleTags 等。默认 styleTags=["IMPORTANT"] 使用公告样式
         """
         area = area or OOPZ_CONFIG["default_area"]
         channel = channel or OOPZ_CONFIG["default_channel"]
@@ -244,7 +244,7 @@ class OopzSender:
             "timestamp": self.signer.timestamp_us(),
             "isMentionAll": kwargs.get("isMentionAll", False),
             "mentionList": kwargs.get("mentionList", []),
-            "styleTags": kwargs.get("styleTags", []),
+            "styleTags": kwargs.get("styleTags", ["IMPORTANT"]),
             "referenceMessageId": kwargs.get("referenceMessageId", None),
             "animated": kwargs.get("animated", False),
             "displayName": kwargs.get("displayName", ""),
@@ -807,6 +807,60 @@ class OopzSender:
             logger.error(f"获取可分配角色异常: {e}")
             return []
 
+    # ---- 给/取消身份组 ----
+
+    def edit_user_role(
+        self,
+        target_uid: str,
+        role_id: int,
+        add: bool,
+        area: Optional[str] = None,
+    ) -> dict:
+        """
+        给目标用户添加或取消指定身份组。
+
+        真实 API（与 Web 端一致）:
+        POST /area/v3/role/editUserRole
+        Body: {"area": area, "target": target_uid, "targetRoleIDs": [id1, id2, ...]}
+        语义：将目标用户在该域内的身份组设置为 targetRoleIDs 列表（全量覆盖）。
+
+        Args:
+            target_uid: 目标用户 UID
+            role_id: 身份组 ID（来自 canGiveList 或 userDetail.list）
+            add: True=给身份组，False=取消身份组
+            area: 域 ID，默认取配置
+
+        Returns:
+            {"status": True, "message": "..."} 或 {"error": "..."}
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        detail = self.get_user_area_detail(target_uid, area=area)
+        if "error" in detail:
+            return {"error": detail["error"]}
+        current_list = detail.get("list") or []
+        current_ids = [int(r["roleID"]) for r in current_list if r.get("roleID") is not None]
+        role_id = int(role_id)
+        if add:
+            if role_id not in current_ids:
+                current_ids.append(role_id)
+        else:
+            current_ids = [x for x in current_ids if x != role_id]
+        url_path = "/area/v3/role/editUserRole"
+        body = {"area": area, "target": target_uid, "targetRoleIDs": current_ids}
+        try:
+            resp = self._post(url_path, body)
+            raw = resp.text or ""
+            logger.info(f"editUserRole POST {url_path} add={add} -> {resp.status_code}, body: {raw[:200]}")
+            if resp.status_code != 200:
+                return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:150]}" if raw else "")}
+            result = resp.json()
+            if result.get("status") is True:
+                return {"status": True, "message": result.get("message") or ("已给身份组" if add else "已取消身份组")}
+            return {"error": result.get("message") or result.get("error") or str(result)}
+        except Exception as e:
+            logger.error(f"editUserRole 异常: {e}")
+            return {"error": str(e)}
+
     # ---- 搜索域成员 ----
 
     def search_area_members(self, area: Optional[str] = None, keyword: str = "") -> list:
@@ -1061,7 +1115,13 @@ class OopzSender:
             if not result.get("status"):
                 logger.error(f"获取频道消息失败: {result.get('message') or result.get('error')}")
                 return []
-            messages = result.get("data", {}).get("messages", [])
+            raw_list = result.get("data", {}).get("messages", [])
+            messages = []
+            for m in raw_list:
+                mid = m.get("messageId") or m.get("id")
+                if mid is not None:
+                    m = {**m, "messageId": str(mid)}
+                messages.append(m)
             logger.info(f"获取频道消息: {len(messages)} 条 (area={area[:8]}… channel={channel[:8]}…)")
             return messages
         except Exception as e:
@@ -1324,6 +1384,7 @@ class OopzSender:
         area = area or OOPZ_CONFIG["default_area"]
         channel = channel or OOPZ_CONFIG["default_channel"]
         timestamp = timestamp or self.signer.timestamp_us()
+        message_id = str(message_id).strip() if message_id is not None else ""
 
         url_path = "/im/session/v1/recallGim"
         query = (

@@ -155,6 +155,16 @@ POST /im/session/v1/sendGimMessage
 }
 ```
 
+**公告样式（styleTags）：**
+
+| 说明 | 值 |
+|------|-----|
+| 请求体字段 | `styleTags`，数组类型 |
+| 公告样式 | 传 `["IMPORTANT"]` 时，客户端会将该条消息以「重要/公告」气泡样式展示（与官方公告一致） |
+| 本 Bot 默认 | `OopzSender.send_message` 默认使用 `styleTags: ["IMPORTANT"]`，即所有 Bot 发送的消息均为公告样式 |
+| 关闭公告样式 | 调用时显式传入 `styleTags=[]` 即可恢复为普通气泡 |
+| 正文排版 | 客户端支持 `**粗体**`、`*斜体*` 等 Markdown 式渲染（以实际展示为准） |
+
 ### 撤回消息
 
 ```
@@ -554,6 +564,13 @@ GET /area/v3/userDetail?area={area}&target={uid}
 GET /area/v3/role/canGiveList?area={area}&target={uid}
 ```
 
+**参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `area` | 域 ID |
+| `target` | 目标用户 UID（要为其分配身份组的用户） |
+
 **响应 data：**
 
 ```json
@@ -563,6 +580,34 @@ GET /area/v3/role/canGiveList?area={area}&target={uid}
   ]
 }
 ```
+
+> `owned` 表示目标用户是否已拥有该角色。
+
+### 编辑用户身份组（给/取消身份组）
+
+```
+POST /area/v3/role/editUserRole
+```
+
+将目标用户在当前域内的身份组**设置为**指定列表（全量覆盖）。给身份组 = 在现有列表上追加；取消身份组 = 从现有列表中移除后提交。
+
+**请求体：**
+
+```json
+{
+  "area": "域ID",
+  "target": "目标用户UID",
+  "targetRoleIDs": [3829292, 1234567]
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `area` | 域 ID |
+| `target` | 目标用户 UID |
+| `targetRoleIDs` | 该用户在该域下应拥有的身份组 ID 列表（整型数组）。需先通过 `GET /area/v3/userDetail` 获取当前列表，再根据「添加」或「移除」操作增删后传入。 |
+
+**说明：** 与 Web 端行为一致。添加身份组时：先调 `userDetail` 取当前 `list` 的 `roleID` 列表，追加新 `roleID` 后作为 `targetRoleIDs` 提交；取消时则从列表中移除对应 `roleID` 后提交。
 
 ---
 
