@@ -221,6 +221,15 @@ AUTO_RECALL_CONFIG = {
     ],
 }
 
+# 域成员加入/退出通知：有人加入或退出当前域时 Bot 在公屏发送消息
+# 退出：WebSocket 推送；加入：轮询域成员 API 检测新成员（因服务端不推送加入事件）
+AREA_JOIN_NOTIFY = {
+    "enabled": False,
+    "message_template": "欢迎 {name} 加入域～",  # 加入时消息，占位符: {name} {uid}
+    "message_template_leave": "{name} 已退出域",  # 退出时消息
+    "poll_interval_seconds": 1,   # 轮询间隔（秒），最小 1；发欢迎后 0.5 秒即下次轮询
+}
+
 # 聊天自动回复配置
 CHAT_CONFIG = {
     "enabled": True,

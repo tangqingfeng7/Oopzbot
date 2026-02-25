@@ -75,7 +75,7 @@ _RE_KDA = re.compile(r'font-bold text-white">(\d+/\d+/\d+)<')
 _RE_SCORE = re.compile(r'评分\s*([\d.]+)')
 _RE_CS = re.compile(r'font-bold text-white">([\d.]+K?)</div>\s*<div[^>]*>补刀')
 _RE_DMG = re.compile(r'font-bold text-white">([\d.]+K?)</div>\s*<div[^>]*>伤害')
-_RE_MODE = re.compile(r'text-xs">([\w\u4e00-\u9fff]+)</span>\s*<span[^>]*>时长([\d:]+)')
+_RE_MODE = re.compile(r'text-xs">([^<]+)</span>\s*<span[^>]*>时长([\d:]+)')
 _RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})')
 _RE_HERO = re.compile(r"英雄:\s*(\d+)\s*个")
 _RE_SKIN = re.compile(r"皮肤:\s*(\d+)\s*个")
@@ -167,10 +167,10 @@ def _parse_match_cards(html: str) -> list[dict]:
                 "result": win_lose,
                 "champion": champ_m.group(1),
                 "kda": kda_m.group(1),
-                "score": score_m.group(1) if score_m else "?",
-                "mode": mode_m.group(1) if mode_m else "?",
-                "duration": mode_m.group(2) if mode_m else "?",
-                "date": date_m.group(1) if date_m else "?",
+                "score": score_m.group(1) if score_m else "",
+                "mode": mode_m.group(1) if mode_m else "",
+                "duration": mode_m.group(2) if mode_m else "",
+                "date": date_m.group(1) if date_m else "",
             })
         except Exception:
             continue
@@ -396,7 +396,7 @@ class FA8Handler:
             return (
                 "请输入召唤师名称\n"
                 "格式: @bot 战绩 召唤师名#编号\n"
-                "示例: @bot 战绩 艺术就是充钱丶#72269\n"
+                "示例: @bot 战绩 召唤师名#编号\n"
                 "指定大区: @bot 战绩 班德尔城 召唤师名#编号\n"
                 "按区搜索: @bot 战绩 3 召唤师名#编号 (1-5对应联盟一~五区)"
             )
@@ -447,21 +447,39 @@ class FA8Handler:
         lines.append("───────────────────")
         lines.append("  段位信息:")
 
-        ds_dj = info.get("dsdj", "")
-        if ds_dj and ds_dj != "无":
-            lines.append(f"    单双排: {ds_dj} ({info.get('dssf', '')}) 胜点{info.get('dssd', 0)}")
+        # 将 FA8 返回的段位字段做一次“清洗”，把 "无"、"?"、"未定级" 等情况统一成“未定级 / 无段位”
+        def _normalize_rank_text(text: str) -> str | None:
+            if not text:
+                return None
+            t = str(text).strip()
+            if t in ("无", "?", "-", "未定级", "未排位"):
+                return None
+            return t
 
-        lh_dj = info.get("lhdj", "")
-        if lh_dj and lh_dj != "无":
-            lines.append(f"    灵活排: {lh_dj} ({info.get('lhsf', '')}) 胜点{info.get('lhsd', 0)}")
+        ds_dj_raw = info.get("dsdj", "")
+        ds_dj = _normalize_rank_text(ds_dj_raw)
+        if ds_dj:
+            lines.append(f"    单双排位: {ds_dj} ({info.get('dssf', '')}) 胜点{info.get('dssd', 0)}")
+        else:
+            lines.append("    单双排位: 未定级 / 无段位")
+
+        lh_dj_raw = info.get("lhdj", "")
+        lh_dj = _normalize_rank_text(lh_dj_raw)
+        if lh_dj:
+            lines.append(f"    灵活排位: {lh_dj} ({info.get('lhsf', '')}) 胜点{info.get('lhsd', 0)}")
+        else:
+            lines.append("    灵活排位: 未定级 / 无段位")
 
         rank = info.get("rank", {})
-        ds_best = rank.get("dszgdw", "")
-        if ds_best and ds_best != "无":
-            lines.append(f"    单双最高: {ds_best}")
-        lh_best = rank.get("lhzgdw", "")
-        if lh_best and lh_best != "无":
-            lines.append(f"    灵活最高: {lh_best}")
+        ds_best_raw = rank.get("dszgdw", "")
+        ds_best = _normalize_rank_text(ds_best_raw)
+        if ds_best:
+            lines.append(f"    单双排位最高: {ds_best}")
+
+        lh_best_raw = rank.get("lhzgdw", "")
+        lh_best = _normalize_rank_text(lh_best_raw)
+        if lh_best:
+            lines.append(f"    灵活排位最高: {lh_best}")
 
         mastery_html = info.get("mastery", "")
         champions = _parse_mastery(mastery_html)
@@ -492,10 +510,23 @@ class FA8Handler:
                     for m in matches[:5]:
                         icon = "赢" if m["result"] == "胜利" else "输"
                         champ_cn = _champion_cn(m["champion"])
+
+                        mode = m.get("mode") or ""
+                        if mode:
+                            mode = mode.replace("单排/双排", "单双排位")
+                        score = m.get("score") or ""
+                        duration = m.get("duration") or ""
+                        date = m.get("date") or ""
+
+                        mode_part = f"{mode} " if mode else ""
+                        score_part = f" 评分{score}" if score else ""
+                        duration_part = f" [{duration}]" if duration else ""
+                        date_part = f" {date}" if date else ""
+
                         lines.append(
-                            f"    {icon} {m['mode']} {champ_cn} "
-                            f"{m['kda']} 评分{m['score']} "
-                            f"[{m['duration']}] {m['date']}"
+                            f"    {icon} {mode_part}{champ_cn} "
+                            f"{m['kda']}{score_part}"
+                            f"{duration_part}{date_part}"
                         )
 
             if current.get("code") == 0:

@@ -285,10 +285,15 @@ class OopzSender:
         try:
             result = resp.json()
             data = result.get("data", {})
-            msg_id = data.get("messageId") if isinstance(data, dict) else None
+            msg_id = None
+            if isinstance(data, dict):
+                msg_id = data.get("messageId")
+            if not msg_id:
+                msg_id = result.get("messageId")
             if not msg_id:
                 logger.debug("自动撤回: 无法从响应中提取 messageId，跳过")
                 return
+            msg_id = str(msg_id)
 
             timer = threading.Timer(
                 delay, self._do_auto_recall, args=[msg_id, area, channel],
@@ -483,11 +488,14 @@ class OopzSender:
 
     # ---- 域成员查询 ----
 
-    def get_area_members(self, area: Optional[str] = None, offset_start: int = 0, offset_end: int = 49) -> dict:
+    def get_area_members(self, area: Optional[str] = None, offset_start: int = 0, offset_end: int = 49, quiet: bool = False) -> dict:
         """
         获取域内成员列表及在线状态。
 
         API: GET /area/v3/members?area={area}&offsetStart={start}&offsetEnd={end}
+
+        Args:
+            quiet: 为 True 时不向控制台打成功日志（用于轮询等后台调用）。
 
         Returns:
             {"members": [...], "userCount": int, "onlineCount": int, ...}
@@ -513,7 +521,8 @@ class OopzSender:
             members = data.get("members", [])
             online = sum(1 for m in members if m.get("online") == 1)
             total = len(members)
-            logger.info(f"获取域成员成功: {total} 人, 在线 {online} 人")
+            if not quiet:
+                logger.info(f"获取域成员成功: {total} 人, 在线 {online} 人")
             data["onlineCount"] = online
             data["userCount"] = total
             return data
@@ -523,11 +532,14 @@ class OopzSender:
 
     # ---- 频道列表 ----
 
-    def get_area_channels(self, area: Optional[str] = None) -> list:
+    def get_area_channels(self, area: Optional[str] = None, quiet: bool = False) -> list:
         """
         获取域内完整频道列表（含分组）。
 
         API: GET /client/v1/area/v1/detail/v1/channels?area={area}
+
+        Args:
+            quiet: 为 True 时不打成功日志（用于轮询等后台调用）。
 
         Returns:
             频道分组列表，每组含 channels 子列表。失败时返回空列表。
@@ -546,8 +558,9 @@ class OopzSender:
                 logger.error(f"获取频道列表失败: {result.get('message') or result.get('error')}")
                 return []
             groups = result.get("data", [])
-            total = sum(len(g.get("channels", [])) for g in groups)
-            logger.info(f"获取频道列表: {total} 个频道, {len(groups)} 个分组")
+            if not quiet:
+                total = sum(len(g.get("channels", [])) for g in groups)
+                logger.info(f"获取频道列表: {total} 个频道, {len(groups)} 个分组")
             return groups
         except Exception as e:
             logger.error(f"获取频道列表异常: {e}")
@@ -555,11 +568,14 @@ class OopzSender:
 
     # ---- 已加入的域列表 ----
 
-    def get_joined_areas(self) -> list:
+    def get_joined_areas(self, quiet: bool = False) -> list:
         """
         获取当前用户已加入（订阅）的域列表。
 
         API: GET /userSubscribeArea/v1/list
+
+        Args:
+            quiet: 为 True 时不打成功日志（用于轮询等后台调用）。
 
         Returns:
             域信息列表，每个元素包含 id / code / name / avatar / owner 等字段。
@@ -576,9 +592,10 @@ class OopzSender:
                 logger.error(f"获取已加入域列表失败: {result.get('message') or result.get('error')}")
                 return []
             areas = result.get("data", [])
-            logger.info(f"获取已加入域列表: {len(areas)} 个域")
-            for a in areas:
-                logger.info(f"  域: {a.get('name')} (ID={a.get('id')}, code={a.get('code')})")
+            if not quiet:
+                logger.info(f"获取已加入域列表: {len(areas)} 个域")
+                for a in areas:
+                    logger.info(f"  域: {a.get('name')} (ID={a.get('id')}, code={a.get('code')})")
             return areas
         except Exception as e:
             logger.error(f"获取已加入域列表异常: {e}")

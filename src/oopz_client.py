@@ -6,7 +6,7 @@ Oopz WebSocket 客户端
 import json
 import time
 import threading
-from typing import Callable, Optional
+from typing import Callable, Optional, Any
 
 import websocket
 
@@ -40,10 +40,12 @@ class OopzClient:
     def __init__(
         self,
         on_chat_message: Optional[Callable[[dict], None]] = None,
+        on_other_event: Optional[Callable[[int, dict], None]] = None,
         reconnect_interval: float = 5.0,
         heartbeat_interval: float = 10.0,
     ):
         self.on_chat_message = on_chat_message
+        self.on_other_event = on_other_event
         self.reconnect_interval = reconnect_interval
         self.heartbeat_interval = heartbeat_interval
 
@@ -144,8 +146,12 @@ class OopzClient:
             self._handle_chat(data)
             return
 
-        # 其他事件
-        logger.debug(f"收到未处理事件 (event={event})")
+        # 其他事件（如域成员加入/退出等）交给外部处理
+        if self.on_other_event:
+            try:
+                self.on_other_event(event, data)
+            except Exception as e:
+                logger.debug("on_other_event 处理异常: %s", e)
 
     def _on_error(self, ws, error):
         logger.error(f"WebSocket 错误: {error}")

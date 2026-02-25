@@ -24,6 +24,7 @@ from oopz_client import OopzClient
 from command_handler import CommandHandler
 from voice_client import VoiceClient
 from web_player import run_server as run_web_player
+from area_join_notifier import start_area_join_notifier
 
 logger = setup_logger("Main")
 
@@ -109,6 +110,9 @@ def main():
     sender = OopzSender()
     sender.populate_names()
 
+    # 域成员加入/退出通知（WebSocket 实时推送）
+    _notifier_ws = start_area_join_notifier(sender=sender)
+
     # 初始化 Agora 语音频道客户端（Playwright + Agora Web SDK）
     from config import OOPZ_CONFIG
     agora_app_id = OOPZ_CONFIG.get("agora_app_id", "")
@@ -135,7 +139,10 @@ def main():
     threading.Thread(target=run_web_player, kwargs={"host": web_host, "port": web_port}, daemon=True).start()
     logger.info("Web 歌词播放器已启动: http://%s:%s (IPv4)", web_host, web_port)
 
-    client = OopzClient(on_chat_message=handler.handle)
+    client = OopzClient(
+        on_chat_message=handler.handle,
+        on_other_event=_notifier_ws,
+    )
     logger.info("WebSocket 客户端启动中...")
 
     try:

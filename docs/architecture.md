@@ -83,7 +83,8 @@ NeteaseCloud API (:3000)
 │
 ├── src/                         # 核心源码模块
 │   ├── oopz_client.py           # WebSocket 客户端（心跳、重连、事件分发）
-│   ├── oopz_sender.py           # 消息发送（RSA 签名、文件上传、用户管理）
+│   ├── oopz_sender.py           # 消息发送（RSA 签名、文件上传、用户管理，默认公告样式）
+│   ├── area_join_notifier.py    # 域成员加入/退出通知（轮询域成员 API 检测加入 + WebSocket 退出事件）
 │   ├── command_handler.py       # 命令路由（@bot 指令 + / 命令 + 权限校验 + 脏话自动禁言）
 │   ├── music.py                 # 音乐核心（搜索、队列、播放、封面缓存、自动切歌、Web 控制）
 │   ├── netease.py               # 网易云音乐 API 封装（搜索、歌词、翻译歌词）
