@@ -181,6 +181,14 @@ def _parse_member_event(event: int, data: dict) -> Optional[Tuple[str, str, str]
     if not area or not uid:
         return None
 
+    channel_id = (inner.get("channel") or inner.get("channelId") or body.get("channel") or body.get("channelId") or top.get("channel") or top.get("channelId") or "")
+    if isinstance(channel_id, dict):
+        channel_id = str(channel_id.get("id") or channel_id.get("channelId") or "").strip()
+    else:
+        channel_id = str(channel_id).strip() if channel_id else ""
+    if channel_id:
+        return None
+
     active_num = body.get("activeNum") if isinstance(body.get("activeNum"), (int, float)) else None
     if active_num is None:
         active_num = inner.get("activeNum")
