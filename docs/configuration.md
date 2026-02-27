@@ -106,6 +106,19 @@ copy private_key.example.py private_key.py
 | `enabled` | 是否启用（默认 `True`） |
 | `keyword_replies` | 关键词 → 回复内容的映射字典 |
 
+### 域成员加入/退出通知 (`AREA_JOIN_NOTIFY`)
+
+用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息。**退出**依赖 WebSocket 推送（event 11 等）；**加入**因服务端不推送，改为轮询域成员 API 检测新成员。
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 是否启用（默认 `False`） |
+| `message_template` | 加入时消息模板，占位符：`{name}`、`{uid}`（默认 `"欢迎 {name} 加入域～"`） |
+| `message_template_leave` | 退出时消息模板，占位符：`{name}`、`{uid}`（默认 `"{name} 已退出域"`） |
+| `poll_interval_seconds` | 轮询间隔（秒），最小 1；默认 1。刚发欢迎后下次轮询仅等 0.5 秒，便于快速发现连续加入 |
+
+需配置 `default_area`、`default_channel`（或由 Bot 自动取第一个已加入域及第一个文字频道）。通知消息与 Bot 其他消息一致，默认使用**公告样式**。
+
 ### 权限控制 (`ADMIN_UIDS`)
 
 管理员 UID 列表。列表为空时不限制权限，所有用户均可执行管理命令。
