@@ -22,7 +22,7 @@ pip install -r requirements.txt
 
 ```shell
 # 在项目根目录下克隆
-git clone https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git NeteaseCloudMusicApi
+git clone https://gitlab.com/Binaryify/NeteaseCloudMusicApi.git
 cd NeteaseCloudMusicApi
 npm install
 ```

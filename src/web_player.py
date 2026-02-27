@@ -56,10 +56,18 @@ def api_status():
 
         current = json.loads(current_raw)
         progress = 0.0
-        try:
-            duration = float(current.get("duration", 0) or 0) / 1000
-        except (ValueError, TypeError):
-            duration = 0.0
+
+        # 时长优先使用存储的毫秒字段，其次再从旧格式兼容
+        duration_ms = current.get("duration_ms")
+        if isinstance(duration_ms, (int, float)) and duration_ms > 0:
+            duration = float(duration_ms) / 1000.0
+        else:
+            # 旧版本曾把毫秒存到 duration 字段，这里做一次兼容
+            raw_dur = current.get("duration", 0)
+            try:
+                duration = float(raw_dur or 0) / 1000.0
+            except (ValueError, TypeError):
+                duration = 0.0
 
         paused = False
         if play_state_raw:
