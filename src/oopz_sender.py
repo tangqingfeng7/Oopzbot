@@ -231,10 +231,11 @@ class OopzSender:
             area:    区域 ID（默认取配置）
             channel: 频道 ID（默认取配置）
             auto_recall: 是否自动撤回。None=按配置决定，False=不撤回，True=强制撤回
-            **kwargs: attachments, mentionList, referenceMessageId, styleTags 等。默认 styleTags=["IMPORTANT"] 使用公告样式
+            **kwargs: attachments, mentionList, referenceMessageId, styleTags 等。styleTags 默认由配置 use_announcement_style 决定（公告样式=["IMPORTANT"]）
         """
         area = area or OOPZ_CONFIG["default_area"]
         channel = channel or OOPZ_CONFIG["default_channel"]
+        default_style = ["IMPORTANT"] if OOPZ_CONFIG.get("use_announcement_style", True) else []
 
         body = {
             "area": area,
@@ -244,7 +245,7 @@ class OopzSender:
             "timestamp": self.signer.timestamp_us(),
             "isMentionAll": kwargs.get("isMentionAll", False),
             "mentionList": kwargs.get("mentionList", []),
-            "styleTags": kwargs.get("styleTags", ["IMPORTANT"]),
+            "styleTags": kwargs.get("styleTags", default_style),
             "referenceMessageId": kwargs.get("referenceMessageId", None),
             "animated": kwargs.get("animated", False),
             "displayName": kwargs.get("displayName", ""),
@@ -557,9 +558,9 @@ class OopzSender:
             if not result.get("status"):
                 logger.error(f"获取频道列表失败: {result.get('message') or result.get('error')}")
                 return []
-            groups = result.get("data", [])
+            groups = result.get("data") or []
             if not quiet:
-                total = sum(len(g.get("channels", [])) for g in groups)
+                total = sum(len(g.get("channels") or []) for g in groups)
                 logger.info(f"获取频道列表: {total} 个频道, {len(groups)} 个分组")
             return groups
         except Exception as e:
@@ -645,9 +646,9 @@ class OopzSender:
             if area_id and area_name:
                 resolver.set_area(area_id, area_name)
 
-            groups = self.get_area_channels(area_id)
+            groups = self.get_area_channels(area_id) or []
             for group in groups:
-                for ch in group.get("channels", []):
+                for ch in (group.get("channels") or []):
                     ch_id = ch.get("id", "")
                     ch_name = ch.get("name", "")
                     if ch_id and ch_name:

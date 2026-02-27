@@ -19,6 +19,7 @@ OOPZ_CONFIG = {
 
     "default_area": "",    # 默认区域 ID
     "default_channel": "", # 默认频道 ID
+    "use_announcement_style": True,  # 发送消息默认是否使用公告样式（styleTags=IMPORTANT）
 
     # Agora RTC（语音频道推流，仅 Linux/macOS 可用）
     "agora_app_id": "358eebceadb94c2a9fd91ecd7b341602",
