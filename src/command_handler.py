@@ -377,24 +377,6 @@ class CommandHandler:
 
     def _dispatch_mention(self, text: str, channel: str, area: str, user: str):
         """解析 @bot 后面的中文指令"""
-        if text and self._plugin_registry.try_dispatch_mention(text, channel, area, user, self):
-            return
-
-        # 管理员：插件列表 / 加载插件 / 卸载插件
-        if text and self._is_admin(user):
-            if text.strip() in ("插件列表", "插件", "扩展列表"):
-                self._cmd_plugin_list(channel, area)
-                return
-            if text.startswith("加载插件 "):
-                name = text[5:].strip()
-                if name:
-                    self._cmd_plugin_load(name, channel, area)
-                    return
-            if text.startswith("卸载插件 "):
-                name = text[5:].strip()
-                if name:
-                    self._cmd_plugin_unload(name, channel, area)
-                    return
 
         # 播放 <歌名>
         for prefix in ("播放", "放", "点播", "来一首", "听"):
@@ -775,12 +757,31 @@ class CommandHandler:
         from name_resolver import get_resolver
         resolver = get_resolver()
 
-        data = self.sender.get_area_members(area=area)
-        if "error" in data:
-            self.sender.send_message(f"查询成员列表失败: {data['error']}", channel=channel, area=area)
-            return
+        # 分页拉取，避免仅统计到第一页成员（默认接口分页）。
+        members = []
+        seen_uids: set[str] = set()
+        page_size = 100
+        max_fetch = 500
+        for start in range(0, max_fetch, page_size):
+            data = self.sender.get_area_members(
+                area=area,
+                offset_start=start,
+                offset_end=start + page_size - 1,
+                quiet=True,
+            )
+            if "error" in data:
+                self.sender.send_message(f"查询成员列表失败: {data['error']}", channel=channel, area=area)
+                return
+            batch = data.get("members", []) or []
+            for m in batch:
+                uid = (m.get("uid") or "").strip()
+                if not uid or uid in seen_uids:
+                    continue
+                seen_uids.add(uid)
+                members.append(m)
+            if len(batch) < page_size:
+                break
 
-        members = data.get("members", [])
         online = [m for m in members if m.get("online") == 1]
         offline = [m for m in members if m.get("online") != 1]
 
@@ -793,14 +794,20 @@ class CommandHandler:
 
         if online:
             lines.append("在线:")
-            for m in online:
+            show_limit = 50
+            for m in online[:show_limit]:
                 name = resolver.user(m.get("uid", ""))
                 state = m.get("playingState", "")
                 suffix = f" ({state})" if state else ""
                 lines.append(f"  {name}{suffix}")
+            if len(online) > show_limit:
+                lines.append(f"  ... 还有 {len(online) - show_limit} 人在线")
 
         if offline:
             lines.append(f"离线: {len(offline)} 人")
+
+        if len(members) >= max_fetch:
+            lines.append(f"提示: 仅展示前 {max_fetch} 名成员统计")
 
         self.sender.send_message("\n".join(lines), channel=channel, area=area)
 
@@ -1811,71 +1818,6 @@ class CommandHandler:
         # 发送结果
         message = "清理完成:\n" + "\n".join(results)
         self.sender.send_message(message, channel=channel, area=area)
-
-    # ------------------------------------------------------------------
-    # 插件管理（仅管理员）
-    # ------------------------------------------------------------------
-
-    def _cmd_plugin_list(self, channel: str, area: str):
-        """插件列表：已加载 + 可加载（磁盘上存在但未加载）。"""
-        loaded = self._plugin_registry.list_all()
-        disk = discover_plugins("plugins")
-        lines = ["**插件列表**", "---", "已加载:"]
-        if not loaded:
-            lines.append("  （无）")
-        for m in loaded:
-            tag = " [内置]" if m["builtin"] else ""
-            lines.append(f"  • {m['name']} v{m['version']}{tag} — {m['description']}")
-        lines.append("---")
-        not_loaded = [n for n in disk if not self._plugin_registry.get(n)]
-        if not_loaded:
-            lines.append(f"未加载（{len(not_loaded)} 个）:")
-            for name in not_loaded:
-                lines.append(f"  • {name}")
-            lines.append("用法示例:")
-            lines.append(f"  @bot 加载插件 {not_loaded[0]}")
-            lines.append(f"  /loadplugin {not_loaded[0]}")
-        else:
-            lines.append("未加载: 无")
-        lines.append("---")
-        lines.append("管理命令:")
-        lines.append("  @bot 加载插件 <名>  |  @bot 卸载插件 <名>")
-        lines.append("  /loadplugin <名>   |  /unloadplugin <名>   |  /plugins")
-        self.sender.send_message("\n".join(lines), channel=channel, area=area)
-
-    def _cmd_plugin_load(self, name: str, channel: str, area: str):
-        plugin_name = self._normalize_plugin_name(name)
-        if not plugin_name:
-            self.sender.send_message("[x] 用法: @bot 加载插件 <名> 或 /loadplugin <名>", channel=channel, area=area)
-            return
-        ok, msg = load_plugin(self._plugin_registry, plugin_name, "plugins", self)
-        self.sender.send_message(f"[ok] {msg}" if ok else f"[x] {msg}", channel=channel, area=area)
-
-    def _cmd_plugin_unload(self, name: str, channel: str, area: str):
-        plugin_name = self._normalize_plugin_name(name)
-        if not plugin_name:
-            self.sender.send_message("[x] 用法: @bot 卸载插件 <名> 或 /unloadplugin <名>", channel=channel, area=area)
-            return
-        ok, msg = unload_plugin(self._plugin_registry, plugin_name, self)
-        self.sender.send_message(f"[ok] {msg}" if ok else f"[x] {msg}", channel=channel, area=area)
-
-    @staticmethod
-    def _normalize_plugin_name(raw: str) -> str:
-        """
-        规范化插件名，兼容用户从列表复制的“名称 + 版本”格式。
-        示例: "lol_ban v1.0.0" -> "lol_ban"
-        """
-        text = (raw or "").strip()
-        if not text:
-            return ""
-        # 仅取第一个 token，忽略附带版本或描述
-        token = text.split()[0].strip(",;:，。")
-        # 兼容输入文件名（如 lol_ban.py）
-        if token.lower().endswith(".py"):
-            token = token[:-3]
-        # 若 token 仍带版本后缀，做一次剥离
-        token = re.sub(r"(?:[-_]?v\d+(?:\.\d+){0,2})$", "", token, flags=re.IGNORECASE)
-        return token.strip()
 
     def _cmd_help(self, channel: str, area: str, user: str = ""):
         is_admin = self._is_admin(user)
