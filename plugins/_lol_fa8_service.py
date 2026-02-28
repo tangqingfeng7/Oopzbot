@@ -8,15 +8,20 @@ import re
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from html import unescape
 
 import requests
-from config import FA8_CONFIG
 from logger_config import get_logger
 
 logger = get_logger("FA8")
 
 BASE_URL = "https://fa.3ui.cc"
+
+_DEFAULT_CONFIG = {
+    "enabled": False,
+    "username": "",
+    "password": "",
+    "default_area": "1",
+}
 
 SERVERS = {
     "1": "艾欧尼亚", "2": "比尔吉沃特", "3": "祖安", "4": "诺克萨斯",
@@ -56,12 +61,6 @@ def _ts() -> int:
     return int(time.time() * 1000)
 
 
-def _strip_html(html: str) -> str:
-    """从 HTML 片段中提取纯文本"""
-    text = re.sub(r"<[^>]+>", " ", unescape(html))
-    return re.sub(r"\s+", " ", text).strip()
-
-
 _RE_MASTERY = re.compile(
     r'alt="([^"]+)".*?'
     r'class="font-medium text-white mr-2">([^<]+)</span>.*?'
@@ -73,8 +72,6 @@ _RE_CARD_SPLIT = re.compile(r'class="match-card\s+')
 _RE_CHAMP = re.compile(r'champion/(\w+)\.png')
 _RE_KDA = re.compile(r'font-bold text-white">(\d+/\d+/\d+)<')
 _RE_SCORE = re.compile(r'评分\s*([\d.]+)')
-_RE_CS = re.compile(r'font-bold text-white">([\d.]+K?)</div>\s*<div[^>]*>补刀')
-_RE_DMG = re.compile(r'font-bold text-white">([\d.]+K?)</div>\s*<div[^>]*>伤害')
 _RE_MODE = re.compile(r'text-xs">([^<]+)</span>\s*<span[^>]*>时长([\d:]+)')
 _RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})')
 _RE_HERO = re.compile(r"英雄:\s*(\d+)\s*个")
@@ -182,10 +179,9 @@ class FA8Client:
 
     _KEEPALIVE_INTERVAL = 5  # 秒
 
-    def __init__(self):
-        self._user = FA8_CONFIG.get("username", "")
-        self._pwd = FA8_CONFIG.get("password", "")
-        self._default_area = FA8_CONFIG.get("default_area", "1")
+    def __init__(self, username: str = "", password: str = ""):
+        self._user = (username or "").strip()
+        self._pwd = (password or "").strip()
         self._session = requests.Session()
         adapter = requests.adapters.HTTPAdapter(
             pool_connections=10, pool_maxsize=10,
@@ -321,15 +317,41 @@ class FA8Client:
             "puuid": puuid, "area": area, "sign": sign, "time": ts,
         })
 
+    def stop(self):
+        """停止保活线程并释放网络/线程池资源。"""
+        self._stop_event.set()
+        if self._keepalive_thread and self._keepalive_thread.is_alive():
+            self._keepalive_thread.join(timeout=2)
+        try:
+            self._pool.shutdown(wait=False, cancel_futures=True)
+        except Exception:
+            pass
+        try:
+            self._session.close()
+        except Exception:
+            pass
+
 
 class FA8Handler:
     """FA8 战绩查询命令处理器"""
 
-    def __init__(self):
-        self._client = FA8Client()
+    def __init__(self, config: dict | None = None):
+        self._config = _DEFAULT_CONFIG.copy()
+        if config:
+            self._config.update(config)
+        self._client = FA8Client(
+            username=self._config.get("username", ""),
+            password=self._config.get("password", ""),
+        )
 
-    @staticmethod
-    def _resolve_area(text: str) -> tuple[str, list[str]]:
+    def close(self):
+        """释放内部客户端资源（插件卸载时调用）。"""
+        try:
+            self._client.stop()
+        except Exception:
+            pass
+
+    def _resolve_area(self, text: str) -> tuple[str, list[str]]:
         """
         从输入文本中解析大区和召唤师名。
         返回 (召唤师名, 大区ID列表)。
@@ -340,7 +362,7 @@ class FA8Handler:
           - "联盟一区 召唤师名#编号"     → 搜索整个区组
         """
         text = text.strip()
-        default_area = FA8_CONFIG.get("default_area", "1")
+        default_area = self._config.get("default_area", "1")
 
         parts = text.split(None, 1)
         if len(parts) == 2:
@@ -388,8 +410,8 @@ class FA8Handler:
 
     def query_and_format(self, raw_input: str) -> str:
         """查询召唤师战绩并格式化为消息文本"""
-        if not FA8_CONFIG.get("enabled", False):
-            return "战绩查询功能未启用，请在 config.py 中配置 FA8_CONFIG"
+        if not self._config.get("enabled", False):
+            return "战绩查询功能未启用，请在 config/plugins/lol_fa8.json 中配置"
 
         name, areas = self._resolve_area(raw_input)
         if not name:
@@ -538,14 +560,3 @@ class FA8Handler:
         lines.append("═══════════════════")
         return "\n".join(lines)
 
-    @staticmethod
-    def server_list() -> str:
-        """返回大区列表"""
-        lines = ["LOL 大区列表:"]
-        standalone = {"1": "艾欧尼亚", "14": "黑色玫瑰", "31": "峡谷之巅"}
-        for sid, sname in standalone.items():
-            lines.append(f"  {sname}")
-        for group_name, ids in SERVER_GROUPS.items():
-            names = [SERVERS[i] for i in ids if i in SERVERS]
-            lines.append(f"  联盟{group_name}: {' / '.join(names)}")
-        return "\n".join(lines)

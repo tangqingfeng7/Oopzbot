@@ -93,21 +93,8 @@ DOUBAO_IMAGE_CONFIG = {
     "watermark": False,
 }
 
-# LOL 封号查询配置（https://yun.4png.com）
-LOL_BAN_CONFIG = {
-    "enabled": False,
-    "api_url": "https://yun.4png.com/api/query.html",
-    "token": "",                           # API 认证令牌
-    "proxy": "", # 留空则使用系统代理；也可手动指定，如 "http://ip:port"（API 仅限国内 IP）
-}
-
-# FA8 战绩查询配置（https://fa.3ui.cc）
-FA8_CONFIG = {
-    "enabled": False,
-    "username": "",                        # FA8 登录账号
-    "password": "",                        # FA8 登录密码
-    "default_area": "1",                   # 默认大区 ID（1=艾欧尼亚）
-}
+# LOL 插件配置
+# 已迁移到 config/plugins/lol_ban.json 与 config/plugins/lol_fa8.json（见 config/plugins/README.md）
 
 # 脏话自动禁言配置
 PROFANITY_CONFIG = {

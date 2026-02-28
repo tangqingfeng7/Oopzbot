@@ -41,6 +41,9 @@ class _InMemoryRedis:
     def rpush(self, key: str, value):
         self._get_list(key).append(value)
 
+    def lpush(self, key: str, value):
+        self._get_list(key).insert(0, value)
+
     def lrange(self, key: str, start: int, end: int):
         lst = self._lists.get(key, [])
         if end == -1:

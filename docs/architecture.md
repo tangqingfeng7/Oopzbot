@@ -20,9 +20,9 @@
         ┌─────────┘  │  │  └──────────┐
         ▼            ▼  ▼             ▼
    ┌─────────┐  ┌──────────┐  ┌────────────┐
-   │ music   │  │  chat    │  │ lol_query  │
-   │         │  │          │  ├────────────┤
-   │ 搜索/队列│  │ AI聊天   │  │ lol_fa8   │
+   │ music   │  │  chat    │  │  plugins   │
+   │         │  │          │  │            │
+   │ 搜索/队列│  │ AI聊天   │  │ 扩展命令   │
    │ 播放/缓存│  │ AI画图   │  └────────────┘
    └────┬────┘  │ AI审核   │
         │       └────┬─────┘
@@ -94,11 +94,15 @@ NeteaseCloud API (:3000)
 │   ├── agora_player.html        # Agora RTC 浏览器端（推流/暂停/跳转/音量控制）
 │   ├── voice_client.py          # Agora 语音客户端（Playwright 无头浏览器控制）
 │   ├── chat.py                  # AI 聊天 + 图片生成 + 关键词回复 + AI 脏话审核
-│   ├── lol_query.py             # LOL 封号查询
-│   ├── lol_fa8.py               # LOL 战绩查询（FA8 接口）
 │   ├── database.py              # SQLite 数据层（图片缓存、歌曲缓存、播放历史、统计）
 │   ├── name_resolver.py         # ID → 名称解析（用户/频道/区域，自动发现 + 持久化）
 │   └── logger_config.py         # 日志配置（轮转文件 + 控制台，UTF-8）
+│
+├── plugins/                     # 插件目录
+│   ├── lol_ban.py               # LOL 封号查询插件入口
+│   ├── lol_fa8.py               # LOL 战绩查询插件入口
+│   ├── _lol_query_service.py    # 封号查询实现（插件私有）
+│   └── _lol_fa8_service.py      # 战绩查询实现（插件私有）
 │
 ├── tools/                       # 独立工具
 │   ├── credential_tool.py       # 凭据获取工具（RSA 私钥、UID、设备 ID、JWT Token）

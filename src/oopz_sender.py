@@ -521,11 +521,17 @@ class OopzSender:
             data = result.get("data", {})
             members = data.get("members", [])
             online = sum(1 for m in members if m.get("online") == 1)
-            total = len(members)
+            fetched = len(members)
+            api_total = data.get("userCount")
+            try:
+                total = int(api_total) if api_total is not None else fetched
+            except Exception:
+                total = fetched
             if not quiet:
-                logger.info(f"获取域成员成功: {total} 人, 在线 {online} 人")
+                logger.info(f"获取域成员成功: 本页 {fetched} 人, 在线 {online} 人, 域总人数 {total}")
             data["onlineCount"] = online
             data["userCount"] = total
+            data["fetchedCount"] = fetched
             return data
         except Exception as e:
             logger.error(f"获取域成员异常: {e}")
