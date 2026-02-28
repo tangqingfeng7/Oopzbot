@@ -16,6 +16,8 @@ except ImportError:
 from oopz_sender import OopzSender
 from chat import ChatHandler
 from logger_config import get_logger
+from plugin_registry import PluginRegistry
+from plugin_loader import load_plugins_dir as loader_load_plugins_dir, load_plugin, unload_plugin, discover_plugins
 
 logger = get_logger("CommandHandler")
 
@@ -36,26 +38,21 @@ class CommandHandler:
         self.chat = ChatHandler()
         self._music = None  # 延迟导入，避免循环依赖
         self._voice_client = voice_client
-        self._lol = None
-        self._fa8 = None
         self._recent_messages = []  # 记录最近的消息（最多保留50条）
         self._profanity_warnings: dict[str, int] = {}  # uid -> 警告次数（warn_before_mute 模式用）
         self._profanity_keywords = [k.lower() for k in PROFANITY_CONFIG.get("keywords", [])]
         self._user_msg_buffer: dict[str, list[dict]] = {}  # uid -> 最近消息列表（上下文检测用）
+        self._plugin_registry = PluginRegistry()
+        loader_load_plugins_dir(self._plugin_registry, "plugins", handler=self)
 
     # 所有人均可使用的指令关键词（@bot 中文指令前缀 + / 命令）
-    _PUBLIC_MENTION_PREFIXES = ("查封号", "封号", "lol", "LOL", "每日一句", "一句", "名言", "语录", "鸡汤",
+    _PUBLIC_MENTION_PREFIXES = ("每日一句", "一句", "名言", "语录", "鸡汤",
                                 "画", "画一个", "画一张", "生成图片", "生成", "画图",
-                                "战绩", "查战绩", "查询战绩",
                                 "帮助", "help", "指令", "命令",
                                 "个人信息", "我是谁", "信息",
-                                "我的资料", "我的详细资料", "我的信息",
-                                "播放", "点歌", "放歌", "来一首", "停止", "下一首",
-                                "队列", "随机", "喜欢列表")
-    _PUBLIC_COMMANDS = ("/lol", "/daily", "/quote", "/zj", "/help",
-                        "/me", "/myinfo",
-                        "/bf", "/play", "/st", "/next", "/queue",
-                        "/like", "/yun")
+                                "我的资料", "我的详细资料", "我的信息")
+    _PUBLIC_COMMANDS = ("/daily", "/quote", "/help",
+                        "/me", "/myinfo")
 
     @staticmethod
     def _is_admin(user: str) -> bool:
@@ -64,15 +61,18 @@ class CommandHandler:
             return True
         return user in ADMIN_UIDS
 
-    @classmethod
-    def _is_public_command(cls, content: str) -> bool:
+    def _is_public_command(self, content: str) -> bool:
         """检查是否为公共指令（无需管理员权限）。"""
         if _BOT_MENTION and _BOT_MENTION in content:
             text = content.replace(_BOT_MENTION, "").strip()
-            return any(text.startswith(p) for p in cls._PUBLIC_MENTION_PREFIXES)
+            if any(text.startswith(p) for p in self._PUBLIC_MENTION_PREFIXES):
+                return True
+            return self._plugin_registry.has_public_mention_prefix(text)
         if content.startswith("/"):
             cmd = content.split()[0].lower()
-            return cmd in cls._PUBLIC_COMMANDS
+            if cmd in self._PUBLIC_COMMANDS:
+                return True
+            return self._plugin_registry.has_public_slash_command(cmd)
         return False
 
     # 形近字/谐音字归一化映射（替换字 → 原字）
@@ -252,20 +252,6 @@ class CommandHandler:
             self._music = MusicHandler(self.sender, voice=self._voice_client)
         return self._music
 
-    @property
-    def lol(self):
-        if self._lol is None:
-            from lol_query import LolQueryHandler
-            self._lol = LolQueryHandler()
-        return self._lol
-
-    @property
-    def fa8(self):
-        if self._fa8 is None:
-            from lol_fa8 import FA8Handler
-            self._fa8 = FA8Handler()
-        return self._fa8
-
     def handle(self, msg_data: dict):
         """
         处理一条聊天消息。
@@ -391,6 +377,24 @@ class CommandHandler:
 
     def _dispatch_mention(self, text: str, channel: str, area: str, user: str):
         """解析 @bot 后面的中文指令"""
+        if text and self._plugin_registry.try_dispatch_mention(text, channel, area, user, self):
+            return
+
+        # 管理员：插件列表 / 加载插件 / 卸载插件
+        if text and self._is_admin(user):
+            if text.strip() in ("插件列表", "插件", "扩展列表"):
+                self._cmd_plugin_list(channel, area)
+                return
+            if text.startswith("加载插件 "):
+                name = text[5:].strip()
+                if name:
+                    self._cmd_plugin_load(name, channel, area)
+                    return
+            if text.startswith("卸载插件 "):
+                name = text[5:].strip()
+                if name:
+                    self._cmd_plugin_unload(name, channel, area)
+                    return
 
         # 播放 <歌名>
         for prefix in ("播放", "放", "点播", "来一首", "听"):
@@ -428,37 +432,6 @@ class CommandHandler:
             page = int(m.group(1)) if m.group(1) else 1
             self.music.show_liked_list(channel, area, page)
             return
-
-        # LOL 战绩查询（FA8）
-        for prefix in ("查询战绩", "查战绩", "战绩"):
-            if text.startswith(prefix):
-                keyword = text[len(prefix):].strip()
-                if keyword:
-                    self._fa8_query(keyword, channel, area)
-                else:
-                    self.sender.send_message(
-                        "请输入召唤师名称\n"
-                        "格式: @bot 战绩 召唤师名#编号\n"
-                        "示例: @bot 战绩 艺术就是充钱丶#72269\n"
-                        "指定大区: @bot 战绩 班德尔城 召唤师名#编号\n"
-                        "按区搜索: @bot 战绩 3 召唤师名#编号 (1-5对应联盟一~五区)",
-                        channel=channel, area=area,
-                    )
-                return
-
-        # LOL 封号查询（通过 QQ 号）
-        for prefix in ("查封号", "封号", "lol", "LOL"):
-            if text.startswith(prefix):
-                keyword = text[len(prefix):].strip()
-                if keyword:
-                    self._lol_query(keyword, channel, area)
-                else:
-                    self.sender.send_message(
-                        "请输入QQ号，例如: @bot 查封号 123456789\n"
-                        "官方封号查询: https://gamesafe.qq.com/query_punish.shtml",
-                        channel=channel, area=area,
-                    )
-                return
 
         # 成员 / 在线
         if text in ("成员", "在线", "成员列表", "谁在线"):
@@ -665,26 +638,6 @@ class CommandHandler:
             )
         else:
             self.sender.send_message("我没听懂，输入 @bot 帮助 查看指令", channel=channel, area=area)
-
-    # ------------------------------------------------------------------
-    # LOL 召唤师 / 封号查询
-    # ------------------------------------------------------------------
-
-    def _lol_query(self, qq_number: str, channel: str, area: str):
-        """查询英雄联盟封号状态"""
-        self.sender.send_message(
-            f"[search] 正在查询 QQ {qq_number} 的封号状态...", channel=channel, area=area,
-        )
-        reply = self.lol.query_and_format(qq_number)
-        self.sender.send_message(reply, channel=channel, area=area)
-
-    def _fa8_query(self, summoner: str, channel: str, area: str):
-        """查询英雄联盟战绩"""
-        self.sender.send_message(
-            f"[search] 正在查询 {summoner} 的战绩...", channel=channel, area=area,
-        )
-        reply = self.fa8.query_and_format(summoner)
-        self.sender.send_message(reply, channel=channel, area=area)
 
     # ------------------------------------------------------------------
     # 禁言 / 禁麦
@@ -1301,10 +1254,34 @@ class CommandHandler:
     # ------------------------------------------------------------------
 
     def _dispatch_command(self, content: str, channel: str, area: str, user: str):
-        parts = content.split(" ", 2)
+        parts = content.split()
+        if not parts:
+            return
         command = parts[0].lower()
         subcommand = parts[1].lower() if len(parts) > 1 else None
-        arg = parts[2] if len(parts) > 2 else None
+        arg = " ".join(parts[2:]) if len(parts) > 2 else None
+        if self._plugin_registry.try_dispatch_slash(command, subcommand, arg, channel, area, user, self):
+            return
+
+        # 管理员：/plugins 插件列表、/loadplugin <名>、/unloadplugin <名>
+        if self._is_admin(user):
+            if command == "/plugins":
+                self._cmd_plugin_list(channel, area)
+                return
+            if command == "/loadplugin":
+                raw_name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+                if raw_name:
+                    self._cmd_plugin_load(raw_name, channel, area)
+                else:
+                    self.sender.send_message("用法: /loadplugin <名>", channel=channel, area=area)
+                return
+            if command == "/unloadplugin":
+                raw_name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
+                if raw_name:
+                    self._cmd_plugin_unload(raw_name, channel, area)
+                else:
+                    self.sender.send_message("用法: /unloadplugin <名>", channel=channel, area=area)
+                return
 
         # /help
         if command == "/help":
@@ -1476,34 +1453,6 @@ class CommandHandler:
         # /daily - 每日一句
         if command in ("/daily", "/quote"):
             self._cmd_daily_speech(channel, area)
-            return
-
-        # /zj <召唤师名> - LOL 战绩查询
-        if command == "/zj":
-            keyword = " ".join(parts[1:]) if len(parts) > 1 else None
-            if keyword:
-                self._fa8_query(keyword, channel, area)
-            else:
-                self.sender.send_message(
-                    "用法: /zj 召唤师名#编号\n"
-                    "示例: /zj 艺术就是充钱丶#72269\n"
-                    "指定大区: /zj 班德尔城 召唤师名#编号",
-                    channel=channel, area=area,
-                )
-            return
-
-        # /lol <QQ号> - LOL 封号查询
-        if command == "/lol":
-            keyword = " ".join(parts[1:]) if len(parts) > 1 else None
-            if keyword:
-                self._lol_query(keyword, channel, area)
-            else:
-                self.sender.send_message(
-                    "用法: /lol QQ号\n"
-                    "示例: /lol 123456789\n\n"
-                    "官方封号查询: https://gamesafe.qq.com/query_punish.shtml",
-                    channel=channel, area=area,
-                )
             return
 
         # /禁言 <名字> [时长] 或 /mute
@@ -1863,16 +1812,78 @@ class CommandHandler:
         message = "清理完成:\n" + "\n".join(results)
         self.sender.send_message(message, channel=channel, area=area)
 
+    # ------------------------------------------------------------------
+    # 插件管理（仅管理员）
+    # ------------------------------------------------------------------
+
+    def _cmd_plugin_list(self, channel: str, area: str):
+        """插件列表：已加载 + 可加载（磁盘上存在但未加载）。"""
+        loaded = self._plugin_registry.list_all()
+        disk = discover_plugins("plugins")
+        lines = ["**插件列表**", "---", "已加载:"]
+        if not loaded:
+            lines.append("  （无）")
+        for m in loaded:
+            tag = " [内置]" if m["builtin"] else ""
+            lines.append(f"  • {m['name']} v{m['version']}{tag} — {m['description']}")
+        lines.append("---")
+        not_loaded = [n for n in disk if not self._plugin_registry.get(n)]
+        if not_loaded:
+            lines.append(f"未加载（{len(not_loaded)} 个）:")
+            for name in not_loaded:
+                lines.append(f"  • {name}")
+            lines.append("用法示例:")
+            lines.append(f"  @bot 加载插件 {not_loaded[0]}")
+            lines.append(f"  /loadplugin {not_loaded[0]}")
+        else:
+            lines.append("未加载: 无")
+        lines.append("---")
+        lines.append("管理命令:")
+        lines.append("  @bot 加载插件 <名>  |  @bot 卸载插件 <名>")
+        lines.append("  /loadplugin <名>   |  /unloadplugin <名>   |  /plugins")
+        self.sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    def _cmd_plugin_load(self, name: str, channel: str, area: str):
+        plugin_name = self._normalize_plugin_name(name)
+        if not plugin_name:
+            self.sender.send_message("[x] 用法: @bot 加载插件 <名> 或 /loadplugin <名>", channel=channel, area=area)
+            return
+        ok, msg = load_plugin(self._plugin_registry, plugin_name, "plugins", self)
+        self.sender.send_message(f"[ok] {msg}" if ok else f"[x] {msg}", channel=channel, area=area)
+
+    def _cmd_plugin_unload(self, name: str, channel: str, area: str):
+        plugin_name = self._normalize_plugin_name(name)
+        if not plugin_name:
+            self.sender.send_message("[x] 用法: @bot 卸载插件 <名> 或 /unloadplugin <名>", channel=channel, area=area)
+            return
+        ok, msg = unload_plugin(self._plugin_registry, plugin_name, self)
+        self.sender.send_message(f"[ok] {msg}" if ok else f"[x] {msg}", channel=channel, area=area)
+
+    @staticmethod
+    def _normalize_plugin_name(raw: str) -> str:
+        """
+        规范化插件名，兼容用户从列表复制的“名称 + 版本”格式。
+        示例: "lol_ban v1.0.0" -> "lol_ban"
+        """
+        text = (raw or "").strip()
+        if not text:
+            return ""
+        # 仅取第一个 token，忽略附带版本或描述
+        token = text.split()[0].strip(",;:，。")
+        # 兼容输入文件名（如 lol_ban.py）
+        if token.lower().endswith(".py"):
+            token = token[:-3]
+        # 若 token 仍带版本后缀，做一次剥离
+        token = re.sub(r"(?:[-_]?v\d+(?:\.\d+){0,2})$", "", token, flags=re.IGNORECASE)
+        return token.strip()
+
     def _cmd_help(self, channel: str, area: str, user: str = ""):
         is_admin = self._is_admin(user)
         role_label = "管理员" if is_admin else "普通用户"
+        plugin_caps = self._plugin_registry.list_command_caps(public_only=not is_admin)
 
         lines = [
             "**Oopz Bot · 命令帮助** [" + role_label + "]",
-            "",
-            "**游戏查询**",
-            "@bot 战绩<名#编号>  查LOL战绩  |  @bot 查封号<QQ号>  查封号状态",
-            "/zj <名#编号>  |  /lol <QQ号>",
             "",
             "**AI 功能**",
             "@bot 画<描述>  AI 生成图片  |  @bot <任意内容>  AI 智能聊天",
@@ -1911,7 +1922,27 @@ class CommandHandler:
                 "@bot 撤回<消息ID>  撤回最后  撤回N条  |  /recall <ID|last|数量>",
                 "@bot 自动撤回  查看/开 [秒]/关  |  /autorecall",
                 "@bot 清理历史  清理历史日志  |  /clear history",
+                "",
+                "**插件扩展**",
+                "@bot 插件列表  已加载/可加载  |  @bot 加载插件 <名>  @bot 卸载插件 <名>",
+                "/plugins  |  /loadplugin <名>  /unloadplugin <名>",
             ]
+
+        if plugin_caps:
+            lines += [
+                "",
+                "**已加载扩展命令**",
+            ]
+            for item in plugin_caps:
+                parts = []
+                mentions = list(item.get("mention_prefixes", ()))
+                slashes = list(item.get("slash_commands", ()))
+                if mentions:
+                    parts.append("@bot " + " / ".join(mentions[:5]))
+                if slashes:
+                    parts.append(" / ".join(slashes[:5]))
+                summary = "  |  ".join(parts) if parts else "（无）"
+                lines.append(f"{item['name']}: {summary}")
 
         lines += [
             "",

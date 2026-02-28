@@ -95,6 +95,29 @@ def _run_join_poll_loop(
     """
     last_uids: Set[str] = set()
     first_run = True
+
+    def _fetch_member_uids(area: str) -> Optional[Set[str]]:
+        page_size = 100
+        max_fetch = 1000
+        uids: Set[str] = set()
+        for start in range(0, max_fetch, page_size):
+            result = sender.get_area_members(
+                area=area,
+                offset_start=start,
+                offset_end=start + page_size - 1,
+                quiet=True,
+            )
+            if "error" in result:
+                return None
+            members = result.get("members") or []
+            for m in members:
+                uid = _member_uid(m)
+                if uid:
+                    uids.add(uid)
+            if len(members) < page_size:
+                break
+        return uids
+
     while True:
         try:
             area, channel = _get_default_area_channel(sender, quiet=True)
@@ -103,13 +126,10 @@ def _run_join_poll_loop(
                     logger.warning("域成员加入轮询: 未获取到默认域/频道，请配置 default_area 与 default_channel")
                 time.sleep(interval_seconds)
                 continue
-            # 拉取前 100 个成员（API offsetEnd 为闭区间）
-            result = sender.get_area_members(area=area, offset_start=0, offset_end=99, quiet=True)
-            if "error" in result:
+            current_uids = _fetch_member_uids(area)
+            if current_uids is None:
                 time.sleep(interval_seconds)
                 continue
-            members = result.get("members") or []
-            current_uids = {_member_uid(m) for m in members if _member_uid(m)}
             sent_welcome = False
             if first_run:
                 last_uids = current_uids

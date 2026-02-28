@@ -41,9 +41,9 @@ def _get_web_player_url() -> str:
         host_part = f"[{ip}]" if ":" in ip else ip
         _resolved_web_url = f"http://{host_part}:{port}"
         logger.info(f"Web 播放器地址自动检测: {_resolved_web_url}")
-    else:
-        _resolved_web_url = ""
-    return _resolved_web_url
+        return _resolved_web_url
+    # 检测失败时不缓存空字符串，避免网络短暂不可用后永久拿不到链接
+    return ""
 
 
 def _detect_ip() -> str:
@@ -236,6 +236,13 @@ class MusicHandler:
 
     def play_next(self, channel: str, area: str, user: str):
         """播放队列中的下一首"""
+        if not self._voice_channel_id:
+            self.sender.send_message(
+                "Bot 当前不在语音频道，请先用 /bf 点歌或让 Bot 跟随进入语音频道。",
+                channel=channel,
+                area=area,
+            )
+            return
         next_song = self.queue.play_next()
         if not next_song:
             self.sender.send_message("队列为空，没有下一首了", channel=channel, area=area)
@@ -736,6 +743,10 @@ class MusicHandler:
                     # 队列有歌 → 自动切下一首（仅当 Bot 在语音频道时才真正播放，否则只从队列移除）
                     queue_length = self.queue.get_queue_length()
                     if queue_length > 0 and current is None:
+                        if not self._voice_channel_id:
+                            # Bot 不在语音频道时不应丢歌，保留队列等待下一次可播放时机
+                            time.sleep(2)
+                            continue
                         next_song = self.queue.play_next()
                         if next_song:
                             ch = next_song.get("channel") or self._voice_channel_id
@@ -744,7 +755,8 @@ class MusicHandler:
                             next_song["area"] = ar
 
                             if not ch:
-                                logger.warning("自动播放: Bot 未在语音频道，跳过本首并从队列移除")
+                                logger.warning("自动播放: 未获取到语音频道，歌曲保留在队列")
+                                self.queue.redis.lpush("music:queue", json.dumps(next_song, ensure_ascii=False))
                                 time.sleep(2)
                                 continue
 

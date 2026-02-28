@@ -130,7 +130,16 @@ class OopzClient:
 
         # 心跳响应
         if event == EVENT_HEARTBEAT:
-            body = json.loads(data.get("body", "{}"))
+            body_raw = data.get("body", {})
+            if isinstance(body_raw, str):
+                try:
+                    body = json.loads(body_raw)
+                except json.JSONDecodeError:
+                    body = {}
+            elif isinstance(body_raw, dict):
+                body = body_raw
+            else:
+                body = {}
             if body.get("r") == 1:
                 self._send_heartbeat(ws)
             return
@@ -204,8 +213,23 @@ class OopzClient:
 
     def _handle_chat(self, data: dict):
         try:
-            body = json.loads(data["body"])
-            msg_data = json.loads(body["data"])
+            body_raw = data.get("body", {})
+            if isinstance(body_raw, str):
+                body = json.loads(body_raw)
+            elif isinstance(body_raw, dict):
+                body = body_raw
+            else:
+                body = {}
+
+            msg_raw = body.get("data", {})
+            if isinstance(msg_raw, str):
+                msg_data = json.loads(msg_raw)
+            elif isinstance(msg_raw, dict):
+                msg_data = msg_raw
+            else:
+                msg_data = {}
+            if not msg_data:
+                return
 
             # 忽略自己发的消息
             if msg_data.get("person") == self._person_id:

@@ -80,7 +80,12 @@ def _start_netease_api():
     def _cleanup():
         if _netease_proc and _netease_proc.poll() is None:
             _netease_proc.terminate()
-            _netease_proc.wait(timeout=5)
+            try:
+                _netease_proc.wait(timeout=5)
+            except subprocess.TimeoutExpired:
+                _netease_proc.kill()
+            except Exception:
+                pass
             logger.info("网易云 API 已停止")
 
     atexit.register(_cleanup)

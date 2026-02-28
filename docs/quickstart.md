@@ -37,6 +37,13 @@ npm install
 
 若需主程序启动时自动启动网易云 API，在 `config.py` 的 `NETEASE_CLOUD` 中设置 `auto_start_path`（如 `"NeteaseCloudMusicApi"`）。
 
+LOL 功能使用插件配置文件：
+
+- `config/plugins/lol_ban.json`
+- `config/plugins/lol_fa8.json`
+
+可从同目录下 `*.example.json` 复制后修改，其中 `enabled` 设为 `true` 才会启用对应查询功能。
+
 ## 4. 启动
 
 ```shell

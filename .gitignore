@@ -1,6 +1,8 @@
 # === 敏感文件（包含密钥、Token、Cookie）===
 config.py
 private_key.py
+config/plugins/*.json
+!config/plugins/*.example.json
 data/credentials.txt
 .oopz_capture_credentials
 capture_recall_result.json

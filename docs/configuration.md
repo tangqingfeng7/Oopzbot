@@ -66,19 +66,20 @@ copy private_key.example.py private_key.py
 | `model` | Seedream 模型名称 |
 | `size` | 图片尺寸（默认 `1920x1920`） |
 
-### LOL 封号查询 (`LOL_BAN_CONFIG`)
+### LOL 封号查询插件 (`config/plugins/lol_ban.json`)
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用（默认 `False`） |
+| `enabled` | 是否启用（默认 `false`） |
 | `api_url` | 查询 API 地址 |
 | `token` | API 认证令牌 |
+| `proxy` | 代理地址，留空走系统代理 |
 
-### FA8 战绩查询 (`FA8_CONFIG`)
+### FA8 战绩查询插件 (`config/plugins/lol_fa8.json`)
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用（默认 `False`） |
+| `enabled` | 是否启用（默认 `false`） |
 | `username` | FA8 登录账号 |
 | `password` | FA8 登录密码 |
 | `default_area` | 默认大区 ID（`1`=艾欧尼亚） |
