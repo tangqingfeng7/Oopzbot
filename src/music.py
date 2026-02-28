@@ -128,6 +128,13 @@ class MusicHandler:
         若用户不在任何语音频道，发送提示并返回 False。
         若 Bot 正在其他频道播放，拒绝切换并提示。
         """
+        if not self.voice or not self.voice.available:
+            self.sender.send_message(
+                "语音推流功能未启用或初始化失败，无法播放音乐。",
+                channel=channel, area=area,
+            )
+            return False
+
         voice_ch_id = self.sender.get_voice_channel_for_user(user, area=area)
         if not voice_ch_id:
             self.sender.send_message(
@@ -822,6 +829,13 @@ class MusicHandler:
         """后台线程：通过 Agora 推流到语音频道"""
         if not self.voice or not self.voice.available or not self._voice_channel_id:
             logger.warning("语音频道未连接，无法推流")
+            self._play_start_time = 0
+            self._play_duration = 0
+            self.queue.clear_current()
+            try:
+                self.queue.redis.delete("music:play_state")
+            except Exception:
+                pass
             return
 
         try:

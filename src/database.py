@@ -96,7 +96,6 @@ def init_database():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             date TEXT UNIQUE NOT NULL,
             total_plays INTEGER DEFAULT 0,
-            unique_songs INTEGER DEFAULT 0,
             cache_hits INTEGER DEFAULT 0,
             cache_misses INTEGER DEFAULT 0,
             platform_breakdown TEXT DEFAULT '{}'
@@ -294,8 +293,8 @@ class Statistics:
         else:
             breakdown = {platform: 1}
             conn.execute(
-                """INSERT INTO statistics (date, total_plays, unique_songs, cache_hits, cache_misses, platform_breakdown)
-                   VALUES (?, 1, 1, ?, ?, ?)""",
+                """INSERT INTO statistics (date, total_plays, cache_hits, cache_misses, platform_breakdown)
+                   VALUES (?, 1, ?, ?, ?)""",
                 (today, 1 if cache_hit else 0, 0 if cache_hit else 1, json.dumps(breakdown)),
             )
 

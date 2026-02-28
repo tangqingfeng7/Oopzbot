@@ -377,6 +377,8 @@ class CommandHandler:
 
     def _dispatch_mention(self, text: str, channel: str, area: str, user: str):
         """解析 @bot 后面的中文指令"""
+        if self._plugin_registry.try_dispatch_mention(text, channel, area, user, self):
+            return
 
         # 播放 <歌名>
         for prefix in ("播放", "放", "点播", "来一首", "听"):

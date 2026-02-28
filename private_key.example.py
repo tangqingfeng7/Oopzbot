@@ -12,7 +12,7 @@ from cryptography.hazmat.backends import default_backend
 
 # 将你的 RSA 私钥粘贴在这里（PEM 格式）
 PRIVATE_KEY_PEM = b"""-----BEGIN RSA PRIVATE KEY-----
-在这里粘贴你的 RSA 私钥内容
+PASTE_YOUR_RSA_PRIVATE_KEY_HERE
 -----END RSA PRIVATE KEY-----"""
 
 

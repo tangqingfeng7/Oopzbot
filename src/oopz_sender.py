@@ -417,7 +417,8 @@ class OopzSender:
             put_resp = requests.put(signed_url, data=audio_bytes, headers={"Content-Type": "application/octet-stream"})
             put_resp.raise_for_status()
 
-            display_name = filename + ext
+            base_name = os.path.splitext(filename or "")[0] or "music"
+            display_name = base_name + ext
             duration_sec = duration_ms // 1000 if duration_ms else 0
 
             attachment = {
