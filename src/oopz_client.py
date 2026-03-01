@@ -197,8 +197,8 @@ class OopzClient:
         }
         try:
             ws.send(json.dumps(payload))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("发送心跳失败（连接可能已关闭）: %s", e)
 
     def _heartbeat_loop(self, ws):
         """定时心跳线程"""

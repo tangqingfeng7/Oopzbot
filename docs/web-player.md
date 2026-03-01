@@ -48,6 +48,10 @@ Web 播放器是一个独立的歌词与播放控制页面，与 Bot 播放状�
 | `host` | 监听地址，默认 `0.0.0.0` |
 | `port` | 监听端口，默认 `8080`（或与 README 中 3001 等保持一致，以实际为准） |
 | `url` | 对外展示的访问地址，留空则自动检测 |
+| `token_ttl_seconds` | Web 随机访问令牌有效期（秒），`0` 表示不过期（不建议） |
+| `cookie_max_age_seconds` | 浏览器 cookie 有效期（秒）；未配置时默认与 `token_ttl_seconds` 一致 |
+| `cookie_secure` | 仅在 HTTPS 下发送 cookie（生产 HTTPS 建议设为 `True`） |
+| `link_idle_release_seconds` | 播放列表空闲超时后释放随机访问链接（秒，`0` 表示不释放） |
 
 ---
 
@@ -62,6 +66,7 @@ Web 播放器是一个独立的歌词与播放控制页面，与 Bot 播放状�
 | GET | `/api/status` | 当前播放状态：`playing`、`paused`、歌曲信息、`progress`（秒）、`duration`、`volume` 等 |
 
 无播放时返回 `{"playing": false}`。
+说明：`/api/*` 需先通过 Bot 发送的随机链接进入页面（服务端会下发访问 cookie），否则返回 403。
 
 ---
 
@@ -112,7 +117,7 @@ Web 播放器是一个独立的歌词与播放控制页面，与 Bot 播放状�
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/` | 返回 Web 播放器前端页面（`player.html`） |
+| GET | `/w/{token}` | 返回 Web 播放器前端页面（需使用 Bot 发送的随机链接） |
 
 ---
 

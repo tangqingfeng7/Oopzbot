@@ -29,10 +29,18 @@ def ensure_playwright():
         return True
     except ImportError:
         print("[!] playwright 未安装，正在安装...")
-        os.system(f'"{sys.executable}" -m pip install playwright')
-        os.system(f'"{sys.executable}" -m playwright install chromium')
+        code1 = os.system(f'"{sys.executable}" -m pip install playwright')
+        code2 = os.system(f'"{sys.executable}" -m playwright install chromium')
         print()
-        return True
+        if code1 != 0 or code2 != 0:
+            print("[x] playwright 或 chromium 安装失败，请手动安装后重试。")
+            return False
+        try:
+            from playwright.async_api import async_playwright  # noqa: F401
+            return True
+        except ImportError:
+            print("[x] playwright 安装后仍不可用，请检查 Python 环境。")
+            return False
 
 
 # ---------------------------------------------------------------------------
@@ -680,7 +688,8 @@ def save_config(credentials):
 # ---------------------------------------------------------------------------
 
 def main():
-    ensure_playwright()
+    if not ensure_playwright():
+        return
 
     credentials = asyncio.run(capture_credentials())
     display_results(credentials)

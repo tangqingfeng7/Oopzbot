@@ -14,9 +14,10 @@ import uvicorn
 from fastapi import FastAPI, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
-from config import REDIS_CONFIG
+from config import REDIS_CONFIG, WEB_PLAYER_CONFIG
 from logger_config import get_logger
 from netease import NeteaseCloud
+from web_link_token import get_token, set_token
 
 logger = get_logger("WebPlayer")
 
@@ -189,6 +190,46 @@ KEY_WEB_COMMANDS = "music:web_commands"
 
 
 _liked_ids_cache: list = []
+
+
+def _token_ttl_seconds() -> int:
+    try:
+        ttl = int(WEB_PLAYER_CONFIG.get("token_ttl_seconds", 86400) or 0)
+    except (TypeError, ValueError):
+        ttl = 86400
+    return ttl if ttl > 0 else 0
+
+
+def _cookie_max_age_seconds() -> int:
+    configured = WEB_PLAYER_CONFIG.get("cookie_max_age_seconds")
+    if configured is not None:
+        try:
+            v = int(configured)
+            return v if v > 0 else 7 * 24 * 3600
+        except (TypeError, ValueError):
+            pass
+    ttl = _token_ttl_seconds()
+    return ttl if ttl > 0 else 7 * 24 * 3600
+
+
+def _cookie_secure() -> bool:
+    return bool(WEB_PLAYER_CONFIG.get("cookie_secure", False))
+
+
+def _active_web_token() -> str:
+    """获取当前生效的 Web 播放器访问令牌。"""
+    return get_token(redis_client=_get_redis())
+
+
+@app.middleware("http")
+async def _auth_web_api(request: Request, call_next):
+    path = request.url.path or ""
+    if path.startswith("/api/"):
+        active = _active_web_token()
+        client_token = request.cookies.get("web_token", "")
+        if not active or client_token != active:
+            return JSONResponse({"ok": False, "error": "未授权或链接已失效"}, status_code=403)
+    return await call_next(request)
 
 
 def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
@@ -395,9 +436,28 @@ async def api_queue_action(request: Request):
 
 @app.get("/", response_class=HTMLResponse)
 def index():
+    return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
+
+
+@app.get("/w/{token}", response_class=HTMLResponse)
+def index_with_token(token: str):
+    active = _active_web_token()
+    if not active or token != active:
+        return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
+    # 命中正确令牌后，刷新 Redis 过期时间（若启用 TTL）。
+    set_token(token, redis_client=_get_redis(), ttl_seconds=_token_ttl_seconds())
     html_path = os.path.join(os.path.dirname(__file__), "player.html")
     with open(html_path, "r", encoding="utf-8") as f:
-        return HTMLResponse(f.read())
+        resp = HTMLResponse(f.read())
+    resp.set_cookie(
+        key="web_token",
+        value=token,
+        httponly=True,
+        samesite="lax",
+        secure=_cookie_secure(),
+        max_age=_cookie_max_age_seconds(),
+    )
+    return resp
 
 
 def run_server(host: str = "0.0.0.0", port: int = 8080):

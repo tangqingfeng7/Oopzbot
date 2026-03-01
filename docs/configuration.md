@@ -107,6 +107,18 @@ copy private_key.example.py private_key.py
 | `enabled` | 是否启用（默认 `True`） |
 | `keyword_replies` | 关键词 → 回复内容的映射字典 |
 
+### Web 播放器 (`WEB_PLAYER_CONFIG`)
+
+| 配置项 | 说明 |
+|--------|------|
+| `host` | 监听地址（默认 `0.0.0.0`） |
+| `port` | 监听端口（默认 `8080`） |
+| `url` | 对外访问地址，留空则自动检测 |
+| `token_ttl_seconds` | Web 随机访问令牌有效期（秒），`0` 表示不过期（不建议） |
+| `cookie_max_age_seconds` | 浏览器 cookie 有效期（秒）；留空时默认跟 `token_ttl_seconds` 一致 |
+| `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（HTTPS 建议 `True`） |
+| `link_idle_release_seconds` | 播放列表空闲超时后释放随机链接（秒，`0` 表示不释放） |
+
 ### 域成员加入/退出通知 (`AREA_JOIN_NOTIFY`)
 
 用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息。**退出**依赖 WebSocket 推送（event 11 等）；**加入**因服务端不推送，改为轮询域成员 API 检测新成员。

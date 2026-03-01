@@ -598,6 +598,27 @@ class CommandHandler:
             self._cmd_clear_history(channel, area)
             return
 
+        # 插件管理
+        if text.strip() in ("插件列表", "扩展列表", "插件"):
+            self._cmd_plugin_list(channel, area)
+            return
+        for prefix in ("加载插件", "启用插件", "loadplugin"):
+            if text.startswith(prefix):
+                name = text[len(prefix):].strip()
+                if name:
+                    self._cmd_plugin_load(name, channel, area)
+                else:
+                    self.sender.send_message("用法: @bot 加载插件 <名>", channel=channel, area=area)
+                return
+        for prefix in ("卸载插件", "禁用插件", "unloadplugin"):
+            if text.startswith(prefix):
+                name = text[len(prefix):].strip()
+                if name:
+                    self._cmd_plugin_unload(name, channel, area)
+                else:
+                    self.sender.send_message("用法: @bot 卸载插件 <名>", channel=channel, area=area)
+                return
+
         # 帮助
         if text in ("帮助", "help", "指令", "命令"):
             self._cmd_help(channel, area, user)
@@ -1821,22 +1842,106 @@ class CommandHandler:
         message = "清理完成:\n" + "\n".join(results)
         self.sender.send_message(message, channel=channel, area=area)
 
+    @staticmethod
+    def _normalize_plugin_name(raw_name: str) -> Optional[str]:
+        """规范化插件名，仅允许字母数字下划线，兼容传入 .py 后缀。"""
+        name = (raw_name or "").strip()
+        if name.endswith(".py"):
+            name = name[:-3]
+        if not re.fullmatch(r"[A-Za-z0-9_]+", name):
+            return None
+        return name
+
+    def _cmd_plugin_list(self, channel: str, area: str):
+        """展示插件状态：已加载与可加载列表。"""
+        loaded = self._plugin_registry.list_all()
+        discovered = discover_plugins("plugins")
+
+        loaded_names = {item.get("name", "") for item in loaded}
+        available = [name for name in discovered if name not in loaded_names]
+
+        lines = ["插件状态", "---"]
+        lines.append(f"已加载: {len(loaded)} 个")
+        if loaded:
+            for item in loaded:
+                tag = "内置" if item.get("builtin") else "扩展"
+                desc = item.get("description", "")
+                suffix = f" - {desc}" if desc else ""
+                lines.append(f"  {item.get('name', '')} [{tag}]{suffix}")
+        else:
+            lines.append("  （无）")
+
+        lines.append("")
+        lines.append(f"可加载: {len(available)} 个")
+        if available:
+            lines.append("  " + ", ".join(available))
+        else:
+            lines.append("  （无）")
+
+        lines.append("")
+        lines.append("用法: /loadplugin <名>  /unloadplugin <名>")
+        self.sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    def _cmd_plugin_load(self, raw_name: str, channel: str, area: str):
+        """动态加载插件。"""
+        name = self._normalize_plugin_name(raw_name)
+        if not name:
+            self.sender.send_message("[x] 插件名不合法，仅支持字母/数字/下划线", channel=channel, area=area)
+            return
+        ok, msg = load_plugin(self._plugin_registry, name, "plugins", handler=self)
+        prefix = "[ok]" if ok else "[x]"
+        self.sender.send_message(f"{prefix} {msg}", channel=channel, area=area)
+
+    def _cmd_plugin_unload(self, raw_name: str, channel: str, area: str):
+        """动态卸载插件。"""
+        name = self._normalize_plugin_name(raw_name)
+        if not name:
+            self.sender.send_message("[x] 插件名不合法，仅支持字母/数字/下划线", channel=channel, area=area)
+            return
+        ok, msg = unload_plugin(self._plugin_registry, name, handler=self)
+        prefix = "[ok]" if ok else "[x]"
+        self.sender.send_message(f"{prefix} {msg}", channel=channel, area=area)
+
     def _cmd_help(self, channel: str, area: str, user: str = ""):
         is_admin = self._is_admin(user)
         role_label = "管理员" if is_admin else "普通用户"
         plugin_caps = self._plugin_registry.list_command_caps(public_only=not is_admin)
 
+        ai_chat_available = (
+            self.chat.ai_enabled
+            and bool(getattr(self.chat, "_ai_key", ""))
+            and bool(getattr(self.chat, "_ai_base", ""))
+            and bool(getattr(self.chat, "_ai_model", ""))
+        )
+        ai_image_available = (
+            self.chat.img_enabled
+            and bool(getattr(self.chat, "_img_key", ""))
+            and bool(getattr(self.chat, "_img_base", ""))
+            and bool(getattr(self.chat, "_img_model", ""))
+        )
+
         lines = [
             "**Oopz Bot · 命令帮助** [" + role_label + "]",
             "",
-            "**AI 功能**",
-            "@bot 画<描述>  AI 生成图片  |  @bot <任意内容>  AI 智能聊天",
+            "**常用功能**",
             "@bot 每日一句  每日名言  |  /daily",
             "",
             "**个人信息**",
             "@bot 个人信息  个人基本信息  |  @bot 我的资料  自身详细资料",
             "/me  |  /myinfo",
         ]
+
+        ai_cmds = []
+        if ai_image_available:
+            ai_cmds.append("@bot 画<描述>  AI 生成图片")
+        if ai_chat_available:
+            ai_cmds.append("@bot <任意内容>  AI 智能聊天")
+        if ai_cmds:
+            lines[2:2] = [
+                "**AI 功能**",
+                "  |  ".join(ai_cmds),
+                "",
+            ]
 
         if is_admin:
             lines += [

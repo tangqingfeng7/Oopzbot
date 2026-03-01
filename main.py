@@ -31,13 +31,30 @@ logger = setup_logger("Main")
 _netease_proc = None
 
 
+def _terminate_netease_proc(timeout: float = 5.0):
+    """终止网易云 API 子进程（若仍在运行）。"""
+    global _netease_proc
+    if not _netease_proc or _netease_proc.poll() is not None:
+        return
+    _netease_proc.terminate()
+    try:
+        _netease_proc.wait(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        _netease_proc.kill()
+    except Exception as e:
+        logger.warning("停止网易云 API 子进程时出现异常: %s", e)
+    finally:
+        logger.info("网易云 API 已停止")
+
+
 def _start_netease_api():
     """启动网易云 API 子进程，若已配置且目录存在"""
     global _netease_proc
     try:
         from config import NETEASE_CLOUD
         path = NETEASE_CLOUD.get("auto_start_path", "")
-    except Exception:
+    except Exception as e:
+        logger.warning("读取 NETEASE_CLOUD 配置失败，跳过自动启动: %s", e)
         return
     if not path or not path.strip():
         return
@@ -78,15 +95,7 @@ def _start_netease_api():
         return
 
     def _cleanup():
-        if _netease_proc and _netease_proc.poll() is None:
-            _netease_proc.terminate()
-            try:
-                _netease_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                _netease_proc.kill()
-            except Exception:
-                pass
-            logger.info("网易云 API 已停止")
+        _terminate_netease_proc(timeout=5)
 
     atexit.register(_cleanup)
 
@@ -99,7 +108,7 @@ def _start_netease_api():
             if r.status_code < 500:
                 logger.info("网易云 API 已就绪")
                 return
-        except Exception:
+        except requests.RequestException:
             pass
     logger.warning("网易云 API 启动超时，音乐功能可能不可用")
 
@@ -156,13 +165,7 @@ def main():
         logger.info("收到退出信号，正在关闭...")
         client.stop()
     finally:
-        if _netease_proc and _netease_proc.poll() is None:
-            _netease_proc.terminate()
-            try:
-                _netease_proc.wait(timeout=5)
-            except subprocess.TimeoutExpired:
-                _netease_proc.kill()
-            logger.info("网易云 API 已停止")
+        _terminate_netease_proc(timeout=5)
 
     logger.info("Oopz Bot 已停止")
 
