@@ -3,7 +3,8 @@
 
 - 退出：依赖 WebSocket 推送（event 11 等），有则实时发再见。
 - 加入：服务端不推送“加入域”事件，改为轮询域成员 API，发现新成员则发欢迎。
-配置 AREA_JOIN_NOTIFY.enabled=True，可选 poll_interval_seconds（默认 1，最小 1）。刚发欢迎后下次轮询仅等 0.5 秒以更快发现连续加入。
+配置 AREA_JOIN_NOTIFY.enabled=True，可选 poll_interval_seconds（默认 2，最小 2）。
+若成员接口连续返回 429，会自动临时放慢轮询频率，恢复后再回到基础间隔。
 """
 import json
 import re
@@ -83,6 +84,15 @@ def _member_uid(m: dict) -> str:
     return (m.get("uid") or m.get("id") or m.get("person") or m.get("personId") or "").strip() or ""
 
 
+def _next_poll_interval(base_interval: int, current_interval: int, rate_limited: bool) -> int:
+    """根据是否被限流，计算下一次轮询间隔。"""
+    base = max(2, int(base_interval))
+    current = max(base, int(current_interval))
+    if not rate_limited:
+        return base
+    return min(max(current * 2, base), 10)
+
+
 def _run_join_poll_loop(
     sender: OopzSender,
     message_template_join: str,
@@ -96,7 +106,9 @@ def _run_join_poll_loop(
     last_uids: Set[str] = set()
     first_run = True
 
-    def _fetch_member_uids(area: str) -> Optional[Set[str]]:
+    current_interval = max(2, int(interval_seconds))
+
+    def _fetch_member_uids(area: str) -> Tuple[Optional[Set[str]], bool]:
         page_size = 100
         max_fetch = 1000
         uids: Set[str] = set()
@@ -108,7 +120,8 @@ def _run_join_poll_loop(
                 quiet=True,
             )
             if "error" in result:
-                return None
+                err = str(result.get("error") or "")
+                return None, err.startswith("HTTP 429")
             members = result.get("members") or []
             for m in members:
                 uid = _member_uid(m)
@@ -116,7 +129,7 @@ def _run_join_poll_loop(
                     uids.add(uid)
             if len(members) < page_size:
                 break
-        return uids
+        return uids, False
 
     while True:
         try:
@@ -124,13 +137,19 @@ def _run_join_poll_loop(
             if not area or not channel:
                 if first_run:
                     logger.warning("域成员加入轮询: 未获取到默认域/频道，请配置 default_area 与 default_channel")
-                time.sleep(interval_seconds)
+                time.sleep(current_interval)
                 continue
-            current_uids = _fetch_member_uids(area)
+            current_uids, rate_limited = _fetch_member_uids(area)
             if current_uids is None:
-                time.sleep(interval_seconds)
+                next_interval = _next_poll_interval(interval_seconds, current_interval, rate_limited)
+                if next_interval != current_interval:
+                    logger.warning("域成员加入轮询: 检测到限流，轮询间隔调整为 %ss", next_interval)
+                current_interval = next_interval
+                time.sleep(current_interval)
                 continue
-            sent_welcome = False
+            if current_interval != max(2, int(interval_seconds)):
+                current_interval = max(2, int(interval_seconds))
+                logger.info("域成员加入轮询: 成员接口已恢复，轮询间隔恢复为 %ss", current_interval)
             if first_run:
                 last_uids = current_uids
                 first_run = False
@@ -144,14 +163,13 @@ def _run_join_poll_loop(
                         name = _resolve_display_name(sender, uid, None)
                         text = message_template_join.format(name=name, uid=uid)
                         sender.send_message(text, area=area, channel=channel, auto_recall=False)
-                        sent_welcome = True
                     except Exception as e:
                         logger.warning("域成员欢迎发送失败 uid=%s: %s", uid, e)
-            # 刚发过欢迎则 0.5 秒后即下次轮询，否则按配置间隔
-            time.sleep(0.5 if sent_welcome else interval_seconds)
+            # 保持固定轮询间隔，避免短时间连续请求触发成员接口限流
+            time.sleep(current_interval)
         except Exception as e:
             logger.warning("域成员加入轮询异常: %s", e)
-            time.sleep(interval_seconds)
+            time.sleep(current_interval)
 
 
 def _parse_member_event(event: int, data: dict) -> Optional[Tuple[str, str, str]]:
@@ -318,7 +336,7 @@ def start_area_join_notifier(
 
     s = sender or OopzSender()
     # 加入事件服务端不推送，用轮询检测新成员并发欢迎
-    poll_interval = max(1, int(config.get("poll_interval_seconds", 1)))
+    poll_interval = max(2, int(config.get("poll_interval_seconds", 2)))
     bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
     poll_thread = threading.Thread(
         target=_run_join_poll_loop,

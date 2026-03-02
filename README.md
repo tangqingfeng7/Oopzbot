@@ -51,6 +51,41 @@ python main.py
 
 启动后会自动连接 Oopz WebSocket；若配置了 Agora，Bot 可加入语音频道并推流播放音乐。Web 歌词播放器默认在配置的端口（如 3001）提供页面。
 
+### 5. Docker 启动
+
+已提供 `Dockerfile` 与 `docker-compose.yml`，默认会同时启动：
+
+- `bot`：主程序容器
+- `redis`：内置 Redis 容器
+
+首次使用前确保项目根目录已有真实的 `config.py` 与 `private_key.py`，然后执行：
+
+```shell
+docker compose up -d --build
+```
+
+如需同时启用网易云 API 容器，使用 `music` profile：
+
+```shell
+docker compose --profile music up -d --build
+```
+
+默认会映射 Web 播放器端口 `8080`，并自动通过环境变量适配容器环境：
+
+- `BOT_REDIS_HOST=redis`
+- `BOT_NETEASE_BASE_URL=http://netease-api:3000`
+- `BOT_DISABLE_AUTO_START_NETEASE=1`
+- `BOT_DISABLE_VOICE=1`
+
+可选环境变量示例见 `docker.env.example`。
+
+说明：
+
+- Docker 默认关闭“自动启动网易云 API 子进程”，如需使用外部网易云 API，可额外设置 `BOT_NETEASE_BASE_URL`
+- 若使用 `--profile music`，会额外构建并启动本地 `NeteaseAPI_tmp` 目录中的网易云 API 服务
+- Docker 默认关闭 Agora 语音推流；如需启用，请移除 `BOT_DISABLE_VOICE`，并自行提供浏览器运行环境
+- 运行时会挂载 `./config.py`、`./private_key.py`、`./config/`、`./data/`、`./logs/`
+
 ---
 
 ## 配置要点

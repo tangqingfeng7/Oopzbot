@@ -10,8 +10,10 @@ import base64
 import uuid
 import time
 import json
+import copy
 import random
 import threading
+import re
 from typing import Dict, Optional
 
 import requests
@@ -140,6 +142,9 @@ class OopzSender:
         self.signer = Signer()
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
+        self._area_members_cache: dict[tuple[str, int, int], dict] = {}
+        self._area_members_cache_ttl = 2.0
+        self._area_members_stale_ttl = 15.0
         # 代理：留空/不设=使用系统代理(HTTP_PROXY/HTTPS_PROXY)；False 或 "direct"=直连；或 "http://ip:port"
         proxy_cfg = OOPZ_CONFIG.get("proxy")
         if proxy_cfg is False or (isinstance(proxy_cfg, str) and proxy_cfg.strip().lower() == "direct"):
@@ -272,6 +277,311 @@ class OopzSender:
     def send_to_default(self, text: str, **kwargs) -> requests.Response:
         """发送到默认频道"""
         return self.send_message(text, **kwargs)
+
+    # ---- 私信 ----
+
+    @staticmethod
+    def _looks_like_private_channel(value: object) -> bool:
+        """
+        判断字符串是否像 Oopz 私信 channel。
+
+        已知示例类似 ULID：01KJP5MHQC7TSQ6FDKT8N1DZAX
+        避免把 32 位小写十六进制 UID 误判成 channel。
+        """
+        if not isinstance(value, str):
+            return False
+        text = value.strip()
+        if not text:
+            return False
+        if re.fullmatch(r"[a-f0-9]{32}", text):
+            return False
+        return bool(re.fullmatch(r"[0-9A-Z]{20,40}", text))
+
+    @classmethod
+    def _find_private_channel_candidate(cls, payload: object) -> Optional[str]:
+        """递归扫描响应体，寻找像私信 channel 的字符串。"""
+        if isinstance(payload, dict):
+            for value in payload.values():
+                found = cls._find_private_channel_candidate(value)
+                if found:
+                    return found
+        elif isinstance(payload, list):
+            for item in payload:
+                found = cls._find_private_channel_candidate(item)
+                if found:
+                    return found
+        elif cls._looks_like_private_channel(payload):
+            return str(payload).strip()
+        return None
+
+    @staticmethod
+    def _extract_private_channel(payload: object) -> Optional[str]:
+        """从私信会话接口响应中尽量提取 channel。"""
+        if isinstance(payload, dict):
+            for key in (
+                "channel",
+                "chatChannel",
+                "sessionChannel",
+                "channelId",
+                "chatChannelId",
+                "sessionId",
+                "imChannel",
+                "imSessionChannel",
+                "conversationId",
+                "id",
+            ):
+                value = payload.get(key)
+                if OopzSender._looks_like_private_channel(value):
+                    return value.strip()
+            for key in (
+                "data",
+                "result",
+                "session",
+                "chat",
+                "conversation",
+                "conversationInfo",
+                "chatInfo",
+                "currentSession",
+                "imSession",
+            ):
+                nested = payload.get(key)
+                found = OopzSender._extract_private_channel(nested)
+                if found:
+                    return found
+            sessions = payload.get("sessions") or payload.get("list")
+            if isinstance(sessions, list):
+                for item in sessions:
+                    found = OopzSender._extract_private_channel(item)
+                    if found:
+                        return found
+            found = OopzSender._find_private_channel_candidate(payload)
+            if found:
+                return found
+        elif isinstance(payload, list):
+            for item in payload:
+                found = OopzSender._extract_private_channel(item)
+                if found:
+                    return found
+        return None
+
+    @staticmethod
+    def _short_payload(payload: object, limit: int = 240) -> str:
+        """将响应体压缩为短日志文本。"""
+        try:
+            text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+        except Exception:
+            text = str(payload)
+        return text[:limit]
+
+    @staticmethod
+    def _validate_private_send_result(result: object) -> tuple[bool, str]:
+        """
+        判断 sendImMessage 的业务响应是否明确成功。
+
+        
+        """
+        if not isinstance(result, dict):
+            return False, "响应不是 JSON 对象"
+
+        if "status" in result:
+            if result.get("status") is True:
+                return True, ""
+            return False, str(result.get("message") or result.get("error") or "status=false")
+
+        if "success" in result:
+            if result.get("success") is True:
+                return True, ""
+            return False, str(result.get("message") or result.get("msg") or result.get("error") or "success=false")
+
+        if "code" in result:
+            code = result.get("code")
+            if code in (0, "0", ""):
+                # code=0 仍不够稳，至少需要有 data / result / messageId 之一
+                if any(key in result for key in ("data", "result", "messageId")):
+                    return True, ""
+                return False, "code=0 但无明确投递确认字段"
+            return False, str(result.get("message") or result.get("msg") or result.get("error") or f"code={code}")
+
+        if any(key in result for key in ("data", "result", "messageId")):
+            return True, ""
+
+        return False, "HTTP 200 但响应未明确确认私信已发送"
+
+    def open_private_session(self, target: str) -> dict:
+        """
+        打开或创建与指定用户的私信会话。
+
+        API: PATCH /client/v1/chat/v1/to?target={uid}
+        """
+        target = str(target or "").strip()
+        if not target:
+            return {"error": "缺少 target"}
+
+        url_path = "/client/v1/chat/v1/to"
+        query = f"?target={target}"
+        full_path = url_path + query
+        body = {"target": target}
+
+        try:
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
+            url = OOPZ_CONFIG["base_url"] + full_path
+            resp = self.session.patch(url, headers=headers, data=body_str.encode("utf-8"))
+        except Exception as e:
+            logger.error(f"打开私信会话异常: {e}")
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info(f"打开私信会话 PATCH {full_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
+
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        channel = self._extract_private_channel(result)
+        if not channel:
+            logger.error("打开私信会话成功但未提取到 channel，响应: %s", self._short_payload(result))
+            return {
+                "error": "未能从响应中提取私信 channel",
+                "raw": result,
+                "debug_reason": "open_session_missing_channel",
+            }
+        return {"status": True, "channel": channel, "raw": result}
+
+    def send_private_message(
+        self,
+        target: str,
+        text: str,
+        *,
+        attachments: Optional[list] = None,
+        style_tags: Optional[list] = None,
+        channel: Optional[str] = None,
+    ) -> dict:
+        """
+        发送私信消息。
+
+        API: POST /im/session/v2/sendImMessage
+        """
+        target = str(target or "").strip()
+        if not target:
+            return {"error": "缺少 target"}
+
+        if not channel:
+            opened = self.open_private_session(target)
+            if "error" in opened:
+                return opened
+            channel = opened.get("channel")
+
+        if not channel:
+            logger.error("发送私信失败：私信 channel 不可用 (target=%s)", target[:12])
+            return {"error": "私信 channel 不可用", "debug_reason": "missing_channel"}
+
+        # Web 端格式：请求体为 { "message": { ... } }，正文用 content（Playwright 抓包确认）
+        body = {
+            "message": {
+                "area": "",
+                "channel": channel,
+                "target": target,
+                "clientMessageId": self.signer.client_message_id(),
+                "timestamp": self.signer.timestamp_us(),
+                "isMentionAll": False,
+                "mentionList": [],
+                "styleTags": style_tags if style_tags is not None else [],
+                "referenceMessageId": None,
+                "animated": False,
+                "displayName": "",
+                "duration": 0,
+                "content": text,
+                "attachments": attachments or [],
+            }
+        }
+        url_path = "/im/session/v2/sendImMessage"
+
+        try:
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
+            url = OOPZ_CONFIG["base_url"] + url_path
+            resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
+        except Exception as e:
+            logger.error(f"发送私信异常: {e}")
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info(f"发送私信 POST {url_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
+
+        if resp.status_code != 200:
+            logger.error("发送私信失败：HTTP %s，响应: %s", resp.status_code, raw[:240])
+            return {
+                "error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else ""),
+                "channel": channel,
+                "debug_reason": "send_dm_http_error",
+            }
+
+        try:
+            result = resp.json()
+        except Exception:
+            result = {"raw": raw}
+
+        ok, reason = self._validate_private_send_result(result)
+        if not ok:
+            logger.error("发送私信未获确认: %s, 响应: %s", reason, self._short_payload(result))
+            return {
+                "error": f"HTTP 200 但未确认发送成功: {reason}",
+                "channel": channel,
+                "result": result,
+                "debug_reason": "send_dm_unconfirmed",
+            }
+
+        logger.info("发送私信成功: channel=%s", str(channel)[:24])
+        return {"status": True, "channel": channel, "result": result}
+
+    def upload_and_send_private_image(self, target: str, file_path: str, text: str = "") -> dict:
+        """上传本地图片并通过私信发送。"""
+        width, height, file_size = get_image_info(file_path)
+
+        url_path = "/rtc/v1/cos/v1/signedUploadUrl"
+        body = {"type": "IMAGE", "ext": os.path.splitext(file_path)[1]}
+        try:
+            resp = self._put(url_path, body)
+            resp.raise_for_status()
+            data = resp.json()["data"]
+            signed_url = data["signedUrl"]
+            file_key = data["file"]
+            cdn_url = data["url"]
+
+            with open(file_path, "rb") as f:
+                requests.put(
+                    signed_url,
+                    data=f,
+                    headers={"Content-Type": "application/octet-stream"},
+                ).raise_for_status()
+        except Exception as e:
+            logger.error(f"上传私信图片失败: {e}")
+            return {"error": str(e)}
+
+        attachment = {
+            "fileKey": file_key,
+            "url": cdn_url,
+            "width": width,
+            "height": height,
+            "fileSize": file_size,
+            "hash": "",
+            "animated": False,
+            "displayName": "",
+            "attachmentType": "IMAGE",
+        }
+        msg_text = f"![IMAGEw{width}h{height}]({file_key})"
+        if text:
+            msg_text += f"\n{text}"
+        result = self.send_private_message(target, msg_text, attachments=[attachment])
+        if "error" in result:
+            logger.error("私信图片发送失败: %s", result.get("error"))
+            return result
+        return {"status": True, "channel": result.get("channel"), "attachment": attachment}
 
     # ---- 自动撤回 ----
 
@@ -490,6 +800,35 @@ class OopzSender:
 
     # ---- 域成员查询 ----
 
+    def _get_area_members_cache_store(self) -> dict:
+        store = getattr(self, "_area_members_cache", None)
+        if not isinstance(store, dict):
+            store = {}
+            self._area_members_cache = store
+        return store
+
+    def _get_cached_area_members(
+        self,
+        cache_key: tuple[str, int, int],
+        *,
+        max_age: float,
+    ) -> Optional[dict]:
+        store = self._get_area_members_cache_store()
+        cached = store.get(cache_key)
+        if not isinstance(cached, dict):
+            return None
+        ts = cached.get("ts")
+        data = cached.get("data")
+        if not isinstance(ts, (int, float)) or not isinstance(data, dict):
+            return None
+        if time.time() - float(ts) > max_age:
+            return None
+        return copy.deepcopy(data)
+
+    def _set_cached_area_members(self, cache_key: tuple[str, int, int], data: dict) -> None:
+        store = self._get_area_members_cache_store()
+        store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
+
     def get_area_members(self, area: Optional[str] = None, offset_start: int = 0, offset_end: int = 49, quiet: bool = False) -> dict:
         """
         获取域内成员列表及在线状态。
@@ -506,9 +845,66 @@ class OopzSender:
         area = area or OOPZ_CONFIG["default_area"]
         url_path = "/area/v3/members"
         params = {"area": area, "offsetStart": str(offset_start), "offsetEnd": str(offset_end)}
+        max_attempts = 3
+        cache_key = (str(area), int(offset_start), int(offset_end))
+        cache_ttl = float(getattr(self, "_area_members_cache_ttl", 2.0))
+        stale_ttl = float(getattr(self, "_area_members_stale_ttl", 15.0))
+
+        if quiet:
+            cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
+            if cached is not None:
+                return cached
 
         try:
-            resp = self._get(url_path, params=params)
+            resp = None
+            for attempt in range(1, max_attempts + 1):
+                resp = self._get(url_path, params=params)
+                if resp.status_code != 429:
+                    break
+
+                retry_after = 0
+                try:
+                    retry_after = int(resp.headers.get("Retry-After", "0") or "0")
+                except Exception:
+                    retry_after = 0
+                wait_seconds = retry_after if retry_after > 0 else min(attempt, 3)
+
+                if attempt >= max_attempts:
+                    stale_cached = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+                    if stale_cached is not None:
+                        stale_cached["stale"] = True
+                        stale_cached["rateLimited"] = True
+                        logger.warning(
+                            "获取域成员被限流，返回 %.1fs 内缓存数据 (area=%s, offset=%s-%s)",
+                            stale_ttl,
+                            area,
+                            offset_start,
+                            offset_end,
+                        )
+                        return stale_cached
+                    logger.warning(
+                        "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s, 已重试%d次)",
+                        area,
+                        offset_start,
+                        offset_end,
+                        max_attempts - 1,
+                    )
+                    return {"error": "HTTP 429"}
+
+                logger.warning(
+                    "获取域成员被限流: HTTP 429 (area=%s, offset=%s-%s), %.1fs 后重试 (%d/%d)",
+                    area,
+                    offset_start,
+                    offset_end,
+                    float(wait_seconds),
+                    attempt,
+                    max_attempts - 1,
+                )
+                time.sleep(wait_seconds)
+
+            if resp is None:
+                return {"error": "未获得响应"}
+
             if resp.status_code != 200:
                 logger.error(f"获取域成员失败: HTTP {resp.status_code}")
                 return {"error": f"HTTP {resp.status_code}"}
@@ -533,6 +929,7 @@ class OopzSender:
             data["onlineCount"] = online
             data["userCount"] = total
             data["fetchedCount"] = fetched
+            self._set_cached_area_members(cache_key, data)
             return data
         except Exception as e:
             logger.error(f"获取域成员异常: {e}")

@@ -1,0 +1,19 @@
+{
+  "enabled": true,
+  "api_key": "",
+  "client_id": "",
+  "api_mode": "auto",
+  "base_urls": [
+    "https://df-api-eo.shallow.ink",
+    "https://df-api-esa.shallow.ink",
+    "https://df-api.shallow.ink"
+  ],
+  "login_timeout_sec": 180,
+  "login_poll_interval_sec": 1,
+  "request_timeout_sec": 30,
+  "request_retries": 3,
+  "render_timeout_sec": 30,
+  "render_width": 1365,
+  "render_scale": 1.0,
+  "temp_dir": "data/delta_force"
+}

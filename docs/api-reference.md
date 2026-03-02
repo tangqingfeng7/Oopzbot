@@ -222,6 +222,126 @@ GET /im/session/v2/messageBefore?area={area}&channel={channel}&size={size}
 }
 ```
 
+### 私信 API（IM）
+
+以下接口为「私信用户」流程所用，通过 Playwright 抓包自 Web 端（https://web.oopz.cn/）。请求签名与通用规则一致，需携带 Oopz 系列 Header。
+
+#### 打开/切换私信会话
+
+进入与指定用户的私信会话（若无则创建会话）。
+
+```
+PATCH /client/v1/chat/v1/to?target={目标用户UID}
+```
+
+| 参数 | 说明 |
+|------|------|
+| `target` | 目标用户 UID（如 `a8cefa6020c711ef948e22d3a3e3e6e2`） |
+
+**说明：** 调用成功后，后续拉历史、发消息需使用该会话对应的 `channel`（通常由响应或后续接口返回）。
+
+#### 发送私信消息
+
+发送一条私信。与房间消息不同：私信使用 `sendImMessage`（v2），房间消息使用 `sendGimMessage`（v1）；私信请求体为 **`message` 包裹**，正文字段为 **`content`**（与 Web 端 Playwright 抓包一致）。
+
+```
+POST /im/session/v2/sendImMessage
+```
+
+**请求体（Web 端格式，根级为 `message` 对象）：**
+
+```json
+{
+  "message": {
+    "area": "",
+    "channel": "私信会话 channel（来自 open_private_session 或会话列表）",
+    "target": "目标用户 UID",
+    "clientMessageId": "15 位客户端消息 ID",
+    "timestamp": "微秒时间戳",
+    "isMentionAll": false,
+    "mentionList": [],
+    "styleTags": [],
+    "referenceMessageId": null,
+    "animated": false,
+    "displayName": "",
+    "duration": 0,
+    "content": "消息文本",
+    "attachments": []
+  }
+}
+```
+
+**字段说明（均在 `message` 内）：**
+
+| 字段 | 类型 | 必填 | 说明 |
+|------|------|------|------|
+| `channel` | string | 是 | 私信会话 channel |
+| `target` | string | 是 | 目标用户 UID |
+| `clientMessageId` | string | 是 | 客户端消息 ID |
+| `timestamp` | string | 是 | 微秒时间戳 |
+| `content` | string | 是 | 消息正文；发图片时为 `![IMAGEw{宽}h{高}]({fileKey})` 或与文字拼接 |
+| `attachments` | array | 否 | 附件列表，结构同「发送消息」 |
+| `area` | string | 否 | 私信留空 `""` |
+| `isMentionAll` | boolean | 否 | 默认 `false` |
+| `mentionList` | array | 否 | 默认 `[]` |
+| `styleTags`、`referenceMessageId`、`animated`、`displayName`、`duration` | - | 否 | 同上 |
+
+**成功响应示例：** `{"status":true,"data":{"messageId":"...","timestamp":"..."},"message":"","error":"","code":""}`
+
+**图片消息：** 正文放在 `content`，附件放在 `attachments`，格式同「发送消息」。
+
+#### 获取私信历史消息
+
+拉取与某用户的私信历史。
+
+```
+GET /im/session/v2/messageBefore?area&channel={channel}&size={size}
+```
+
+| 参数 | 说明 |
+|------|------|
+| `area` | 私信场景下可为空（query 中保留 `area` 无值即可） |
+| `channel` | 私信会话 channel（如 `01KJP5MHQC7TSQ6FDKT8N1DZAX`），从「打开私信会话」或会话列表获得 |
+| `size` | 条数，如 `50` |
+
+响应格式与「获取频道消息」中的 `messages` 结构类似（含 `messageId`、`timestamp`、`person`、`content`、`channel` 等）。
+
+#### 保存已读状态
+
+上报该私信会话的已读状态（Playwright 抓包）。
+
+```
+POST /im/session/v1/saveReadStatus
+```
+
+**请求体：**
+
+```json
+{
+  "area": "",
+  "status": [
+    {
+      "person": "当前用户 UID",
+      "channel": "私信会话 channel",
+      "messageId": "已读到的最后一条消息 ID"
+    }
+  ]
+}
+```
+
+私信场景下 `area` 为空字符串；房间场景下 `area` 为域 ID。
+
+---
+
+**私信流程小结：**
+
+| 步骤 | 方法 | 路径 |
+|------|------|------|
+| 打开私信会话 | PATCH | `/client/v1/chat/v1/to?target=<uid>` |
+| 发送私信 | POST | `/im/session/v2/sendImMessage` |
+| 拉取历史 | GET | `/im/session/v2/messageBefore?area&channel=<channel>&size=50` |
+| 已读状态 | POST | `/im/session/v1/saveReadStatus` |
+
 ---
 
 ## 文件上传 API

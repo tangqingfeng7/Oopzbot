@@ -102,6 +102,15 @@ def init_database():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delta_force_active_token (
+            user_id TEXT PRIMARY KEY,
+            account_group TEXT NOT NULL DEFAULT 'qq_wechat',
+            framework_token TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        )
+    """)
+
     conn.commit()
     conn.close()
     logger.info(f"数据库已初始化: {DB_PATH}")

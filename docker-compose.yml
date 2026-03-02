@@ -1,0 +1,53 @@
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    command: ["redis-server", "--appendonly", "yes"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    volumes:
+      - redis-data:/data
+
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      TZ: Asia/Shanghai
+      BOT_REDIS_HOST: redis
+      BOT_NETEASE_BASE_URL: http://netease-api:3000
+      BOT_DISABLE_AUTO_START_NETEASE: "1"
+      BOT_DISABLE_VOICE: "1"
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./config.py:/app/config.py:ro
+      - ./private_key.py:/app/private_key.py:ro
+      - ./config:/app/config
+      - ./data:/app/data
+      - ./logs:/app/logs
+
+  netease-api:
+    profiles: ["music"]
+    build:
+      context: ./NeteaseAPI_tmp
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    environment:
+      TZ: Asia/Shanghai
+    expose:
+      - "3000"
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./NeteaseAPI_tmp/data:/app/data
+
+volumes:
+  redis-data:

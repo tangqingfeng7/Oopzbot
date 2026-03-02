@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+  <style>
+    body{margin:0;background:linear-gradient(140deg,#150d29,#30215d 45%,#536cc5);font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#f7f7ff}
+    #poster{width:1240px;padding:42px;box-sizing:border-box}
+    .shell{background:rgba(14,10,32,.8);border:1px solid rgba(220,226,255,.13);border-radius:30px;padding:30px;box-shadow:0 24px 70px rgba(0,0,0,.36)}
+    .hero{display:flex;align-items:center;gap:20px;margin-bottom:20px}
+    .avatar{width:96px;height:96px;border-radius:22px;object-fit:cover;background:#271d49}
+    .title{font-size:34px;font-weight:700}
+    .subtitle{font-size:17px;color:#c6cff9;margin-top:8px}
+    .name{font-size:20px;margin-top:10px}
+    .panel{margin-top:16px;padding:18px;border-radius:22px;background:rgba(255,255,255,.05)}
+    .record{padding:14px 0;border-bottom:1px solid rgba(255,255,255,.07)}
+    .record:last-child{border-bottom:none}
+    .record-title{font-size:18px;font-weight:700}
+    .record-meta{margin-top:6px;color:#cdd4ff}
+    .record-metrics{margin-top:8px;color:#eef1ff}
+    .empty{padding:12px 0;color:#cdd4ff}
+  </style>
+</head>
+<body>
+  <div id="poster">
+    <div class="shell">
+      <div class="hero">
+        <img class="avatar" src="$hero_image" alt="">
+        <div>
+          <div class="title">$title</div>
+          <div class="subtitle">$subtitle</div>
+          <div class="name">$hero_name</div>
+        </div>
+      </div>
+      $body_html
+    </div>
+  </div>
+</body>
+</html>

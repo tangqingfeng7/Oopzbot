@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+  <style>
+    body{margin:0;background:linear-gradient(135deg,#0b1d2b,#18354b 45%,#2a5368);font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:#eef6fb}
+    #poster{width:1200px;padding:40px;box-sizing:border-box}
+    .shell{background:rgba(8,17,24,.78);border:1px solid rgba(170,222,255,.16);border-radius:28px;padding:28px 30px;box-shadow:0 24px 70px rgba(0,0,0,.34)}
+    .hero{display:flex;gap:20px;align-items:center;margin-bottom:24px}
+    .avatar{width:104px;height:104px;border-radius:24px;object-fit:cover;background:#102534;border:1px solid rgba(255,255,255,.14)}
+    .title{font-size:38px;font-weight:700;letter-spacing:.04em}
+    .subtitle{font-size:18px;color:#a9c8d8;margin-top:8px}
+    .name{font-size:22px;color:#dff2ff;margin-top:10px}
+    .panel{margin-top:18px;padding:18px 20px;border-radius:20px;background:rgba(255,255,255,.05)}
+    .panel h3{margin:0 0 12px;font-size:20px}
+    .row{display:flex;justify-content:space-between;gap:24px;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.06)}
+    .row:last-child{border-bottom:none}
+    .label{color:#9bbbcf}
+    .value{font-weight:600}
+    .empty{padding:14px 0;color:#9bbbcf}
+  </style>
+</head>
+<body>
+  <div id="poster">
+    <div class="shell">
+      <div class="hero">
+        <img class="avatar" src="$hero_image" alt="">
+        <div>
+          <div class="title">$title</div>
+          <div class="subtitle">$subtitle</div>
+          <div class="name">$hero_name</div>
+        </div>
+      </div>
+      $body_html
+    </div>
+  </div>
+</body>
+</html>

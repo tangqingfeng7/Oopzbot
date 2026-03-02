@@ -4,6 +4,7 @@
 
 - `lol_ban.json` → 对应插件 `plugins/lol_ban.py`
 - `lol_fa8.json` → 对应插件 `plugins/lol_fa8.py`
+- `delta_force.json` → 对应插件 `plugins/delta_force.py`
 - 格式：JSON 对象，字段由各插件自行约定
 
 若不需要配置，可不创建该文件，插件收到的 `config` 为 `{}`。
