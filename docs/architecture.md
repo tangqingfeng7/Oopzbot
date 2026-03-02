@@ -53,7 +53,7 @@ NeteaseCloud API (:3000)
     浏览器 (Web UI)                Agora RTC (语音频道)
          │                               │
     player.html                  agora_player.html
-    搜索/点歌/控制               Playwright 无头浏览器
+    搜索/点歌/控制               浏览器自动化（Playwright/Selenium）
     暂停/进度/音量               音频推流/暂停/跳转/音量
 ```
 
@@ -69,7 +69,7 @@ NeteaseCloud API (:3000)
 | 加密签名 | cryptography（RSA PKCS1v15 + SHA256） |
 | AI 接口 | 豆包（火山方舟，OpenAI 兼容） |
 | 音乐 API | NeteaseCloudMusicApi（Node.js） |
-| 语音推流 | Agora Web SDK（Playwright 无头浏览器） |
+| 语音推流 | Agora Web SDK（Playwright 优先，Selenium 回退） |
 
 ## 项目结构
 
@@ -87,22 +87,38 @@ NeteaseCloud API (:3000)
 │   ├── area_join_notifier.py    # 域成员加入/退出通知（轮询域成员 API 检测加入 + WebSocket 退出事件）
 │   ├── command_handler.py       # 命令路由（@bot 指令 + / 命令 + 权限校验 + 脏话自动禁言）
 │   ├── music.py                 # 音乐核心（搜索、队列、播放、封面缓存、自动切歌、Web 控制）
+│   ├── music_web_control.py     # Web 控制命令消费与分发
 │   ├── netease.py               # 网易云音乐 API 封装（搜索、歌词、翻译歌词）
 │   ├── queue_manager.py         # Redis 播放队列管理
 │   ├── web_player.py            # Web 播放器 FastAPI 服务（状态/歌词/队列/搜索/控制 API）
+│   ├── web_link_token.py        # Web 播放器随机访问链接/令牌管理
 │   ├── player.html              # Web 播放器前端（歌词同步、播放控制、搜索点歌）
 │   ├── agora_player.html        # Agora RTC 浏览器端（推流/暂停/跳转/音量控制）
-│   ├── voice_client.py          # Agora 语音客户端（Playwright 无头浏览器控制）
+│   ├── voice_client.py          # Agora 语音客户端（Playwright/Selenium 浏览器控制）
 │   ├── chat.py                  # AI 聊天 + 图片生成 + 关键词回复 + AI 脏话审核
 │   ├── database.py              # SQLite 数据层（图片缓存、歌曲缓存、播放历史、统计）
 │   ├── name_resolver.py         # ID → 名称解析（用户/频道/区域，自动发现 + 持久化）
+│   ├── plugin_loader.py         # 插件发现/加载/卸载
+│   ├── plugin_registry.py       # 插件注册表与命令能力汇总
+│   ├── plugin_base.py           # 插件基类
 │   └── logger_config.py         # 日志配置（轮转文件 + 控制台，UTF-8）
 │
 ├── plugins/                     # 插件目录
+│   ├── delta_force.py           # 三角洲插件入口
+│   ├── _delta_force_api.py      # 三角洲 API 封装
+│   ├── _delta_force_assets.py   # 三角洲静态资源辅助
+│   ├── _delta_force_login.py    # 三角洲登录流程
+│   ├── _delta_force_store.py    # 三角洲本地状态存储
+│   ├── _delta_force_render.py   # 三角洲海报渲染
+│   ├── _delta_force_formatters.py # 三角洲文案格式化
+│   ├── _delta_force_daily_push.py # 三角洲每日密码推送
+│   ├── _delta_force_place_push.py # 三角洲特勤处推送
 │   ├── lol_ban.py               # LOL 封号查询插件入口
 │   ├── lol_fa8.py               # LOL 战绩查询插件入口
 │   ├── _lol_query_service.py    # 封号查询实现（插件私有）
-│   └── _lol_fa8_service.py      # 战绩查询实现（插件私有）
+│   ├── _lol_fa8_service.py      # 战绩查询实现（插件私有）
+│   ├── delta_force_assets/      # 三角洲静态资源与模板
+│   └── README.md                # 插件说明
 │
 ├── tools/                       # 独立工具
 │   ├── credential_tool.py       # 凭据获取工具（RSA 私钥、UID、设备 ID、JWT Token）

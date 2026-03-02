@@ -111,6 +111,27 @@ def init_database():
         )
     """)
 
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delta_force_place_push (
+            user_id TEXT NOT NULL,
+            channel_id TEXT NOT NULL,
+            area_id TEXT NOT NULL,
+            last_snapshot TEXT NOT NULL DEFAULT '[]',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (user_id, channel_id, area_id)
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS delta_force_daily_keyword_push (
+            channel_id TEXT NOT NULL,
+            area_id TEXT NOT NULL,
+            last_push_date TEXT NOT NULL DEFAULT '',
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (channel_id, area_id)
+        )
+    """)
+
     conn.commit()
     conn.close()
     logger.info(f"数据库已初始化: {DB_PATH}")

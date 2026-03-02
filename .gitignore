@@ -19,9 +19,12 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
+test/
+tests/
 dist/
 build/
 *.egg
+.learnings
 
 # === 日志 ===
 logs/
@@ -44,3 +47,4 @@ NeteaseCloudMusicApi/
 Thumbs.db
 .DS_Store
 delta-force-plugin-main
+docs_local/

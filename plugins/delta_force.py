@@ -13,20 +13,39 @@ from plugin_base import BotModule, PluginMetadata
 from ._delta_force_api import DeltaForceApiClient, describe_common_failure
 from ._delta_force_assets import normalize_mode
 from ._delta_force_formatters import (
+    ban_history_fallback_text,
     build_daily_context,
+    build_ban_history_context,
+    build_collection_context,
     build_help_text,
     build_info_context,
+    build_money_context,
+    build_place_status_context,
     build_record_context,
+    build_red_collection_context,
+    build_red_record_context,
     build_uid_text,
     build_weekly_context,
+    collection_fallback_text,
     daily_fallback_text,
+    format_daily_keyword_text,
     format_accounts,
+    format_object_search_text,
+    format_price_history_text,
+    format_solution_detail_text,
+    format_solution_list_text,
     info_fallback_text,
+    money_fallback_text,
+    place_status_fallback_text,
     record_fallback_text,
+    red_collection_fallback_text,
+    red_record_fallback_text,
     today_yyyymmdd,
     weekly_fallback_text,
 )
+from ._delta_force_daily_push import DeltaForceDailyKeywordPushManager
 from ._delta_force_login import DeltaForceLoginManager
+from ._delta_force_place_push import DeltaForcePlacePushManager
 from ._delta_force_render import DeltaForceRenderer
 from ._delta_force_store import DeltaForceStore
 
@@ -40,6 +59,9 @@ class DeltaForcePlugin(BotModule):
         self._store = DeltaForceStore()
         self._renderer: Optional[DeltaForceRenderer] = None
         self._login: Optional[DeltaForceLoginManager] = None
+        self._daily_push: Optional[DeltaForceDailyKeywordPushManager] = None
+        self._push: Optional[DeltaForcePlacePushManager] = None
+        self._handler = None
 
     @property
     def metadata(self) -> PluginMetadata:
@@ -63,21 +85,42 @@ class DeltaForcePlugin(BotModule):
         return (
             "plugins._delta_force_api",
             "plugins._delta_force_assets",
+            "plugins._delta_force_daily_push",
             "plugins._delta_force_formatters",
             "plugins._delta_force_login",
+            "plugins._delta_force_place_push",
             "plugins._delta_force_render",
             "plugins._delta_force_store",
         )
 
     def on_load(self, handler, config=None) -> None:
+        self._handler = handler
         self._config = (config or {}).copy()
         self._api = DeltaForceApiClient(self._config)
         self._renderer = DeltaForceRenderer(self._config)
         self._login = DeltaForceLoginManager(self._config, self._api, self._store)
+        self._daily_push = DeltaForceDailyKeywordPushManager(self._config, self._api, self._store)
+        self._push = DeltaForcePlacePushManager(self._config, self._api, self._store)
+        if self._daily_push and handler:
+            try:
+                if self._store.any_daily_keyword_push_subscriptions():
+                    self._daily_push.ensure_started(handler)
+            except Exception as exc:
+                logger.warning("DeltaForcePlugin: daily keyword push preload skipped: %s", exc)
+        if self._push and handler:
+            try:
+                if self._store.any_place_push_subscriptions():
+                    self._push.ensure_started(handler)
+            except Exception as exc:
+                logger.warning("DeltaForcePlugin: place push preload skipped: %s", exc)
 
     def on_unload(self) -> None:
         if self._login:
             self._login.cancel_all()
+        if self._daily_push:
+            self._daily_push.stop()
+        if self._push:
+            self._push.stop()
 
     def handle_mention(self, text, channel, area, user, handler) -> bool:
         command = text[len("三角洲"):].strip() if text.startswith("三角洲") else text.strip()
@@ -146,6 +189,66 @@ class DeltaForcePlugin(BotModule):
 
         if lower in {"uid"}:
             self._send_uid(user, handler, channel, area)
+            return
+
+        if lower in {"每日密码", "今日密码", "daily-keyword", "password"}:
+            self._send_daily_keyword(handler, channel, area)
+            return
+
+        if lower in {"开启每日密码推送"} or lower.startswith("daily-keyword-push on"):
+            self._toggle_daily_keyword_push(True, handler, channel, area)
+            return
+
+        if lower in {"关闭每日密码推送"} or lower.startswith("daily-keyword-push off"):
+            self._toggle_daily_keyword_push(False, handler, channel, area)
+            return
+
+        if lower in {"特勤处状态", "placestatus", "place-status"}:
+            self._send_place_status(user, handler, channel, area)
+            return
+
+        if lower in {"开启特勤处推送", "开启制造推送"} or lower.startswith("place-push on"):
+            self._toggle_place_push(True, user, handler, channel, area)
+            return
+
+        if lower in {"关闭特勤处推送", "关闭制造推送"} or lower.startswith("place-push off"):
+            self._toggle_place_push(False, user, handler, channel, area)
+            return
+
+        if lower.startswith("藏品") or lower.startswith("资产") or lower.startswith("collection") or lower.startswith("assets"):
+            self._send_collection(command_text, user, handler, channel, area)
+            return
+
+        if lower.startswith("物品搜索") or lower.startswith("物品查询") or lower.startswith("物品 ") or lower.startswith("object-search"):
+            self._send_object_search(command_text, handler, channel, area)
+            return
+
+        if lower.startswith("价格历史") or lower.startswith("历史价格") or lower.startswith("price-history"):
+            self._send_price_history(command_text, handler, channel, area)
+            return
+
+        if lower in {"货币", "money", "余额", "balance"}:
+            self._send_money(user, handler, channel, area)
+            return
+
+        if lower in {"封号记录", "违规记录", "违规历史", "封号历史", "ban-history", "banhistory"}:
+            self._send_ban_history(user, handler, channel, area)
+            return
+
+        if lower.startswith("大红收藏") or lower.startswith("大红藏品") or lower.startswith("大红海报") or lower.startswith("藏品海报") or lower.startswith("red-collection"):
+            self._send_red_collection(command_text, user, handler, channel, area)
+            return
+
+        if lower.startswith("出红记录") or lower.startswith("大红记录") or lower.startswith("藏品记录") or lower.startswith("red-records"):
+            self._send_red_records(user, handler, channel, area)
+            return
+
+        if lower.startswith("社区改枪码") or lower.startswith("改枪码列表") or lower.startswith("改枪方案列表") or lower.startswith("solution-list"):
+            self._send_solution_list(command_text, user, handler, channel, area)
+            return
+
+        if lower.startswith("改枪码详情") or lower.startswith("改枪方案详情") or lower.startswith("solution-detail"):
+            self._send_solution_detail(command_text, user, handler, channel, area)
             return
 
         if lower.startswith("日报") or lower.startswith("daily"):
@@ -257,6 +360,295 @@ class DeltaForcePlugin(BotModule):
             self._send_text(handler, err, channel, area)
             return
         self._send_text(handler, build_uid_text(payload), channel, area)
+
+    def _send_daily_keyword(self, handler, channel: str, area: str) -> None:
+        payload = self._api.get_daily_keyword()
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        self._send_text(handler, format_daily_keyword_text(payload), channel, area)
+
+    def _toggle_daily_keyword_push(self, enabled: bool, handler, channel: str, area: str) -> None:
+        if not self._ensure_api_config(handler, channel, area):
+            return
+        if not self._daily_push:
+            self._send_text(handler, "每日密码推送模块未初始化。", channel, area)
+            return
+        if not enabled:
+            if not self._daily_push.is_subscribed(channel, area):
+                self._send_text(handler, "当前频道尚未开启每日密码推送。", channel, area)
+                return
+            self._daily_push.unsubscribe(channel, area)
+            try:
+                if not self._store.any_daily_keyword_push_subscriptions():
+                    self._daily_push.stop()
+            except Exception:
+                pass
+            self._send_text(handler, "已关闭当前频道的每日密码定时推送。", channel, area)
+            return
+        self._daily_push.subscribe(channel, area)
+        self._daily_push.ensure_started(self._handler or handler)
+        self._send_text(handler, "已开启当前频道的每日密码定时推送。", channel, area)
+
+    def _send_object_search(self, command_text: str, handler, channel: str, area: str) -> None:
+        query = self._tail_after_first_token(command_text)
+        if not query:
+            self._send_text(handler, "用法: @bot 三角洲物品 <关键词或ID> 或 /df object-search <关键词或ID>", channel, area)
+            return
+        if "," in query or "，" in query:
+            parts = [part.strip() for part in re.split(r"[,，]", query) if part.strip()]
+            query = parts[0] if parts else query
+        if query.isdigit():
+            payload = self._api.search_object(ids=query)
+        else:
+            payload = self._api.search_object(name=query)
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        self._send_text(handler, format_object_search_text(payload, query), channel, area)
+
+    def _send_price_history(self, command_text: str, handler, channel: str, area: str) -> None:
+        query = self._tail_after_first_token(command_text)
+        if not query:
+            self._send_text(handler, "用法: @bot 三角洲价格历史 <关键词或ID> 或 /df price-history <关键词或ID>", channel, area)
+            return
+        if "," in query or "，" in query:
+            parts = [part.strip() for part in re.split(r"[,，]", query) if part.strip()]
+            query = parts[0] if parts else query
+        search_payload = self._api.search_object(ids=query) if query.isdigit() else self._api.search_object(name=query)
+        err = self._api_error(search_payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        items = search_payload.get("data", {}).get("keywords") if isinstance(search_payload.get("data"), dict) else []
+        items = items if isinstance(items, list) else []
+        if not items and not query.isdigit():
+            self._send_text(handler, f"未找到与“{query}”相关的物品。", channel, area)
+            return
+        first = items[0] if items and isinstance(items[0], dict) else {}
+        object_id = str(first.get("objectID") or query).strip()
+        history_payload = self._api.get_price_history_v2(object_id)
+        history_err = self._api_error(history_payload)
+        if history_err:
+            history_payload = self._api.get_price_history_v1(object_id)
+            history_err = self._api_error(history_payload)
+            if history_err:
+                self._send_text(handler, history_err, channel, area)
+                return
+        self._send_text(handler, format_price_history_text(search_payload, history_payload, query), channel, area)
+
+    def _send_place_status(self, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        payload = self._api.get_place_status(token)
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        context = build_place_status_context(user, personal_info, payload)
+        self._send_poster_or_text(handler, "place_status", context, place_status_fallback_text(payload), channel, area)
+
+    def _toggle_place_push(self, enabled: bool, user: str, handler, channel: str, area: str) -> None:
+        if not self._ensure_api_config(handler, channel, area):
+            return
+        if not self._push:
+            self._send_text(handler, "特勤处推送模块未初始化。", channel, area)
+            return
+        if not enabled:
+            if not self._push.is_subscribed(user, channel, area):
+                self._send_text(handler, "当前频道尚未开启特勤处制造完成推送。", channel, area)
+                return
+            self._push.unsubscribe(user, channel, area)
+            try:
+                if not self._store.any_place_push_subscriptions():
+                    self._push.stop()
+            except Exception:
+                pass
+            self._send_text(handler, "已关闭当前频道的特勤处制造完成推送。", channel, area)
+            return
+
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        payload = self._api.get_place_status(token)
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, f"开启失败：{err}", channel, area)
+            return
+        snapshot = self._push.extract_active_tasks(payload)
+        self._push.subscribe(user, channel, area, snapshot)
+        self._push.ensure_started(self._handler or handler)
+        self._send_text(handler, "已开启当前频道的特勤处制造完成推送。", channel, area)
+
+    def _send_collection(self, command_text: str, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        type_filter = self._tail_after_first_token(command_text)
+        collection_payload = self._api.get_collection(token)
+        err = self._api_error(collection_payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        collection_map_payload = self._api.get_collection_map()
+        map_err = self._api_error(collection_map_payload)
+        if map_err:
+            self._send_text(handler, f"获取藏品基础信息失败：{map_err}", channel, area)
+            return
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        context = build_collection_context(user, personal_info, collection_payload, collection_map_payload, type_filter)
+        self._send_poster_or_text(
+            handler,
+            "collection",
+            context,
+            collection_fallback_text(collection_payload, collection_map_payload, type_filter),
+            channel,
+            area,
+        )
+
+    def _send_money(self, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        payload = self._api.get_money(token)
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        context = build_money_context(user, personal_info, payload)
+        self._send_poster_or_text(handler, "money", context, money_fallback_text(payload), channel, area)
+
+    def _send_ban_history(self, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        payload = self._api.get_ban_history(token)
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        context = build_ban_history_context(user, personal_info, payload)
+        self._send_poster_or_text(handler, "ban_history", context, ban_history_fallback_text(payload), channel, area)
+
+    def _send_red_collection(self, command_text: str, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        season_id = self._parse_red_season(command_text)
+        season_display = f"S{season_id}赛季" if season_id != "all" else "所有赛季"
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        personal_data = self._api.get_personal_data(token, "", season_id)
+        err = self._api_error(personal_data)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        title_payload = self._api.get_title(token)
+        if self._api_error(title_payload):
+            title_payload = {}
+        object_list = self._api.get_object_list("props", "collection")
+        if self._api_error(object_list):
+            object_list = {}
+        object_ids = self._extract_red_object_ids(personal_data)
+        search_payload = self._api.search_object(ids=",".join(object_ids)) if object_ids else {}
+        if self._api_error(search_payload):
+            search_payload = {}
+        context = build_red_collection_context(
+            user,
+            personal_info,
+            personal_data,
+            title_payload,
+            object_list,
+            search_payload,
+            season_display,
+        )
+        self._send_poster_or_text(
+            handler,
+            "red_collection",
+            context,
+            red_collection_fallback_text(personal_data, title_payload, object_list, search_payload, season_display),
+            channel,
+            area,
+        )
+
+    def _send_red_records(self, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        red_list = self._api.get_red_list(token)
+        err = self._api_error(red_list)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        personal_info = self._api.get_personal_info(token)
+        if self._api_error(personal_info):
+            personal_info = {}
+        object_ids = self._extract_red_record_object_ids(red_list)
+        search_payload = self._api.search_object(ids=",".join(object_ids)) if object_ids else {}
+        if self._api_error(search_payload):
+            search_payload = {}
+        context = build_red_record_context(user, personal_info, red_list, search_payload)
+        self._send_poster_or_text(
+            handler,
+            "red_records",
+            context,
+            red_record_fallback_text(red_list, search_payload),
+            channel,
+            area,
+        )
+
+    def _send_solution_list(self, command_text: str, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        weapon_name, price_range = self._parse_solution_list_args(command_text)
+        payload = self._api.get_solution_list(
+            token,
+            user,
+            weapon_name,
+            price_range,
+            client_id=getattr(self._api, "client_id", "") or None,
+        )
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        self._send_text(handler, format_solution_list_text(payload, weapon_name, price_range), channel, area)
+
+    def _send_solution_detail(self, command_text: str, user: str, handler, channel: str, area: str) -> None:
+        token = self._ensure_active_token(user, handler, channel, area)
+        if not token:
+            return
+        match = re.search(r"(\d+)\s*$", command_text.strip())
+        if not match:
+            self._send_text(handler, "用法: @bot 三角洲改枪码详情 <ID> 或 /df solution-detail <ID>", channel, area)
+            return
+        payload = self._api.get_solution_detail(
+            token,
+            user,
+            match.group(1),
+            client_id=getattr(self._api, "client_id", "") or None,
+        )
+        err = self._api_error(payload)
+        if err:
+            self._send_text(handler, err, channel, area)
+            return
+        self._send_text(handler, format_solution_detail_text(payload), channel, area)
 
     def _send_daily(self, command_text: str, user: str, handler, channel: str, area: str) -> None:
         token = self._ensure_active_token(user, handler, channel, area)
@@ -389,3 +781,66 @@ class DeltaForcePlugin(BotModule):
     def _parse_date(command_text: str) -> str:
         match = re.search(r"\b(\d{8})\b", command_text)
         return match.group(1) if match else ""
+
+    @staticmethod
+    def _tail_after_first_token(command_text: str) -> str:
+        parts = command_text.strip().split(maxsplit=1)
+        if len(parts) < 2:
+            return ""
+        return parts[1].strip()
+
+    @staticmethod
+    def _parse_red_season(command_text: str) -> str:
+        match = re.search(r"\b(\d+)\b", command_text)
+        if not match:
+            return "all"
+        return match.group(1)
+
+    @staticmethod
+    def _extract_red_object_ids(personal_data: dict) -> list[str]:
+        data = personal_data.get("data") if isinstance(personal_data.get("data"), dict) else {}
+        sol = data.get("sol") if isinstance(data.get("sol"), dict) else {}
+        sol_data = sol.get("data") if isinstance(sol.get("data"), dict) else {}
+        inner = sol_data.get("data") if isinstance(sol_data.get("data"), dict) else {}
+        detail = inner.get("solDetail") if isinstance(inner.get("solDetail"), dict) else {}
+        red_items = detail.get("redCollectionDetail") if isinstance(detail.get("redCollectionDetail"), list) else []
+        ids: list[str] = []
+        for item in red_items:
+            if not isinstance(item, dict):
+                continue
+            object_id = str(item.get("objectID") or "").strip()
+            if object_id:
+                ids.append(object_id)
+        return sorted(set(ids))
+
+    @staticmethod
+    def _extract_red_record_object_ids(red_list: dict) -> list[str]:
+        data = red_list.get("data") if isinstance(red_list.get("data"), dict) else {}
+        records = data.get("records") if isinstance(data.get("records"), dict) else {}
+        entries = records.get("list") if isinstance(records.get("list"), list) else []
+        ids: list[str] = []
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            object_id = str(item.get("itemId") or "").strip()
+            if object_id:
+                ids.append(object_id)
+        return sorted(set(ids))
+
+    @staticmethod
+    def _parse_solution_list_args(command_text: str) -> tuple[str, str]:
+        raw = command_text.strip()
+        for prefix in ("社区改枪码", "改枪码列表", "改枪方案列表", "solution-list"):
+            if raw.lower().startswith(prefix.lower()):
+                raw = raw[len(prefix):].strip()
+                break
+        if not raw:
+            return "", ""
+        weapon_name = ""
+        price_range = ""
+        for part in raw.split():
+            if re.fullmatch(r"\d+,\d+", part):
+                price_range = part
+            elif not weapon_name:
+                weapon_name = part
+        return weapon_name, price_range

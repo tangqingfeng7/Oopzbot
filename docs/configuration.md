@@ -22,6 +22,10 @@ copy private_key.example.py private_key.py
 | `default_channel` | 默认频道 ID |
 | `base_url` | 网关 API 地址（默认 `https://gateway.oopz.cn`） |
 | `api_url` | 公共 API 地址（默认 `https://api.oopz.cn`） |
+| `use_announcement_style` | Bot 发送消息默认是否使用公告样式（`styleTags: ["IMPORTANT"]`） |
+| `proxy` | 代理配置：留空走系统代理；`False` / `"direct"` 表示直连 |
+| `agora_app_id` | Oopz 语音频道使用的 Agora App ID |
+| `agora_init_timeout` | 语音浏览器初始化等待秒数 |
 
 ### Redis 配置 (`REDIS_CONFIG`)
 
@@ -84,6 +88,38 @@ copy private_key.example.py private_key.py
 | `password` | FA8 登录密码 |
 | `default_area` | 默认大区 ID（`1`=艾欧尼亚） |
 
+### 三角洲插件 (`config/plugins/delta_force.json`)
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 是否启用（默认 `true`，代码当前主要依赖是否存在配置与凭据） |
+| `api_key` | 三角洲后端 API Key（必填） |
+| `client_id` | 三角洲后端 client ID（必填） |
+| `api_mode` | API 地址选择模式，默认 `auto` |
+| `base_urls` | 后端地址列表，`auto` 模式下按顺序故障切换 |
+| `login_timeout_sec` | 二维码登录总超时（秒） |
+| `login_poll_interval_sec` | 二维码状态轮询间隔（秒） |
+| `login_delivery_mode` | 二维码投递方式：`private_message`（私信）或 `temp_channel`（临时频道） |
+| `login_success_notice_delay_sec` | 临时频道模式下，登录结束提示保留多久后自动删频道（秒，默认 `10`） |
+| `request_timeout_sec` | 单次 HTTP 请求超时（秒） |
+| `request_retries` | 单个后端地址最大重试次数 |
+| `daily_keyword_push_check_interval_sec` | 每日密码定时推送检查间隔（秒，默认 `60`，最小 `30`） |
+| `daily_keyword_push_time` | 每日密码定时推送时间（`HH:MM`，默认 `08:00`） |
+| `place_push_interval_sec` | 特勤处制造完成推送轮询间隔（秒，默认 `60`，最小 `15`） |
+| `render_timeout_sec` | 海报渲染超时（秒） |
+| `render_width` | 海报截图宽度 |
+| `render_scale` | 预留渲染缩放参数 |
+| `temp_dir` | 三角洲插件运行时目录（用于二维码和临时渲染文件） |
+
+说明：
+
+- `login_delivery_mode` 默认为 `private_message`。
+- 设为 `temp_channel` 时，插件会创建仅登录用户可见的临时文字频道发送二维码；登录成功、超时、过期或其他终止场景提示后会自动删频道。
+- 若所选投递方式失败，插件会回退到当前频道发送提示或二维码，避免登录流程直接中断。
+- `temp_dir/qrs` 会在插件加载时自动清理过期二维码文件。
+- 每日密码定时推送会按 `daily_keyword_push_time` 在所有已订阅频道每日推送一次。
+- 特勤处制造完成推送会按 `place_push_interval_sec` 周期轮询当前已订阅频道，并在检测到生产任务完成时推送到原频道。
+
 ### 脏话自动禁言 (`PROFANITY_CONFIG`)
 
 | 配置项 | 说明 |
@@ -119,6 +155,14 @@ copy private_key.example.py private_key.py
 | `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（HTTPS 建议 `True`） |
 | `link_idle_release_seconds` | 播放列表空闲超时后释放随机链接（秒，`0` 表示不释放） |
 
+### 自动撤回 (`AUTO_RECALL_CONFIG`)
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 是否启用自动撤回（默认 `False`） |
+| `delay` | 自动撤回延迟秒数（默认 `30`） |
+| `exclude_commands` | 不自动撤回的命令类型列表，如 `ai_chat`、`ai_image` |
+
 ### 域成员加入/退出通知 (`AREA_JOIN_NOTIFY`)
 
 用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息。**退出**依赖 WebSocket 推送（event 11 等）；**加入**因服务端不推送，改为轮询域成员 API 检测新成员。
@@ -128,7 +172,7 @@ copy private_key.example.py private_key.py
 | `enabled` | 是否启用（默认 `False`） |
 | `message_template` | 加入时消息模板，占位符：`{name}`、`{uid}`（默认 `"欢迎 {name} 加入域～"`） |
 | `message_template_leave` | 退出时消息模板，占位符：`{name}`、`{uid}`（默认 `"{name} 已退出域"`） |
-| `poll_interval_seconds` | 轮询间隔（秒），最小 1；默认 1。刚发欢迎后下次轮询仅等 0.5 秒，便于快速发现连续加入 |
+| `poll_interval_seconds` | 轮询间隔（秒），最小 2；默认 2。若成员接口返回 429，程序会自动退避并临时放慢轮询 |
 
 需配置 `default_area`、`default_channel`（或由 Bot 自动取第一个已加入域及第一个文字频道）。通知消息与 Bot 其他消息一致，默认使用**公告样式**。
 

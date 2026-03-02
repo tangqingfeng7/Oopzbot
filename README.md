@@ -1,6 +1,6 @@
 # Oopz Bot 说明文档
 
-基于 Oopz 聊天平台的多功能机器人：支持网易云音乐点歌与语音频道推流、AI 聊天与画图、LOL 封号/战绩查询、脏话自动禁言等。通过 WebSocket 连接平台，支持 @ 提及与斜杠命令两种交互方式。
+基于 Oopz 聊天平台的多功能机器人：支持网易云音乐点歌与语音频道推流、AI 聊天与画图、LOL 封号/战绩查询、三角洲行动账号与战绩查询、脏话自动禁言等。通过 WebSocket 连接平台，支持 @ 提及与斜杠命令两种交互方式。
 
 ---
 
@@ -96,7 +96,7 @@ docker compose --profile music up -d --build
 | **REDIS_CONFIG** | 队列与播放状态存储，需先启动 Redis |
 | **NETEASE_CLOUD** | `base_url`、`cookie`、`auto_start_path`；弱网时可调大 `audio_download_timeout`、`audio_download_retries`，音质可选 `audio_quality: "standard"`（体积小）或 `"exhigh"` |
 | **WEB_PLAYER_CONFIG** | Web 播放器监听 `host`/`port`，以及对外展示的 `url`（留空则自动检测） |
-| **插件配置（JSON）** | LOL 插件配置在 `config/plugins/lol_ban.json` 与 `config/plugins/lol_fa8.json`（字段说明见 [配置说明](docs/configuration.md)） |
+| **插件配置（JSON）** | 插件配置位于 `config/plugins/*.json`，当前包含 `lol_ban`、`lol_fa8` 与 `delta_force`（字段说明见 [配置说明](docs/configuration.md)） |
 | **ADMIN_UIDS** | 可执行管理命令的用户 UID 列表，为空则不限制 |
 
 Bot 发送的所有消息默认使用**公告样式**（`styleTags: ["IMPORTANT"]`）。更多项见 [配置说明](docs/configuration.md)。
@@ -106,7 +106,9 @@ Bot 发送的所有消息默认使用**公告样式**（`styleTags: ["IMPORTANT"
 ## 插件系统
 
 - 插件位于 `plugins/`，启动时自动加载。
-- 插件配置位于 `config/plugins/<插件名>.json`，例如 `lol_ban` 与 `lol_fa8`。
+- 插件配置位于 `config/plugins/<插件名>.json`，例如 `lol_ban`、`lol_fa8` 与 `delta_force`。
+- `delta_force` 插件支持三角洲行动二维码登录、账号切换、角色绑定、信息、藏品/资产、货币、封号记录、日报、周报和战绩查询。
+- 三角洲登录支持通过配置选择二维码投递方式：私信，或创建仅登录用户可见的临时频道；若所选方式失败，插件会回退到当前频道提示。
 - 管理命令（仅管理员）：
   - `@bot 插件列表` / `/plugins`
   - `@bot 加载插件 <名>` / `/loadplugin <名>`

@@ -231,6 +231,132 @@ class DeltaForceApiClient:
             },
         )
 
+    def get_collection(self, framework_token: str) -> dict:
+        return self._request(
+            "/df/person/collection",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_collection_map(self) -> dict:
+        return self._request("/df/object/collection")
+
+    def get_daily_keyword(self) -> dict:
+        return self._request("/df/tools/dailykeyword")
+
+    def get_money(self, framework_token: str) -> dict:
+        return self._request(
+            "/df/person/money",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_ban_history(self, framework_token: str) -> dict:
+        return self._request(
+            "/login/qqsafe/ban",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_place_status(self, framework_token: str) -> dict:
+        return self._request(
+            "/df/place/status",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_title(self, framework_token: str) -> dict:
+        return self._request(
+            "/df/person/title",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_personal_data(self, framework_token: str, mode: str = "", season_id: str = "all") -> dict:
+        params: dict[str, Any] = {"frameworkToken": framework_token}
+        if mode:
+            params["type"] = mode
+        if season_id and season_id != "all":
+            params["seasonid"] = season_id
+        return self._request("/df/person/personalData", params)
+
+    def get_red_list(self, framework_token: str) -> dict:
+        return self._request(
+            "/df/person/redlist",
+            {"frameworkToken": framework_token},
+        )
+
+    def get_red_record(self, framework_token: str, object_id: str) -> dict:
+        return self._request(
+            "/df/person/redone",
+            {"frameworkToken": framework_token, "objectid": object_id},
+        )
+
+    def get_object_list(self, primary: str = "", second: str = "") -> dict:
+        params: dict[str, Any] = {}
+        if primary:
+            params["primary"] = primary
+        if second:
+            params["second"] = second
+        return self._request("/df/object/list", params)
+
+    def search_object(self, name: str = "", ids: str = "") -> dict:
+        params: dict[str, Any] = {}
+        if name:
+            params["name"] = name
+        if ids:
+            params["id"] = ids
+        return self._request("/df/object/search", params)
+
+    def get_solution_list(
+        self,
+        framework_token: str,
+        platform_id: str,
+        weapon_name: str = "",
+        price_range: str = "",
+        *,
+        client_id: Optional[str] = None,
+        client_type: str = "oopz",
+    ) -> dict:
+        params: dict[str, Any] = {
+            "clientID": client_id or self._client_id,
+            "clientType": client_type,
+            "platformID": platform_id,
+            "frameworkToken": framework_token,
+        }
+        if weapon_name:
+            params["weaponName"] = weapon_name
+        if price_range:
+            params["priceRange"] = price_range
+        return self._request("/df/tools/solution/v2/list", params)
+
+    def get_solution_detail(
+        self,
+        framework_token: str,
+        platform_id: str,
+        solution_id: str,
+        *,
+        client_id: Optional[str] = None,
+        client_type: str = "oopz",
+    ) -> dict:
+        return self._request(
+            "/df/tools/solution/v2/detail",
+            {
+                "clientID": client_id or self._client_id,
+                "clientType": client_type,
+                "platformID": platform_id,
+                "frameworkToken": framework_token,
+                "solutionId": str(solution_id),
+            },
+        )
+
+    def get_price_history_v1(self, object_id: str) -> dict:
+        return self._request(
+            "/df/object/price/history/v1",
+            {"id": str(object_id)},
+        )
+
+    def get_price_history_v2(self, object_id: str) -> dict:
+        return self._request(
+            "/df/object/price/history/v2",
+            {"objectId": str(object_id)},
+        )
+
 
 def describe_common_failure(payload: Optional[dict]) -> Optional[str]:
     """Map common API failures to user-facing Chinese text."""

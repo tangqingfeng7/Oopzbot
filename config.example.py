@@ -21,7 +21,7 @@ OOPZ_CONFIG = {
     "default_channel": "", # 默认频道 ID
     "use_announcement_style": True,  # 发送消息默认是否使用公告样式（styleTags=IMPORTANT）
 
-    # Agora RTC（语音频道推流，仅 Linux/macOS 可用）
+    # Agora RTC（语音频道推流；Playwright 优先，Selenium 可回退）
     "agora_app_id": "358eebceadb94c2a9fd91ecd7b341602",
     "agora_init_timeout": 1800,  # Playwright 浏览器启动等待秒数，首启或网络慢可调大
 
@@ -219,7 +219,7 @@ AREA_JOIN_NOTIFY = {
     "enabled": False,
     "message_template": "欢迎 {name} 加入域～",  # 加入时消息，占位符: {name} {uid}
     "message_template_leave": "{name} 已退出域",  # 退出时消息
-    "poll_interval_seconds": 1,   # 轮询间隔（秒），最小 1；发欢迎后 0.5 秒即下次轮询
+    "poll_interval_seconds": 2,   # 轮询间隔（秒），最小 2；遇到 429 会自动退避并临时放慢
 }
 
 # 聊天自动回复配置

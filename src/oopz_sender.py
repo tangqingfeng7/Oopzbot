@@ -365,6 +365,11 @@ class OopzSender:
         return None
 
     @staticmethod
+    def _extract_channel_id(payload: object) -> Optional[str]:
+        """从通用响应中提取频道 ID（文字频道 / 私信 channel 均适用）。"""
+        return OopzSender._extract_private_channel(payload)
+
+    @staticmethod
     def _short_payload(payload: object, limit: int = 240) -> str:
         """将响应体压缩为短日志文本。"""
         try:
@@ -970,6 +975,224 @@ class OopzSender:
         except Exception as e:
             logger.error(f"获取频道列表异常: {e}")
             return []
+
+    def get_channel_setting_info(self, channel: str) -> dict:
+        """
+        获取频道设置详情（名称、访问权限等）。
+
+        API: GET /area/v3/channel/setting/info?channel={channel}
+        """
+        channel = str(channel or "").strip()
+        if not channel:
+            return {"error": "缺少 channel"}
+
+        url_path = "/area/v3/channel/setting/info"
+        params = {"channel": channel}
+        try:
+            resp = self._get(url_path, params=params)
+            if resp.status_code != 200:
+                logger.error(f"获取频道设置失败: HTTP {resp.status_code}")
+                return {"error": f"HTTP {resp.status_code}"}
+            result = resp.json()
+            if not result.get("status"):
+                msg = result.get("message") or result.get("error") or "未知错误"
+                logger.error(f"获取频道设置失败: {msg}")
+                return {"error": msg}
+            data = result.get("data", {})
+            if not isinstance(data, dict):
+                return {"error": "频道设置响应格式异常"}
+            return data
+        except Exception as e:
+            logger.error(f"获取频道设置异常: {e}")
+            return {"error": str(e)}
+
+    def _pick_channel_group(
+        self,
+        area: str,
+        preferred_channel: Optional[str] = None,
+        preferred_group_name: Optional[str] = None,
+    ) -> Optional[str]:
+        """优先按分组名匹配，否则选当前频道所在分组，再回退到第一个可用分组。"""
+        groups = self.get_area_channels(area=area, quiet=True) or []
+        preferred_channel = str(preferred_channel or "").strip()
+        preferred_group_name = str(preferred_group_name or "").strip().lower()
+
+        fallback = None
+        for group in groups:
+            group_id = str(group.get("id") or "").strip()
+            if not group_id:
+                continue
+            group_name = str(group.get("name") or "").strip().lower()
+            if not fallback:
+                fallback = group_id
+            if preferred_group_name and group_name == preferred_group_name:
+                return group_id
+            channels = group.get("channels") or []
+            if preferred_channel and any(str(ch.get("id") or "") == preferred_channel for ch in channels):
+                return group_id
+        if preferred_group_name:
+            return None
+        return fallback
+
+    def create_restricted_text_channel(
+        self,
+        target_uid: str,
+        area: Optional[str] = None,
+        preferred_channel: Optional[str] = None,
+        name: Optional[str] = None,
+    ) -> dict:
+        """
+        创建仅指定成员可见的文字频道。
+
+        先创建频道，再通过 setting/edit 开启访问权限并写入 accessibleMembers。
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        target_uid = str(target_uid or "").strip()
+        if not target_uid:
+            return {"error": "缺少 target_uid"}
+
+        group_id = self._pick_channel_group(area, preferred_channel=preferred_channel)
+        if not group_id:
+            return {"error": "未找到可用频道分组"}
+
+        default_name = f"登录-{target_uid[-4:]}-{time.strftime('%H%M%S')}"
+        channel_name = (name or default_name).strip() or "登录"
+        url_path = "/client/v1/area/v1/channel/v1/create"
+        body = {
+            "area": area,
+            "group": group_id,
+            "name": channel_name,
+            "type": "TEXT",
+            "secret": True,
+        }
+
+        try:
+            resp = self._post(url_path, body)
+        except Exception as e:
+            logger.error(f"创建受限频道异常: {e}")
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info(f"创建受限频道 POST {url_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        if not result.get("status"):
+            msg = result.get("message") or result.get("error") or "创建频道失败"
+            return {"error": str(msg)}
+
+        data = result.get("data", {})
+        channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
+        if not channel_id:
+            return {"error": "创建频道成功，但未能提取频道 ID"}
+
+        setting = self.get_channel_setting_info(channel_id)
+        if isinstance(setting, dict) and "error" in setting:
+            logger.warning("获取新频道设置失败，改用默认值: %s", setting["error"])
+            setting = {}
+
+        edit_body = {
+            "channel": channel_id,
+            "name": str(setting.get("name") or channel_name),
+            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
+            "area": area,
+            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
+            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
+            "maxMember": int(setting.get("maxMember", 30000) or 30000),
+            "voiceControlEnabled": bool(setting.get("voiceControlEnabled", False)),
+            "textControlEnabled": bool(setting.get("textControlEnabled", False)),
+            "textRoles": list(setting.get("textRoles") or []),
+            "voiceRoles": list(setting.get("voiceRoles") or []),
+            "accessControlEnabled": True,
+            "accessible": [],
+            "accessibleMembers": [
+                uid for uid in dict.fromkeys([
+                    str(target_uid),
+                    str(OOPZ_CONFIG.get("person_uid") or ""),
+                ]) if uid
+            ],
+            "secret": bool(setting.get("secret", True)),
+            "hasPassword": bool(setting.get("hasPassword", False)),
+            "password": str(setting.get("password") or ""),
+        }
+
+        edit_path = "/area/v3/channel/setting/edit"
+        try:
+            edit_resp = self._post(edit_path, edit_body)
+        except Exception as e:
+            logger.error(f"设置受限频道权限异常: {e}")
+            self.delete_channel(channel_id, area=area)
+            return {"error": str(e)}
+
+        edit_raw = edit_resp.text or ""
+        logger.info(f"设置受限频道权限 POST {edit_path} -> HTTP {edit_resp.status_code}, body: {edit_raw[:300]}")
+        if edit_resp.status_code != 200:
+            self.delete_channel(channel_id, area=area)
+            return {"error": f"HTTP {edit_resp.status_code}" + (f" | {edit_raw[:200]}" if edit_raw else "")}
+
+        try:
+            edit_result = edit_resp.json()
+        except Exception:
+            self.delete_channel(channel_id, area=area)
+            return {"error": f"权限设置响应非 JSON: {edit_raw[:200]}"}
+
+        if not edit_result.get("status"):
+            self.delete_channel(channel_id, area=area)
+            msg = edit_result.get("message") or edit_result.get("error") or "权限设置失败"
+            return {"error": str(msg)}
+
+        logger.info("创建受限频道成功: channel=%s target=%s", channel_id[:24], target_uid[:12])
+        return {
+            "status": True,
+            "channel": channel_id,
+            "group": group_id,
+            "name": edit_body["name"],
+        }
+
+    def delete_channel(self, channel: str, area: Optional[str] = None) -> dict:
+        """
+        删除频道。
+
+        API: DELETE /client/v1/area/v1/channel/v1/delete?area={area}&channel={channel}
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        channel = str(channel or "").strip()
+        if not channel:
+            return {"error": "缺少 channel"}
+
+        url_path = "/client/v1/area/v1/channel/v1/delete"
+        query = f"?channel={channel}&area={area}"
+        full_path = url_path + query
+
+        try:
+            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, "")}
+            url = OOPZ_CONFIG["base_url"] + full_path
+            resp = self.session.delete(url, headers=headers)
+        except Exception as e:
+            logger.error(f"删除频道异常: {e}")
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info(f"删除频道 DELETE {full_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        if result.get("status") is True:
+            return {"status": True, "message": result.get("message") or "已删除频道"}
+
+        err = result.get("message") or result.get("error") or str(result)
+        logger.error(f"删除频道失败: {err}")
+        return {"error": err}
 
     # ---- 已加入的域列表 ----
 

@@ -165,6 +165,50 @@ POST /im/session/v1/sendGimMessage
 | 关闭公告样式 | 调用时显式传入 `styleTags=[]` 即可恢复为普通气泡 |
 | 正文排版 | 客户端支持 `**粗体**`、`*斜体*` 等 Markdown 式渲染（以实际展示为准） |
 
+**Web 端补充（带 @ 用户）：**
+
+Web 端还可见到 `v2` 包裹格式的频道消息请求：
+
+```
+POST /im/session/v2/sendGimMessage
+```
+
+```json
+{
+  "message": {
+    "area": "域ID",
+    "channel": "频道ID",
+    "target": "",
+    "clientMessageId": "15位客户端消息ID",
+    "timestamp": "微秒时间戳",
+    "isMentionAll": false,
+    "mentionList": [
+      {
+        "person": "被@用户UID",
+        "isBot": false,
+        "botType": "",
+        "offset": -1
+      }
+    ],
+    "styleTags": [],
+    "referenceMessageId": null,
+    "animated": false,
+    "displayName": "",
+    "duration": 0,
+    "content": " (met)被@用户UID(met)",
+    "attachments": []
+  }
+}
+```
+
+| 字段 | 说明 |
+|------|------|
+| `mentionList[].person` | 被 @ 用户 UID |
+| `mentionList[].isBot` | 是否机器人 |
+| `mentionList[].botType` | 机器人类型（普通用户为空） |
+| `mentionList[].offset` | 文本偏移；`-1` 表示不按偏移定位 |
+| `content` | @ 文本使用 ` (met){uid}(met)` 格式 |
+
 ### 撤回消息
 
 ```
@@ -287,6 +331,8 @@ POST /im/session/v2/sendImMessage
 | `styleTags`、`referenceMessageId`、`animated`、`displayName`、`duration` | - | 否 | 同上 |
 
 **成功响应示例：** `{"status":true,"data":{"messageId":"...","timestamp":"..."},"message":"","error":"","code":""}`
+
+**注意：** `HTTP 200` 不一定代表私信已投递成功。若业务层返回类似 `你已被限制向该用户发送信息`，应视为发送失败，而不是只按 HTTP 状态码判断成功。
 
 **图片消息：** 正文放在 `content`，附件放在 `attachments`，格式同「发送消息」。
 
@@ -438,6 +484,136 @@ GET /client/v1/area/v1/detail/v1/channels?area={area}
 ```
 
 `type` 可选值：`TEXT`（文字频道）、`VOICE`（语音频道）
+
+### 创建频道
+
+```
+POST /client/v1/area/v1/channel/v1/create
+```
+
+**请求体（通用）：**
+
+```json
+{
+  "area": "域ID",
+  "group": "分组ID",
+  "name": "频道名称",
+  "type": "TEXT 或 VOICE",
+  "secret": false,
+  "maxMember": 100
+}
+```
+
+**请求体（临时语音频道）：**
+
+```json
+{
+  "area": "域ID",
+  "group": "分组ID",
+  "name": "频道名称",
+  "type": "VOICE",
+  "secret": false,
+  "maxMember": 人数上限,
+  "isTemp": true
+}
+```
+
+**说明：** 需域内管理员权限。`group` 为频道所在分组 ID（可从「获取域频道列表」响应中的分组 `id` 取得）。可选字段 `vender`、`maxMember`（不传时由服务端默认）。
+
+### 复制频道
+
+```
+POST /area/v1/channel/v1/copy
+```
+
+**请求体：**
+
+```json
+{
+  "area": "域ID",
+  "channel": "被复制的频道ID",
+  "name": "新频道名称"
+}
+```
+
+### 删除频道
+
+```
+DELETE /client/v1/area/v1/channel/v1/delete?area={area}&channel={channel}
+```
+
+**参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `area` | 域 ID |
+| `channel` | 要删除的频道 ID |
+
+**说明：** 需域内管理员权限。
+
+### 获取频道设置信息
+
+```
+GET /area/v3/channel/setting/info?channel={channel}
+```
+
+**参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `channel` | 频道 ID |
+
+**说明：** Web 端抓包中仅要求 `channel`。返回频道当前设置（名称、权限、文字/语音控制、人数上限、密码等），用于编辑前拉取。
+
+### 编辑频道设置（频道权限）
+
+```
+POST /area/v3/channel/setting/edit
+```
+
+**请求体：**
+
+```json
+{
+  "area": "域ID",
+  "channel": "频道ID",
+  "name": "频道名称",
+  "textGapSecond": 0,
+  "voiceQuality": "质量档位",
+  "voiceDelay": "延迟档位",
+  "maxMember": 人数上限,
+  "voiceControlEnabled": true,
+  "textControlEnabled": true,
+  "textRoles": [],
+  "voiceRoles": [],
+  "accessControlEnabled": false,
+  "accessible": [],
+  "accessibleMembers": [],
+  "secret": false,
+  "hasPassword": false,
+  "password": ""
+}
+```
+
+**说明：** 需域内管理员权限。用于配置频道名称、文字/语音发言权限（按角色或成员）、访问控制、人数上限、密码等。`textRoles` / `voiceRoles` 为有发言权限的角色 ID 列表；`accessibleMembers` 为有访问权限的成员 UID 列表（当 `accessControlEnabled`/`accessible` 启用时）。
+
+### 搜索可添加的私密成员
+
+```
+GET /area/v3/search/areaPrivateSettingMembers?area={area}&keyword={keyword}&page={page}
+```
+
+**参数：**
+
+| 参数 | 说明 |
+|------|------|
+| `area` | 域 ID |
+| `keyword` | 搜索关键词，可为空 |
+| `page` | 页码（如 `1`） |
+
+**说明：** Web 端频道权限页中用于搜索并添加「允许访问的成员」。
+
+---
 
 ### 进入域
 
@@ -903,3 +1079,87 @@ GET /general/v1/speech
 | `message` | 成功时的提示信息 |
 | `error` | 失败时的错误信息 |
 | `code` | 业务状态码 |
+
+---
+
+## Web 端补充
+
+### 抓包接口索引
+
+#### 通用 / 网关
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `https://gateway.oopz.cn/general/v2/curTime` | 当前时间 |
+| GET | `https://gateway.oopz.cn/general/v2/settings` | 通用设置 |
+| POST | `https://gateway.oopz.cn/general/v2/switch` | 开关配置 |
+| GET | `https://gateway.oopz.cn/health` | 健康检查 |
+| GET | `https://gateway.oopz.cn/general/v1/speech` | 语音相关 |
+
+#### 登录 / 用户
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `https://gateway.oopz.cn/client/v1/login/v1/autoLogin` | 自动登录 |
+| GET | `https://gateway.oopz.cn/login/v1/loginCheck` | 登录校验 |
+| GET | `https://gateway.oopz.cn/client/v1/person/v2/selfDetail?uid=...` | 当前用户详情 |
+| GET | `https://gateway.oopz.cn/client/v1/person/v1/personDetail?uid=...` | 用户详情 |
+| POST | `https://gateway.oopz.cn/client/v1/person/v1/personInfos` | 批量用户信息 |
+| GET | `https://gateway.oopz.cn/person/v1/blockCheck?targetUid=...` | 拉黑检查 |
+| GET | `https://gateway.oopz.cn/client/v1/person/v1/privacy/v1/query` | 隐私设置查询 |
+
+#### 会话 / IM
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `https://gateway.oopz.cn/im/session/v1/sessions` | 会话列表 |
+| POST | `https://gateway.oopz.cn/im/session/v2/sendGimMessage` | 频道消息（Web 抓包，含 @ 用户） |
+| GET | `https://gateway.oopz.cn/im/session/v2/messageBefore?area=...&channel=...&size=50` | 历史消息 |
+| GET | `https://gateway.oopz.cn/im/session/v2/topMessages?area=...&channel=...` | 置顶消息 |
+| POST | `https://gateway.oopz.cn/im/session/v1/areasUnread` | 区域未读数 |
+| POST | `https://gateway.oopz.cn/im/session/v1/areasMentionUnread` | @ 未读 |
+| POST | `https://gateway.oopz.cn/im/session/v1/saveReadStatus` | 保存已读状态 |
+
+#### 区域 / 频道（权限页相关）
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| POST | `https://gateway.oopz.cn/client/v1/area/v1/enter?area=...&recover=false` | 进入区域 |
+| GET | `https://gateway.oopz.cn/area/v3/info?area=...` | 区域信息 |
+| GET | `https://gateway.oopz.cn/area/v3/members?area=...&offsetStart=0&offsetEnd=49` | 区域成员列表 |
+| GET | `https://gateway.oopz.cn/client/v1/area/v1/detail/v1/channels?area=...` | 频道列表 |
+| POST | `https://gateway.oopz.cn/area/v2/channel/enter` | 进入频道 |
+| GET | `https://gateway.oopz.cn/area/v3/channel/setting/info?channel=...` | 频道设置信息 |
+| POST | `https://gateway.oopz.cn/area/v3/channel/setting/edit` | 编辑频道设置 |
+| GET | `https://gateway.oopz.cn/area/v3/search/areaPrivateSettingMembers?area=...&keyword&page=1` | 搜索私密成员 |
+| POST | `https://gateway.oopz.cn/client/v1/area/v1/channel/v1/create` | 创建频道 |
+| DELETE | `https://gateway.oopz.cn/client/v1/area/v1/channel/v1/delete?channel=...&area=...` | 删除频道 |
+| POST | `https://gateway.oopz.cn/area/v2/getUserAreaNicknames` | 获取区域昵称 |
+| GET | `https://gateway.oopz.cn/area/v3/userDetail?area=...&target=...` | 区域内用户详情 |
+| GET | `https://gateway.oopz.cn/area/v3/role/canGiveList?area=...&target=...` | 可授予身份组列表 |
+
+### Web 端请求头样例
+
+所有抓包接口都需要标准 Oopz 头；下表记录了 Web 端常见值，便于复现：
+
+| Header | 说明 | 示例值 |
+|--------|------|--------|
+| `content-type` | 固定 | `application/json;charset=utf-8` |
+| `origin` | 固定 | `https://web.oopz.cn` |
+| `oopz-app-version-number` | 应用版本号 | `73817` |
+| `oopz-channel` | 渠道 | `Web` |
+| `oopz-device-id` | 设备 ID（UUID） | `b2b0ecba-1838-4df0-a63f-e761b43b97af` |
+| `oopz-platform` | 平台 | `windows` |
+| `oopz-request-id` | 请求唯一 ID | 每次请求不同 |
+| `oopz-sign` | 请求签名 | Base64 长字符串 |
+| `oopz-time` | 毫秒时间戳 | `1772429988449` |
+| `oopz-web` | 是否 Web | `true` |
+| `oopz-person` | 当前用户 UID | 登录后必带 |
+| `oopz-signature` | JWT | 登录后必带 |
+
+### 备注
+
+- `client/v1/login/v1/autoLogin` 的 `code` 字段即登录 JWT，后续请求放到 `oopz-signature`。
+- `im/session/v2/sendGimMessage` 为 Web 端可见的频道消息包裹格式；本 Bot 当前常用实现仍是 `v1/sendGimMessage`。
+- `area/v3/channel/setting/info` 的 Web 抓包查询参数仅包含 `channel`，未见必须传 `area`。
+- 抓取时间：通用 / 登录 / 权限相关为 2026-03-02；发送 @ 消息为 2026-03-03。

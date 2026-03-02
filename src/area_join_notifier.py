@@ -93,6 +93,22 @@ def _next_poll_interval(base_interval: int, current_interval: int, rate_limited:
     return min(max(current * 2, base), 10)
 
 
+def _build_member_mention(uid: str) -> Tuple[str, list]:
+    """构造 Oopz 的 @ 用户正文片段和 mentionList。"""
+    uid = (uid or "").strip()
+    if not uid:
+        return "", []
+    return (
+        f" (met){uid}(met)",
+        [{
+            "person": uid,
+            "isBot": False,
+            "botType": "",
+            "offset": -1,
+        }],
+    )
+
+
 def _run_join_poll_loop(
     sender: OopzSender,
     message_template_join: str,
@@ -162,7 +178,14 @@ def _run_join_poll_loop(
                     try:
                         name = _resolve_display_name(sender, uid, None)
                         text = message_template_join.format(name=name, uid=uid)
-                        sender.send_message(text, area=area, channel=channel, auto_recall=False)
+                        mention_text, mention_list = _build_member_mention(uid)
+                        sender.send_message(
+                            f"{mention_text}\n{text}",
+                            area=area,
+                            channel=channel,
+                            auto_recall=False,
+                            mentionList=mention_list,
+                        )
                     except Exception as e:
                         logger.warning("域成员欢迎发送失败 uid=%s: %s", uid, e)
             # 保持固定轮询间隔，避免短时间连续请求触发成员接口限流
@@ -304,9 +327,17 @@ def make_ws_handler(
             name = _resolve_display_name(sender, uid, None)
             if action == "join":
                 text = message_template_join.format(name=name, uid=uid)
+                mention_text, mention_list = _build_member_mention(uid)
+                sender.send_message(
+                    f"{mention_text}\n{text}",
+                    area=a,
+                    channel=ch,
+                    auto_recall=False,
+                    mentionList=mention_list,
+                )
             else:
                 text = message_template_leave.format(name=name, uid=uid)
-            sender.send_message(text, area=a, channel=ch, auto_recall=False)
+                sender.send_message(text, area=a, channel=ch, auto_recall=False)
         except Exception as e:
             logger.warning("域成员通知发送失败: %s", e)
 
