@@ -249,7 +249,8 @@ class OopzClient:
             if person_id:
                 resolver.register_id("users", person_id)
 
-            user_display = resolver.user(person_id)
+            resolver.batch_resolve_users([person_id] if person_id else [])
+            user_display = resolver.user_cached(person_id)
             area_display = resolver.area(area_id)
             channel_display = resolver.channel(channel_id)
 

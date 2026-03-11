@@ -1,0 +1,718 @@
+@font-face {
+  font-family: "SFPro-Regular";
+  src: url("/webintosh-assets/fonts/sf-pro-display_regular.woff2");
+}
+
+@font-face {
+  font-family: "SFPro-Bold";
+  src: url("/webintosh-assets/fonts/sf-pro-display_semibold.woff2");
+}
+
+@font-face {
+  font-family: "PingFang-Regular";
+  src: url("/webintosh-assets/fonts/PingFangSC-Regular.woff2");
+}
+
+@font-face {
+  font-family: "PingFang-Bold";
+  src: url("/webintosh-assets/fonts/PingFangSC-Semibold.woff2");
+}
+
+:root {
+  --admin-text: #1c2430;
+  --admin-muted: #667487;
+  --admin-line: rgba(255, 255, 255, 0.2);
+  --admin-card-line: rgba(255, 255, 255, 0.32);
+  --admin-glass: rgba(246, 248, 252, 0.38);
+  --admin-glass-strong: rgba(244, 247, 251, 0.52);
+  --admin-shadow: 0 30px 80px rgba(7, 12, 20, 0.2);
+  --admin-button-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+  --admin-input-bg: rgba(255, 255, 255, 0.78);
+  --admin-pre-bg: rgba(17, 25, 37, 0.84);
+  --admin-accent: #0f6fff;
+  --admin-accent-soft: rgba(15, 111, 255, 0.12);
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --admin-text: #eef4fb;
+    --admin-muted: #c1cfdd;
+    --admin-line: rgba(255, 255, 255, 0.14);
+    --admin-card-line: rgba(255, 255, 255, 0.18);
+    --admin-glass: rgba(15, 22, 34, 0.52);
+    --admin-glass-strong: rgba(15, 22, 34, 0.62);
+    --admin-shadow: 0 30px 80px rgba(0, 0, 0, 0.34);
+    --admin-button-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+    --admin-input-bg: rgba(8, 13, 23, 0.7);
+    --admin-pre-bg: rgba(4, 8, 14, 0.9);
+    --admin-accent: #71adff;
+    --admin-accent-soft: rgba(113, 173, 255, 0.14);
+  }
+}
+
+html[data-theme="light"] {
+  --admin-text: #1c2430;
+  --admin-muted: #667487;
+  --admin-line: rgba(255, 255, 255, 0.2);
+  --admin-card-line: rgba(255, 255, 255, 0.32);
+  --admin-glass: rgba(246, 248, 252, 0.38);
+  --admin-glass-strong: rgba(244, 247, 251, 0.52);
+  --admin-shadow: 0 30px 80px rgba(7, 12, 20, 0.2);
+  --admin-button-shadow: 0 8px 18px rgba(15, 23, 42, 0.1);
+  --admin-input-bg: rgba(255, 255, 255, 0.78);
+  --admin-pre-bg: rgba(17, 25, 37, 0.84);
+  --admin-accent: #0f6fff;
+  --admin-accent-soft: rgba(15, 111, 255, 0.12);
+}
+
+html[data-theme="dark"] {
+  --admin-text: #eef4fb;
+  --admin-muted: #c1cfdd;
+  --admin-line: rgba(255, 255, 255, 0.14);
+  --admin-card-line: rgba(255, 255, 255, 0.18);
+  --admin-glass: rgba(15, 22, 34, 0.52);
+  --admin-glass-strong: rgba(15, 22, 34, 0.62);
+  --admin-shadow: 0 30px 80px rgba(0, 0, 0, 0.34);
+  --admin-button-shadow: 0 8px 18px rgba(0, 0, 0, 0.16);
+  --admin-input-bg: rgba(8, 13, 23, 0.7);
+  --admin-pre-bg: rgba(4, 8, 14, 0.9);
+  --admin-accent: #71adff;
+  --admin-accent-soft: rgba(113, 173, 255, 0.14);
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body[data-admin-page] {
+  margin: 0;
+  min-height: 100vh;
+  padding: 52px 20px 138px !important;
+  color: var(--admin-text) !important;
+  font-family: "SFPro-Regular", "PingFang-Regular", sans-serif !important;
+  background:
+    linear-gradient(180deg, rgba(8, 13, 22, 0.08), rgba(8, 13, 22, 0.18)),
+    url("/webintosh-assets/images/Wallpaper.png") center center / cover no-repeat fixed !important;
+  position: relative;
+  overflow-x: hidden;
+}
+
+body[data-admin-page]::before {
+  content: "";
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.18), transparent 22%),
+    radial-gradient(circle at 84% 14%, rgba(120, 192, 255, 0.14), transparent 18%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(12, 18, 28, 0.12));
+}
+
+body[data-admin-page]::after {
+  content: "";
+  position: fixed;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  height: 30px;
+  z-index: 0;
+  pointer-events: none;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(240, 244, 250, 0.08);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  backdrop-filter: blur(12px) saturate(120%);
+  -webkit-backdrop-filter: blur(12px) saturate(120%);
+}
+
+body[data-admin-page] .window {
+  position: relative;
+  z-index: 1;
+  max-width: 1100px !important;
+  margin: 0 auto !important;
+  border-radius: 20px !important;
+  border: 1px solid var(--admin-line) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    var(--admin-glass-strong) !important;
+  box-shadow: var(--admin-shadow) !important;
+  overflow: hidden;
+  backdrop-filter: blur(18px) saturate(130%) !important;
+  -webkit-backdrop-filter: blur(18px) saturate(130%) !important;
+}
+
+body[data-admin-page] .window::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.12), transparent 30%),
+    linear-gradient(180deg, rgba(255, 255, 255, 0.04), transparent 18%);
+}
+
+body[data-admin-page="dashboard"] .window {
+  max-width: 980px !important;
+}
+
+body[data-admin-page="config"] .window {
+  max-width: 1280px !important;
+}
+
+body[data-admin-page] .titlebar {
+  position: relative;
+  display: grid !important;
+  grid-template-columns: auto 1fr auto;
+  min-height: 52px !important;
+  padding: 0 16px !important;
+  border-bottom: 1px solid var(--admin-line) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(248, 251, 255, 0.04) !important;
+  align-items: center !important;
+  gap: 14px !important;
+}
+
+body[data-admin-page] .traffic {
+  display: flex !important;
+  gap: 8px;
+}
+
+body[data-admin-page] .dot {
+  width: 12px !important;
+  height: 12px !important;
+  border-radius: 50%;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 1px 3px rgba(0, 0, 0, 0.12);
+}
+
+body[data-admin-page] .title {
+  color: var(--admin-text) !important;
+  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif !important;
+  font-size: 13px !important;
+  letter-spacing: 0.02em;
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  justify-self: center;
+  max-width: calc(100% - 180px);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body[data-admin-page] .titlebar > div:last-child {
+  justify-self: end;
+}
+
+body[data-admin-page] .content {
+  padding: 16px 16px 112px !important;
+}
+
+body[data-admin-page="config"] .content {
+  padding-bottom: 154px !important;
+}
+
+body[data-admin-page] .card {
+  border-radius: 16px !important;
+  border: 1px solid var(--admin-card-line) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.06)),
+    var(--admin-glass) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 10px 24px rgba(15, 23, 42, 0.1) !important;
+  backdrop-filter: blur(12px) saturate(118%);
+  -webkit-backdrop-filter: blur(12px) saturate(118%);
+  padding: 16px !important;
+  margin-bottom: 14px !important;
+}
+
+body[data-admin-page] .card > h2,
+body[data-admin-page] .card > h3 {
+  margin: 0 0 12px !important;
+  font-size: 15px !important;
+}
+
+body[data-admin-page] h1,
+body[data-admin-page] h2,
+body[data-admin-page] h3 {
+  color: var(--admin-text);
+  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif;
+  letter-spacing: 0.01em;
+}
+
+body[data-admin-page] p,
+body[data-admin-page] .label,
+body[data-admin-page] .mono,
+body[data-admin-page] .msg,
+body[data-admin-page] th,
+body[data-admin-page] td {
+  color: var(--admin-text);
+}
+
+body[data-admin-page] .label {
+  color: var(--admin-muted) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+body[data-admin-page] .msg {
+  color: var(--admin-accent) !important;
+}
+
+body[data-admin-page] .value {
+  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif !important;
+  font-size: 28px !important;
+  letter-spacing: -0.03em;
+}
+
+body[data-admin-page] .row {
+  gap: 10px !important;
+}
+
+body[data-admin-page] .grid {
+  gap: 12px !important;
+}
+
+body[data-admin-page] .stat {
+  border-radius: 14px !important;
+  border: 1px solid var(--admin-card-line) !important;
+  background: rgba(255, 255, 255, 0.24) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  padding: 14px !important;
+}
+
+body[data-admin-page] .cfg-grid {
+  gap: 12px !important;
+}
+
+body[data-admin-page="config"] .config-hero {
+  display: grid;
+  gap: 12px;
+}
+
+body[data-admin-page="config"] .config-hero p {
+  margin: 4px 0 0;
+  color: var(--admin-muted);
+}
+
+body[data-admin-page="config"] .config-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+body[data-admin-page="config"] .config-layout {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+body[data-admin-page="config"] .config-section {
+  display: grid;
+  gap: 14px;
+  align-content: start;
+}
+
+body[data-admin-page="config"] .config-section-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+body[data-admin-page="config"] .config-section-head p {
+  margin: 4px 0 0;
+  color: var(--admin-muted);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+body[data-admin-page="config"] .cfg-grid-2 {
+  grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+}
+
+body[data-admin-page="config"] .cfg-item.span-2 {
+  grid-column: span 2;
+}
+
+body[data-admin-page="config"] .cfg-item.check-item {
+  display: flex;
+  align-items: center;
+  min-height: 56px;
+}
+
+body[data-admin-page="config"] .cfg-item.check-item label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+}
+
+body[data-admin-page="config"] .cfg-item input[type="checkbox"] {
+  margin: 0;
+}
+
+body[data-admin-page="config"] .secret-wrap {
+  align-items: stretch;
+}
+
+body[data-admin-page="config"] .secret-toggle {
+  min-width: 64px;
+}
+
+body[data-admin-page] .cfg-item {
+  border-radius: 14px !important;
+  border: 1px solid var(--admin-card-line) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+  padding: 12px !important;
+}
+
+body[data-admin-page] .cfg-item label {
+  color: var(--admin-muted) !important;
+  letter-spacing: 0.03em;
+}
+
+body[data-admin-page] input,
+body[data-admin-page] select,
+body[data-admin-page] textarea {
+  border-radius: 12px !important;
+  border: 1px solid rgba(255, 255, 255, 0.24) !important;
+  background: var(--admin-input-bg) !important;
+  color: var(--admin-text) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+body[data-admin-page] input::placeholder,
+body[data-admin-page] textarea::placeholder {
+  color: color-mix(in srgb, var(--admin-muted) 80%, transparent);
+}
+
+body[data-admin-page] input:focus,
+body[data-admin-page] select:focus,
+body[data-admin-page] textarea:focus {
+  border-color: color-mix(in srgb, var(--admin-accent) 48%, rgba(255, 255, 255, 0.2)) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.3),
+    0 0 0 4px var(--admin-accent-soft) !important;
+}
+
+body[data-admin-page] .btn,
+body[data-admin-page] button {
+  border-radius: 12px !important;
+  border: 1px solid rgba(15, 23, 42, 0.08) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.95), rgba(228, 234, 243, 0.9)) !important;
+  color: #152031 !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.7),
+    var(--admin-button-shadow) !important;
+  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif !important;
+  font-size: 12px !important;
+  letter-spacing: 0.01em;
+  transition:
+    transform 0.2s ease,
+    box-shadow 0.2s ease,
+    filter 0.2s ease,
+    background 0.2s ease,
+    color 0.2s ease !important;
+}
+
+body[data-admin-page] .btn:hover,
+body[data-admin-page] button:hover {
+  transform: translateY(-1px) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.8),
+    0 10px 18px rgba(15, 23, 42, 0.14) !important;
+}
+
+body[data-admin-page] .btn:active,
+body[data-admin-page] button:active {
+  transform: translateY(0) scale(0.99) !important;
+}
+
+body[data-admin-page] .primary,
+body[data-admin-page] .btn.primary {
+  border-color: rgba(18, 92, 212, 0.24) !important;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--admin-accent) 82%, white), var(--admin-accent)) !important;
+  color: #ffffff !important;
+}
+
+body[data-admin-page] .primary:hover,
+body[data-admin-page] .btn.primary:hover {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 12px 20px color-mix(in srgb, var(--admin-accent) 28%, transparent) !important;
+}
+
+body[data-admin-page] .danger,
+body[data-admin-page] .btn.danger {
+  border-color: rgba(184, 52, 52, 0.18) !important;
+  background: linear-gradient(180deg, #ff8f84, #ef5a4f) !important;
+  color: #ffffff !important;
+}
+
+body[data-admin-page] table {
+  width: 100%;
+  border-collapse: separate !important;
+  border-spacing: 0 8px !important;
+}
+
+body[data-admin-page] thead th {
+  border: none !important;
+  padding: 0 12px 6px !important;
+  color: var(--admin-muted) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.04em;
+  text-transform: none;
+}
+
+body[data-admin-page] tbody tr {
+  background: rgba(255, 255, 255, 0.22);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.18),
+    0 8px 16px rgba(15, 23, 42, 0.06);
+}
+
+body[data-admin-page] tbody td {
+  border: none !important;
+  padding: 12px !important;
+  background: transparent !important;
+  vertical-align: middle;
+}
+
+body[data-admin-page] tbody td:first-child {
+  border-radius: 14px 0 0 14px;
+}
+
+body[data-admin-page] tbody td:last-child {
+  border-radius: 0 14px 14px 0;
+}
+
+body[data-admin-page] pre {
+  border-radius: 14px !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  background: var(--admin-pre-bg) !important;
+  color: #edf4fb !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.08),
+    0 14px 28px rgba(0, 0, 0, 0.22);
+}
+
+body[data-admin-page] .theme-switch {
+  min-width: 86px;
+  height: 32px;
+  border-radius: 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.22) !important;
+  background: rgba(255, 255, 255, 0.14) !important;
+  color: var(--admin-text) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.16);
+}
+
+body[data-admin-page] .dock-nav {
+  position: fixed !important;
+  left: 50% !important;
+  bottom: 14px !important;
+  transform: translateX(-50%) !important;
+  width: auto !important;
+  padding: 8px 12px 9px !important;
+  border-radius: 16px !important;
+  border: 1px solid rgba(255, 255, 255, 0.16) !important;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.12), rgba(255, 255, 255, 0.04)),
+    rgba(214, 221, 232, 0.16) !important;
+  box-shadow:
+    0 12px 24px rgba(0, 0, 0, 0.16),
+    inset 0 1px 0 rgba(255, 255, 255, 0.22) !important;
+  backdrop-filter: blur(12px) saturate(125%) !important;
+  -webkit-backdrop-filter: blur(12px) saturate(125%) !important;
+  z-index: 3 !important;
+}
+
+body[data-admin-page] .dock-nav .row {
+  gap: 8px !important;
+  align-items: center;
+  flex-wrap: nowrap !important;
+  overflow: visible !important;
+}
+
+body[data-admin-page] .dock-link {
+  position: relative;
+  display: flex !important;
+  flex-direction: row !important;
+  align-items: center !important;
+  justify-content: center !important;
+  width: auto !important;
+  min-width: 96px !important;
+  height: 36px !important;
+  padding: 0 14px !important;
+  border: none !important;
+  border-radius: 12px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12) !important;
+  gap: 0 !important;
+  color: #ffffff !important;
+  text-decoration: none !important;
+  transform-origin: center bottom;
+  transition: transform 0.18s ease, filter 0.18s ease, background 0.18s ease !important;
+}
+
+body[data-admin-page] .dock-link::before {
+  display: none !important;
+}
+
+body[data-admin-page] .dock-link .ico {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+body[data-admin-page] .dock-link .tip {
+  display: block !important;
+  position: static !important;
+  transform: none !important;
+  opacity: 1 !important;
+  padding: 0 !important;
+  border: none !important;
+  background: none !important;
+  color: #f3f7fc !important;
+  font-size: 13px !important;
+  line-height: 1 !important;
+  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif !important;
+  text-align: center;
+  white-space: nowrap !important;
+  text-shadow: 0 1px 6px rgba(0, 0, 0, 0.28);
+  letter-spacing: 0.01em;
+  pointer-events: none;
+}
+
+body[data-admin-page] .dock-link:hover {
+  transform: translateY(-2px) !important;
+  filter: saturate(1.04);
+  background: rgba(255, 255, 255, 0.14) !important;
+}
+
+body[data-admin-page] .dock-link.active {
+  transform: translateY(-1px) !important;
+  background: rgba(255, 255, 255, 0.18) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.16),
+    0 8px 16px rgba(0, 0, 0, 0.12) !important;
+}
+
+body[data-admin-page] .dock-link.active::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  bottom: -5px;
+  width: 18px;
+  height: 3px;
+  transform: translateX(-50%);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.9);
+}
+
+body[data-admin-page] .dock-link.i-home {
+  --dock-icon:
+    linear-gradient(180deg, rgba(110, 170, 255, 0.92), rgba(52, 107, 233, 0.95)),
+    url("/webintosh-assets/images/icon.desktop.png");
+}
+
+body[data-admin-page] .dock-link.i-music {
+  --dock-icon:
+    linear-gradient(180deg, rgba(255, 141, 194, 0.92), rgba(239, 74, 145, 0.95)),
+    url("/webintosh-assets/images/App Store.png");
+}
+
+body[data-admin-page] .dock-link.i-config {
+  --dock-icon:
+    linear-gradient(180deg, rgba(176, 186, 203, 0.92), rgba(109, 122, 141, 0.95)),
+    url("/webintosh-assets/images/icon.document.png");
+}
+
+body[data-admin-page] .dock-link.i-stats {
+  --dock-icon:
+    linear-gradient(180deg, rgba(98, 214, 144, 0.92), rgba(33, 136, 82, 0.95)),
+    url("/webintosh-assets/images/icon.clock.png");
+}
+
+body[data-admin-page] .dock-link.i-system {
+  --dock-icon:
+    linear-gradient(180deg, rgba(148, 170, 255, 0.92), rgba(83, 99, 202, 0.95)),
+    url("/webintosh-assets/images/icon.internal.drive.png");
+}
+
+body[data-admin-page] .dock-link.active::before {
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.34),
+    0 12px 18px rgba(0, 0, 0, 0.18),
+    0 0 0 2px rgba(255, 255, 255, 0.12);
+}
+
+body[data-admin-page] .hidden {
+  display: none !important;
+}
+
+@media (max-width: 980px) {
+  body[data-admin-page] {
+    padding: 46px 12px 128px !important;
+  }
+
+  body[data-admin-page] .content {
+    padding: 14px 12px 104px !important;
+  }
+
+  body[data-admin-page="config"] .content {
+    padding-bottom: 140px !important;
+  }
+
+  body[data-admin-page="config"] .config-layout {
+    grid-template-columns: 1fr;
+  }
+
+  body[data-admin-page] .grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  body[data-admin-page] .dock-nav {
+    left: 12px !important;
+    right: 12px !important;
+    transform: none !important;
+    overflow-x: auto;
+  }
+}
+
+@media (max-width: 720px) {
+  body[data-admin-page] .grid,
+  body[data-admin-page] .cfg-grid,
+  body[data-admin-page] .split {
+    grid-template-columns: 1fr !important;
+  }
+
+  body[data-admin-page="config"] .cfg-item.span-2 {
+    grid-column: auto;
+  }
+
+  body[data-admin-page] .dock-nav .row {
+    gap: 6px !important;
+  }
+
+  body[data-admin-page] .dock-link {
+    min-width: 92px !important;
+    height: 34px !important;
+    padding: 0 10px !important;
+  }
+
+  body[data-admin-page] .dock-link .tip {
+    font-size: 10px !important;
+  }
+}

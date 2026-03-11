@@ -3,6 +3,7 @@ FROM python:3.11-slim
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
+    PLAYWRIGHT_CHROMIUM_USE_HEADLESS_SHELL=0 \
     BOT_DISABLE_AUTO_START_NETEASE=1 \
     BOT_DISABLE_VOICE=1 \
     BOT_REDIS_HOST=redis
@@ -16,6 +17,7 @@ RUN apt-get update \
 
 COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN python -m playwright install --with-deps --no-shell chromium
 
 COPY main.py /app/main.py
 COPY config.example.py /app/config.example.py

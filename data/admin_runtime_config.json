@@ -1,0 +1,27 @@
+{
+  "web_player": {
+    "url": "",
+    "token_ttl_seconds": 86400,
+    "cookie_max_age_seconds": 86400,
+    "link_idle_release_seconds": 1800,
+    "cookie_secure": false,
+    "admin_session_ttl_seconds": 43200,
+    "admin_cookie_secure": false
+  },
+  "auto_recall": {
+    "enabled": true,
+    "delay": 30
+  },
+  "area_join_notify": {
+    "enabled": true,
+    "poll_interval_seconds": 2
+  },
+  "chat": {
+    "enabled": true
+  },
+  "profanity": {
+    "enabled": true,
+    "mute_duration": 5,
+    "warn_before_mute": true
+  }
+}

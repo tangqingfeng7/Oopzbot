@@ -5,6 +5,7 @@
 """
 
 import os
+import atexit
 import json
 import hashlib
 import time
@@ -31,13 +32,30 @@ PERSON_INFOS_PATH = "/client/v1/person/v1/personInfos"
 class NameResolver:
     """ID → 名称 解析器（自动 API 查询 + 文件持久化）"""
 
+    _instance: Optional["NameResolver"] = None
+    _instance_lock = threading.Lock()
+
+    def __new__(cls, *args, **kwargs):
+        if cls._instance is None:
+            with cls._instance_lock:
+                if cls._instance is None:
+                    cls._instance = super().__new__(cls)
+        return cls._instance
+
     def __init__(self):
-        self._lock = threading.Lock()
+        if getattr(self, "_initialized", False):
+            return
+        self._lock = threading.RLock()
         self._data = {"users": {}, "channels": {}, "areas": {}}
         self._pending_uids: set = set()  # 待查询的用户 ID
+        self._dirty = False
+        self._save_timer: Optional[threading.Timer] = None
+        self._save_delay_seconds = 1.0
         self._api_ready = False
+        self._initialized = True
         self._load()
         self._init_api()
+        atexit.register(self.flush)
 
     # ------------------------------------------------------------------
     # 公共接口
@@ -53,6 +71,14 @@ class NameResolver:
                 return name
         # 不在锁内调用 API，避免死锁
         self._fetch_user_name(uid)
+        with self._lock:
+            name = self._data.get("users", {}).get(uid, "")
+            return name if name else self._short_id(uid)
+
+    def user_cached(self, uid: str) -> str:
+        """仅返回本地缓存名称；未知时返回短 ID，不触发网络请求。"""
+        if not uid:
+            return ""
         with self._lock:
             name = self._data.get("users", {}).get(uid, "")
             return name if name else self._short_id(uid)
@@ -87,24 +113,26 @@ class NameResolver:
 
     def register_id(self, category: str, id_val: str):
         """注册一个新发现的 ID（如果尚未记录）"""
+        if not category or not id_val:
+            return
         with self._lock:
-            if id_val and id_val not in self._data.get(category, {}):
-                self._data.setdefault(category, {})[id_val] = ""
-                self._save_no_lock()
+            bucket = self._data.setdefault(category, {})
+            if id_val in bucket:
+                return
+            bucket[id_val] = ""
+            self._mark_dirty_no_lock()
 
     def batch_resolve_users(self, uids: List[str]):
         """批量解析用户名（后台异步）"""
-        unknown = []
-        with self._lock:
-            for uid in uids:
-                if uid and not self._data.get("users", {}).get(uid, ""):
-                    unknown.append(uid)
-        if unknown:
-            threading.Thread(
-                target=self._fetch_user_names_batch,
-                args=(unknown,),
-                daemon=True,
-            ).start()
+        to_fetch = self._claim_pending_uids(uids)
+        if not to_fetch:
+            return
+        threading.Thread(
+            target=self._fetch_user_names_batch,
+            args=(to_fetch,),
+            daemon=True,
+            name="NameResolverBatchFetch",
+        ).start()
 
     # ------------------------------------------------------------------
     # Oopz API 调用
@@ -156,28 +184,30 @@ class NameResolver:
         """通过 API 获取单个用户名"""
         if not self._api_ready or not uid:
             return
-        self._fetch_user_names_batch([uid])
+        to_fetch = self._claim_pending_uids([uid])
+        if to_fetch:
+            self._fetch_user_names_batch(to_fetch)
 
     def _fetch_user_names_batch(self, uids: List[str]):
         """通过 API 批量获取用户名"""
         if not self._api_ready or not uids:
+            self._release_pending_uids(uids)
             return
-
-        # 过滤已有名称的
-        to_fetch = []
-        with self._lock:
-            for uid in uids:
-                if not self._data.get("users", {}).get(uid, ""):
-                    to_fetch.append(uid)
-        if not to_fetch:
-            return
-
-        body = {"persons": to_fetch, "commonIds": []}
-        body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-        url = self._config["base_url"] + PERSON_INFOS_PATH
-        headers = self._make_headers(PERSON_INFOS_PATH, body_str)
 
         try:
+            with self._lock:
+                to_fetch = [
+                    uid for uid in dict.fromkeys(uids)
+                    if uid and not self._data.get("users", {}).get(uid, "")
+                ]
+            if not to_fetch:
+                return
+
+            body = {"persons": to_fetch, "commonIds": []}
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            url = self._config["base_url"] + PERSON_INFOS_PATH
+            headers = self._make_headers(PERSON_INFOS_PATH, body_str)
+
             resp = requests.post(
                 url, headers=headers,
                 data=body_str.encode("utf-8"),
@@ -201,7 +231,7 @@ class NameResolver:
                         self._data.setdefault("users", {})[uid] = name
                         updated += 1
                 if updated:
-                    self._save_no_lock()
+                    self._mark_dirty_no_lock()
 
             if updated:
                 names = [p.get("name", "") for p in data_list if p.get("name")]
@@ -209,6 +239,8 @@ class NameResolver:
 
         except Exception as e:
             logger.debug(f"API 查询用户名失败: {e}")
+        finally:
+            self._release_pending_uids(uids)
 
     # ------------------------------------------------------------------
     # 内部实现
@@ -221,14 +253,49 @@ class NameResolver:
             name = self._data.get(category, {}).get(id_val, "")
             if not name:
                 self._data.setdefault(category, {})[id_val] = ""
-                self._save_no_lock()
+                self._mark_dirty_no_lock()
                 return self._short_id(id_val)
             return name
 
     def _set(self, category: str, id_val: str, name: str):
         with self._lock:
-            self._data.setdefault(category, {})[id_val] = name
-            self._save_no_lock()
+            bucket = self._data.setdefault(category, {})
+            if bucket.get(id_val) == name:
+                return
+            bucket[id_val] = name
+            self._mark_dirty_no_lock()
+
+    def _claim_pending_uids(self, uids: List[str]) -> List[str]:
+        unique_uids = list(dict.fromkeys(uid for uid in uids if uid))
+        if not unique_uids:
+            return []
+        to_fetch = []
+        with self._lock:
+            users = self._data.get("users", {})
+            for uid in unique_uids:
+                if users.get(uid, "") or uid in self._pending_uids:
+                    continue
+                self._pending_uids.add(uid)
+                to_fetch.append(uid)
+        return to_fetch
+
+    def _release_pending_uids(self, uids: List[str]):
+        if not uids:
+            return
+        with self._lock:
+            for uid in uids:
+                self._pending_uids.discard(uid)
+
+    def _mark_dirty_no_lock(self):
+        self._dirty = True
+        self._schedule_save_no_lock()
+
+    def _schedule_save_no_lock(self):
+        if self._save_timer and self._save_timer.is_alive():
+            return
+        self._save_timer = threading.Timer(self._save_delay_seconds, self.flush)
+        self._save_timer.daemon = True
+        self._save_timer.start()
 
     @staticmethod
     def _short_id(full_id: str) -> str:
@@ -267,10 +334,19 @@ class NameResolver:
     def _save_no_lock(self):
         """保存到 names.json（调用时需已持有锁）"""
         try:
+            os.makedirs(os.path.dirname(NAMES_FILE), exist_ok=True)
             with open(NAMES_FILE, "w", encoding="utf-8") as f:
                 json.dump(self._data, f, ensure_ascii=False, indent=2)
         except Exception as e:
             logger.error(f"保存 names.json 失败: {e}")
+
+    def flush(self):
+        with self._lock:
+            self._save_timer = None
+            if not self._dirty:
+                return
+            self._save_no_lock()
+            self._dirty = False
 
     def get_stats(self) -> dict:
         with self._lock:

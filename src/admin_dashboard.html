@@ -1,0 +1,589 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
+  <title>后台入口</title>
+  <style>
+    :root {
+      --bg-0: #eef3ff;
+      --bg-1: #f8fbff;
+      --glass: rgba(255, 255, 255, 0.68);
+      --glass-strong: rgba(255, 255, 255, 0.82);
+      --text: #1f2937;
+      --muted: #667085;
+      --line: rgba(15, 23, 42, 0.12);
+      --shadow: 0 24px 60px rgba(15, 23, 42, 0.14);
+      --btn: linear-gradient(180deg, #ffffff 0%, #f3f6ff 100%);
+      --accent: #0a84ff;
+      --danger: #ff3b30;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg-0: #0a0f1e;
+        --bg-1: #131a2e;
+        --glass: rgba(20, 28, 46, 0.62);
+        --glass-strong: rgba(20, 28, 46, 0.8);
+        --text: #e5e7eb;
+        --muted: #93a0b6;
+        --line: rgba(148, 163, 184, 0.2);
+        --shadow: 0 26px 70px rgba(0, 0, 0, 0.45);
+        --btn: linear-gradient(180deg, #1d2742 0%, #16203a 100%);
+        --accent: #4da3ff;
+        --danger: #ff6b63;
+      }
+    }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      color: var(--text);
+      background:
+        radial-gradient(1200px 500px at -10% -10%, #c7dbff66 0%, transparent 60%),
+        radial-gradient(900px 500px at 120% 0%, #b8ffe766 0%, transparent 60%),
+        linear-gradient(170deg, var(--bg-1), var(--bg-0));
+      padding: 18px;
+    }
+    body::before{
+      content:"";position:fixed;inset:-20%;pointer-events:none;z-index:0;opacity:.55;filter:blur(42px);
+      background:
+        radial-gradient(420px 260px at 15% 20%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 70%),
+        radial-gradient(520px 300px at 80% 30%, rgba(58,236,193,.26), transparent 72%),
+        radial-gradient(360px 220px at 55% 85%, rgba(255,140,102,.22), transparent 70%);
+      animation:bgFloat 22s ease-in-out infinite alternate;
+    }
+    body::after{
+      content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
+      background:
+        linear-gradient(transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%),
+        linear-gradient(90deg, transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%);
+      background-size: 26px 26px;
+      mask-image: radial-gradient(circle at center, black 32%, transparent 90%);
+    }
+    .window {
+      max-width: 980px;
+      margin: 0 auto;
+      border: 1px solid var(--line);
+      border-radius: 18px;
+      background: var(--glass-strong);
+      backdrop-filter: blur(18px) saturate(145%);
+      -webkit-backdrop-filter: blur(18px) saturate(145%);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+    }
+    .titlebar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 12px 14px;
+      border-bottom: 1px solid var(--line);
+      background: color-mix(in srgb, var(--glass-strong) 90%, transparent);
+    }
+    .traffic { display: flex; gap: 8px; }
+    .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 1px 0 rgba(255,255,255,.45); }
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #febc2e; }
+    .dot.green { background: #28c840; }
+    .title { font-size: 13px; color: var(--muted); font-weight: 600; }
+    .content { padding: 14px 14px 24px; }
+    .dock-nav{
+      position: fixed;
+      left: 50%;
+      bottom: calc(8px + env(safe-area-inset-bottom));
+      transform: translateX(-50%);
+      width: auto;
+      margin: 0;
+      padding: 10px 12px;
+      z-index: 999;
+      border-radius: 20px;
+      background: color-mix(in srgb, var(--glass-strong) 88%, transparent);
+      backdrop-filter: blur(20px) saturate(150%);
+      -webkit-backdrop-filter: blur(20px) saturate(150%);
+      box-shadow: 0 14px 34px rgba(15,23,42,.22);
+    }
+    .dock-nav .row{
+      flex-wrap: nowrap;
+      overflow-x: auto;
+      white-space: nowrap;
+      scrollbar-width: none;
+      gap: 10px;
+    }
+    .dock-nav .row::-webkit-scrollbar{display:none;}
+    .dock-link{
+      --icon-bg: linear-gradient(180deg,#6aa8ff,#2d7dff);
+      position: relative;
+      width: 42px;
+      height: 42px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(255,255,255,.35);
+      border-radius: 11px;
+      background: var(--icon-bg);
+      color: #fff;
+      text-decoration: none;
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 6px 14px rgba(0,0,0,.2);
+      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
+      transform-origin: center bottom;
+    }
+    .dock-link .ico{font-size:20px; line-height:1;}
+    .dock-link .tip{
+      position:absolute;
+      bottom: calc(100% + 8px);
+      left:50%;
+      transform: translateX(-50%) translateY(6px);
+      opacity:0;
+      pointer-events:none;
+      font-size:12px;
+      color:var(--text);
+      background: color-mix(in srgb, var(--glass-strong) 92%, transparent);
+      border:1px solid var(--line);
+      border-radius:8px;
+      padding:3px 7px;
+      white-space:nowrap;
+      transition: opacity .16s ease, transform .16s ease;
+    }
+    .dock-link:hover{transform: translateY(-9px) scale(1.22); box-shadow: 0 14px 26px rgba(15,23,42,.28);}
+    .dock-link:hover .tip{opacity:1; transform: translateX(-50%) translateY(0);}
+    .dock-link.active::after{
+      content:"";
+      position:absolute;
+      left:50%;
+      bottom:-10px;
+      width:5px;
+      height:5px;
+      border-radius:50%;
+      transform:translateX(-50%);
+      background: color-mix(in srgb, var(--text) 78%, transparent);
+    }
+    .dock-link.i-home{--icon-bg: linear-gradient(180deg,#72afff,#2e7fff);}
+    .dock-link.i-music{--icon-bg: linear-gradient(180deg,#ff8bc3,#ff4b93);}
+    .dock-link.i-config{--icon-bg: linear-gradient(180deg,#b8c2d6,#8794ad);}
+    .dock-link.i-stats{--icon-bg: linear-gradient(180deg,#7ce6a1,#2ccf73);}
+    .dock-link.i-system{--icon-bg: linear-gradient(180deg,#8aa4ff,#6177ff);}
+    .card {
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      background: var(--glass);
+      padding: 14px;
+      margin-bottom: 12px;
+      animation: rise .45s ease both;
+    }
+    .card:nth-child(2) { animation-delay: .05s; }
+    .card:nth-child(3) { animation-delay: .1s; }
+    .row { display: flex; gap: 8px; flex-wrap: wrap; }
+    .btn {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: var(--btn);
+      color: var(--text);
+      padding: 8px 12px;
+      text-decoration: none;
+      cursor: pointer;
+      transition: transform .18s ease, box-shadow .18s ease, filter .18s ease;
+    }
+    .btn:hover { transform: translateY(-1px); box-shadow: 0 8px 20px rgba(16,24,40,.12); }
+    .btn:active { transform: translateY(0); }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      background: color-mix(in srgb, var(--glass) 75%, transparent);
+      color: var(--text);
+      padding: 10px;
+      outline: none;
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    input:focus { border-color: color-mix(in srgb, var(--accent) 55%, var(--line)); box-shadow: 0 0 0 4px color-mix(in srgb, var(--accent) 20%, transparent); }
+    .grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+    .stat { border: 1px solid var(--line); border-radius: 12px; padding: 10px; background: color-mix(in srgb, var(--glass) 65%, transparent); }
+    .label { font-size: 12px; color: var(--muted); }
+    .value { font-size: 22px; font-weight: 700; margin-top: 4px; }
+    .hidden { display: none; }
+    .msg { margin-top: 8px; color: var(--accent); }
+    @keyframes rise {
+      from { opacity: 0; transform: translateY(10px) scale(.995); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+    @keyframes bgFloat{
+      from{transform:translate3d(-2%,-1%,0) scale(1)}
+      to{transform:translate3d(2%,1%,0) scale(1.06)}
+    }
+    @media (max-width: 768px) {
+      body { padding: 10px; }
+      .grid { grid-template-columns: 1fr; }
+      .dock-nav { left: 10px; right: 10px; bottom: 12px; transform: none; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .card, .btn, body::before { animation: none !important; transition: none !important; }
+    }
+    /* refined minimal theme */
+  :root{
+    --bg-0:#f4f6fb;
+    --bg-1:#eef2f8;
+    --glass:rgba(255,255,255,.72);
+    --glass-strong:rgba(255,255,255,.86);
+    --text:#0f172a;
+    --muted:#64748b;
+    --line:rgba(15,23,42,.10);
+    --shadow:0 20px 50px rgba(15,23,42,.10);
+    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
+    --accent:#2563eb;
+    --danger:#dc2626;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg-0:#0b1220;
+      --bg-1:#111a2c;
+      --glass:rgba(16,24,40,.64);
+      --glass-strong:rgba(15,23,42,.82);
+      --text:#e2e8f0;
+      --muted:#94a3b8;
+      --line:rgba(148,163,184,.20);
+      --shadow:0 26px 70px rgba(0,0,0,.42);
+      --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
+      --accent:#60a5fa;
+      --danger:#f87171;
+    }
+  }
+  body{
+    background:
+      radial-gradient(1200px 700px at -15% -10%, rgba(59,130,246,.10), transparent 65%),
+      radial-gradient(900px 600px at 110% -5%, rgba(56,189,248,.10), transparent 62%),
+      linear-gradient(160deg,var(--bg-0),var(--bg-1)) !important;
+  }
+  body::before{
+    opacity:.45 !important;
+    filter:blur(56px) saturate(120%) !important;
+    background:
+      radial-gradient(420px 300px at 15% 25%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%),
+      radial-gradient(380px 260px at 78% 20%, rgba(45,212,191,.16), transparent 72%),
+      radial-gradient(360px 220px at 48% 86%, rgba(251,146,60,.14), transparent 72%) !important;
+    animation:bgFloat 30s cubic-bezier(.42,0,.2,1) infinite alternate !important;
+  }
+  body::after{display:none !important;}
+
+  .window{
+    border-radius:20px !important;
+    border:1px solid var(--line) !important;
+    background:color-mix(in srgb,var(--glass-strong) 92%, transparent) !important;
+    backdrop-filter:blur(18px) saturate(120%) !important;
+    -webkit-backdrop-filter:blur(18px) saturate(120%) !important;
+    box-shadow:var(--shadow) !important;
+  }
+  .titlebar{
+    min-height:54px;
+    padding:14px 18px !important;
+    justify-content:center !important;
+    border-bottom:1px solid var(--line) !important;
+    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
+  }
+  .traffic{display:none !important;}
+  .title{font-size:14px !important;letter-spacing:.02em;color:var(--text) !important;font-weight:600 !important;}
+  .titlebar > div:last-child{display:flex !important;align-items:center;}
+
+  .content{padding:18px 18px 90px !important;}
+  .card{
+    border-radius:16px !important;
+    border:1px solid var(--line) !important;
+    background:color-mix(in srgb,var(--glass) 88%, transparent) !important;
+    box-shadow:0 8px 24px rgba(15,23,42,.06);
+    animation:cardIn .45s cubic-bezier(.22,1,.36,1) both !important;
+  }
+  .btn{
+    border-radius:10px !important;
+    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
+    background:var(--btn) !important;
+    transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s cubic-bezier(.22,1,.36,1),border-color .2s ease !important;
+  }
+  .btn:hover{
+    transform:translateY(-2px) !important;
+    box-shadow:0 10px 20px rgba(15,23,42,.12) !important;
+    border-color:color-mix(in srgb,var(--accent) 32%, var(--line)) !important;
+  }
+  input,select,textarea{
+    border-radius:10px !important;
+    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
+    background:color-mix(in srgb,var(--glass) 85%, transparent) !important;
+    transition:border-color .2s ease, box-shadow .2s ease, background .2s ease !important;
+  }
+  input:focus,select:focus,textarea:focus{
+    border-color:color-mix(in srgb,var(--accent) 55%, var(--line)) !important;
+    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%, transparent) !important;
+  }
+
+  .dock-nav{
+    bottom:calc(12px + env(safe-area-inset-bottom)) !important;
+    padding:8px !important;
+    border-radius:14px !important;
+    border:1px solid var(--line);
+    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
+    box-shadow:0 10px 30px rgba(15,23,42,.14) !important;
+    backdrop-filter:blur(14px) saturate(110%) !important;
+    -webkit-backdrop-filter:blur(14px) saturate(110%) !important;
+  }
+  .dock-nav .row{gap:6px !important;}
+  .dock-link{
+    width:auto !important;
+    min-width:72px;
+    height:36px !important;
+    padding:0 12px !important;
+    border-radius:10px !important;
+    border:1px solid transparent !important;
+    color:var(--muted) !important;
+    background:transparent !important;
+    box-shadow:none !important;
+    transform:none !important;
+    transition:all .22s cubic-bezier(.22,1,.36,1) !important;
+    gap:6px;
+  }
+  .dock-link .ico{font-size:14px !important;opacity:.85;}
+  .dock-link .tip{display:none !important;}
+  .dock-link:hover{
+    transform:translateY(-1px) !important;
+    color:var(--text) !important;
+    background:color-mix(in srgb,var(--glass) 96%, transparent) !important;
+    border-color:var(--line) !important;
+  }
+  .dock-link.active{
+    color:var(--text) !important;
+    background:color-mix(in srgb,var(--accent) 16%, var(--glass)) !important;
+    border-color:color-mix(in srgb,var(--accent) 30%, var(--line)) !important;
+  }
+  .dock-link.active::after{display:none !important;}
+
+  @media (max-width:768px){
+    .content{padding:14px 12px 92px !important;}
+    .dock-link{min-width:64px;font-size:12px;}
+  }
+  @keyframes cardIn{
+    from{opacity:0;transform:translateY(8px) scale(.995)}
+    to{opacity:1;transform:translateY(0) scale(1)}
+  }
+  html{color-scheme:light dark;}
+  html[data-theme="light"]{
+    color-scheme:light;
+    --bg-0:#f4f6fb;
+    --bg-1:#eef2f8;
+    --glass:rgba(255,255,255,.72);
+    --glass-strong:rgba(255,255,255,.86);
+    --text:#0f172a;
+    --muted:#64748b;
+    --line:rgba(15,23,42,.10);
+    --shadow:0 20px 50px rgba(15,23,42,.10);
+    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
+    --accent:#2563eb;
+    --danger:#dc2626;
+  }
+  html[data-theme="dark"]{
+    color-scheme:dark;
+    --bg-0:#0b1220;
+    --bg-1:#111a2c;
+    --glass:rgba(16,24,40,.64);
+    --glass-strong:rgba(15,23,42,.82);
+    --text:#e2e8f0;
+    --muted:#94a3b8;
+    --line:rgba(148,163,184,.20);
+    --shadow:0 26px 70px rgba(0,0,0,.42);
+    --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
+    --accent:#60a5fa;
+    --danger:#f87171;
+  }
+  .theme-switch{
+    border:1px solid var(--line);
+    border-radius:10px;
+    background:color-mix(in srgb,var(--glass) 85%, transparent);
+    color:var(--text);
+    padding:6px 8px;
+    font-size:12px;
+  }
+
+</style>
+<link rel="stylesheet" href="/admin-assets/webintosh-admin.css" />
+</head>
+<body data-admin-page="dashboard">
+  <div class="window">
+    <div class="titlebar">
+      <div class="traffic"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
+      <div class="title">后台管理 · 首页</div>
+      <div></div>
+    </div>
+    <div class="content">
+      <div id="loginCard" class="card">
+        <h3 style="margin:0 0 8px;">登录</h3>
+        <div class="row">
+          <div style="flex:1;min-width:240px;"><input id="pwd" type="password" placeholder="后台密码"></div>
+          <div><button class="btn" onclick="login()">登录</button></div>
+        </div>
+        <div id="loginMsg" class="msg"></div>
+      </div>
+
+      <div id="panel" class="hidden">
+        <div class="card">
+          <h3 style="margin:0 0 8px;">概览</h3>
+          <div class="grid">
+            <div class="stat"><div class="label">Redis</div><div id="sRedis" class="value">-</div></div>
+            <div class="stat"><div class="label">运行时长(秒)</div><div id="sUp" class="value">-</div></div>
+            <div class="stat"><div class="label">队列长度</div><div id="sQueue" class="value">-</div></div>
+            <div class="stat"><div class="label">累计播放</div><div id="sTotal" class="value">-</div></div>
+          </div>
+          <div class="row" style="margin-top:10px;">
+            <button class="btn" onclick="loadOverview()">刷新</button>
+            <button class="btn" onclick="logout()">退出</button>
+            <span id="overviewLiveHint" class="label">实时刷新中</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script>
+    async function req(url, options={}) {
+      const r = await fetch(url, {credentials:"include", cache:"no-store", headers:{"Content-Type":"application/json"}, ...options});
+      const d = await r.json().catch(()=>({}));
+      if (!r.ok || d.ok===false) throw new Error(d.error || ("HTTP "+r.status));
+      return d;
+    }
+    function msg(t,bad=false){const el=document.getElementById("loginMsg");el.textContent=t;el.style.color=bad?"var(--danger)":"var(--accent)";}
+    function applyTheme(mode){
+      const root = document.documentElement;
+      root.removeAttribute("data-theme");
+      if (mode === "light" || mode === "dark") root.setAttribute("data-theme", mode);
+    }
+    function setTheme(mode){
+      localStorage.setItem("admin_theme", mode);
+      applyTheme(mode);
+    }
+    function initTheme(){
+      const mode = localStorage.getItem("admin_theme") || "auto";
+      const sel = document.getElementById("themeSelect");
+      if (sel) sel.value = mode;
+      applyTheme(mode);
+    }
+    let overviewStream = null;
+    let overviewReconnectTimer = null;
+    function renderOverview(d){
+      document.getElementById("sRedis").textContent = d.redis || "-";
+      document.getElementById("sUp").textContent = d.uptime_seconds ?? "-";
+      document.getElementById("sQueue").textContent = d.queue_length ?? "-";
+      document.getElementById("sTotal").textContent = d.statistics_summary?.total_plays ?? "-";
+    }
+    function startOverviewStream(){
+      stopOverviewStream();
+      const hint = document.getElementById("overviewLiveHint");
+      if (hint) hint.textContent = "连接中...";
+      const connect = () => {
+        overviewStream = new EventSource("/admin/api/overview/stream", { withCredentials: true });
+        overviewStream.addEventListener("overview", (ev) => {
+          try{
+            renderOverview(JSON.parse(ev.data || "{}"));
+            if (hint) hint.textContent = "实时连接中";
+          }catch{}
+        });
+        overviewStream.onerror = () => {
+          if (hint) hint.textContent = "重连中...";
+          if (overviewStream) overviewStream.close();
+          overviewStream = null;
+          if (overviewReconnectTimer) clearTimeout(overviewReconnectTimer);
+          overviewReconnectTimer = setTimeout(connect, 1200);
+        };
+      };
+      connect();
+    }
+    function stopOverviewStream(){
+      if (overviewReconnectTimer){ clearTimeout(overviewReconnectTimer); overviewReconnectTimer = null; }
+      if (overviewStream){ overviewStream.close(); overviewStream = null; }
+      const hint = document.getElementById("overviewLiveHint");
+      if (hint) hint.textContent = "已暂停";
+    }
+    async function check(){
+      try{
+        await req("/admin/api/me");
+        document.getElementById("loginCard").classList.add("hidden");
+        document.getElementById("panel").classList.remove("hidden");
+        await loadOverview();
+        startOverviewStream();
+      }catch{
+        stopOverviewStream();
+        document.getElementById("loginCard").classList.remove("hidden");
+        document.getElementById("panel").classList.add("hidden");
+      }
+    }
+    async function login(){
+      try{
+        await req("/admin/api/login",{method:"POST",body:JSON.stringify({password:document.getElementById("pwd").value||""})});
+        msg("登录成功");
+        await check();
+      }catch(e){msg(e.message,true);}
+    }
+    async function logout(){await req("/admin/api/logout",{method:"POST",body:"{}"});await check();}
+    async function loadOverview(){
+      const d = await req("/admin/api/overview");
+      renderOverview(d);
+    }
+    function initMotion(){
+      if (!window.gsap || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+      const win = document.querySelector('.window');
+      const cards = document.querySelectorAll('.card');
+      const dock = document.querySelector('.dock-nav');
+      const title = document.querySelector('.titlebar');
+      gsap.set([win, title, cards, dock], { willChange: 'transform, opacity' });
+      gsap.timeline({ defaults: { ease: 'expo.out' } })
+        .from(win, { y: 26, opacity: 0, scale: 0.988, duration: 1.05 })
+        .from(title, { y: -18, opacity: 0, duration: 0.62 }, '-=0.72')
+        .from(cards, { y: 20, opacity: 0, duration: 0.64, stagger: 0.08 }, '-=0.48')
+        .from(dock, { y: 26, opacity: 0, duration: 0.58 }, '-=0.52');
+
+      if (win) {
+        const rxTo = gsap.quickTo(win, 'rotateX', { duration: 0.55, ease: 'power3.out' });
+        const ryTo = gsap.quickTo(win, 'rotateY', { duration: 0.55, ease: 'power3.out' });
+        window.addEventListener('pointermove', (e) => {
+          const px = e.clientX / window.innerWidth - 0.5;
+          const py = e.clientY / window.innerHeight - 0.5;
+          rxTo(py * -2.4);
+          ryTo(px * 2.8);
+        }, { passive: true });
+        window.addEventListener('pointerleave', () => { rxTo(0); ryTo(0); });
+      }
+
+      gsap.utils.toArray('.btn, .dock-link').forEach((el) => {
+        el.addEventListener('mouseenter', () => gsap.to(el, { y: -2, duration: 0.22, ease: 'power2.out' }));
+        el.addEventListener('mouseleave', () => gsap.to(el, { y: 0, duration: 0.28, ease: 'power2.out' }));
+      });
+    }
+    initTheme();
+    initMotion();
+    check();
+    document.addEventListener("visibilitychange", () => {
+      const panelVisible = !document.getElementById("panel").classList.contains("hidden");
+      if (document.hidden || !panelVisible) stopOverviewStream();
+      else startOverviewStream();
+    });
+    window.addEventListener("beforeunload", stopOverviewStream);
+  </script>
+  <nav id="dockNav" class="dock-nav" aria-label="后台导航">
+    <div class="row">
+          <a class="dock-link i-home active" href="/admin" aria-label="首页"><span class="ico">概览</span><span class="tip">概览</span></a>
+          <a class="dock-link i-music" href="/admin/music" aria-label="音乐管理"><span class="ico">音乐</span><span class="tip">音乐</span></a>
+          <a class="dock-link i-config" href="/admin/config" aria-label="配置中心"><span class="ico">配置</span><span class="tip">配置</span></a>
+          <a class="dock-link i-stats" href="/admin/stats" aria-label="统计页"><span class="ico">统计</span><span class="tip">统计</span></a>
+          <a class="dock-link i-system" href="/admin/system" aria-label="系统页"><span class="ico">系统</span><span class="tip">系统</span></a>
+        </div>
+      </nav>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
+
+
+

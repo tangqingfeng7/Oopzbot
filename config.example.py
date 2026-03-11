@@ -201,6 +201,11 @@ WEB_PLAYER_CONFIG = {
     "cookie_max_age_seconds": 86400,  # 浏览器 cookie 有效期（秒）；留空则跟 token_ttl_seconds 一致
     "cookie_secure": False,  # True=仅 HTTPS 发送 cookie；纯 http 环境请保持 False
     "link_idle_release_seconds": 1800,  # 播放列表空闲超过该秒数后，释放随机播放器链接（0=不释放）
+    # 管理后台（访问 /admin）
+    "admin_enabled": False,  # 是否启用管理后台
+    "admin_password": "",    # 后台登录密码（强烈建议设置强密码）
+    "admin_session_ttl_seconds": 43200,  # 后台登录会话有效期（秒），0=不过期（不建议）
+    "admin_cookie_secure": False,  # 后台 cookie 是否仅 HTTPS 发送
 }
 
 # Bot 消息自动撤回配置

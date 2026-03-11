@@ -24,6 +24,15 @@ from logger_config import get_logger
 logger = get_logger("Voice")
 
 _HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agora_player.html")
+_PLAYWRIGHT_DOCKER_ARGS = [
+    "--disable-web-security",
+    "--allow-file-access-from-files",
+    "--autoplay-policy=no-user-gesture-required",
+    "--use-fake-device-for-media-stream",
+    "--use-fake-ui-for-media-stream",
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+]
 
 
 class VoiceClient:
@@ -108,13 +117,8 @@ class VoiceClient:
             pw = await async_playwright().start()
             browser = await pw.chromium.launch(
                 headless=True,
-                args=[
-                    "--disable-web-security",
-                    "--allow-file-access-from-files",
-                    "--autoplay-policy=no-user-gesture-required",
-                    "--use-fake-device-for-media-stream",
-                    "--use-fake-ui-for-media-stream",
-                ],
+                channel="chromium",
+                args=_PLAYWRIGHT_DOCKER_ARGS,
             )
             page = await browser.new_page()
             page.set_default_timeout(60000)
