@@ -21,8 +21,8 @@ pip install -r requirements.txt
 ## 2. 部署网易云音乐 API
 
 ```shell
-git clone https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git NeteaseCloudMusicApi
-cd NeteaseCloudMusicApi
+git clone https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git NeteaseAPI_tmp
+cd NeteaseAPI_tmp
 npm install
 ```
 
@@ -34,7 +34,7 @@ npm install
 
 也可以手动配置，详见 [配置说明](configuration.md)。
 
-若需主程序启动时自动启动网易云 API，在 `config.py` 的 `NETEASE_CLOUD` 中设置 `auto_start_path`（如 `"NeteaseCloudMusicApi"`）。
+若需主程序启动时自动启动网易云 API，在 `config.py` 的 `NETEASE_CLOUD` 中设置 `auto_start_path`（如 `"NeteaseAPI_tmp"`）。
 
 LOL 功能使用插件配置文件：
 
@@ -50,6 +50,6 @@ python main.py
 ```
 
 - 若已配置 `auto_start_path` 且目录存在，主程序会自动启动网易云 API 并等待就绪
-- 否则需先手动启动：`cd NeteaseCloudMusicApi && node app.js`，再运行 `python main.py`
+- 否则需先手动启动：`cd NeteaseAPI_tmp && node app.js`，再运行 `python main.py`
 
 启动后 Bot 自动通过 WebSocket 连接 Oopz 平台。

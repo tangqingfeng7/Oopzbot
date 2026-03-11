@@ -56,8 +56,16 @@ _ADMIN_OVERRIDES_PATH = os.path.join(_PROJECT_ROOT, "data", "admin_runtime_confi
 _ADMIN_ASSETS_DIR = os.path.join(_PROJECT_ROOT, "src", "admin_assets")
 _WEBINTOSH_ASSETS_DIR = os.path.join(_PROJECT_ROOT, "Webintosh", "assets")
 
-app.mount("/admin-assets", StaticFiles(directory=_ADMIN_ASSETS_DIR), name="admin-assets")
-app.mount("/webintosh-assets", StaticFiles(directory=_WEBINTOSH_ASSETS_DIR), name="webintosh-assets")
+
+def _mount_static_if_exists(route: str, directory: str, name: str) -> None:
+    if os.path.isdir(directory):
+        app.mount(route, StaticFiles(directory=directory), name=name)
+    else:
+        logger.warning("Static assets directory missing, skip mount: %s", directory)
+
+
+_mount_static_if_exists("/admin-assets", _ADMIN_ASSETS_DIR, "admin-assets")
+_mount_static_if_exists("/webintosh-assets", _WEBINTOSH_ASSETS_DIR, "webintosh-assets")
 
 _CONFIG_GROUPS = {
     "web_player": {
