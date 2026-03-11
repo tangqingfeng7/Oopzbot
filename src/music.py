@@ -292,12 +292,15 @@ class MusicHandler:
 
     def play_netease(self, keyword: str, channel: str, area: str, user: str):
         """搜索网易云并播放或加入队列"""
-        if not self._check_and_enter_voice_channel(user, channel, area):
-            return
-        result = self._search_and_prepare(keyword, channel, area, user)
+        result = self._prepare_song_request(keyword, channel, area, user)
         if result["code"] != "success":
             self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
             return
+
+        if not self._check_and_enter_voice_channel(user, channel, area):
+            return
+
+        result = self._commit_song_request(result["song_data"])
 
         text = result["message"]
         attachments = result.get("attachments", [])
@@ -832,72 +835,17 @@ class MusicHandler:
                     logger.debug(f"重新获取音频 URL 失败: {inner_e}")
             logger.warning(f"Agora 推流失败: {e}")
 
-    def _search_and_prepare(self, keyword: str, channel: str, area: str, user: str) -> dict:
-        """搜索歌曲 → 缓存封面 → 决定立即播放或加队列"""
+    def _prepare_song_request(self, keyword: str, channel: str, area: str, user: str) -> dict:
+        """搜索歌曲并准备播放数据，但不提前进入语音频道。"""
         search_result = self.netease.summarize(keyword)
         if search_result["code"] != "success":
             return search_result
 
         data = search_result["data"]
-        song_id = data.get("id", keyword)
-
-        # 图片缓存
-        cache_hit = False
-        attachments = []
-        image_cache_id = None
-
-        if data.get("cover"):
-            cached = ImageCache.get_by_source(song_id, "netease")
-            if cached:
-                attachments = [cached["attachment_data"]]
-                image_cache_id = cached["id"]
-                cache_hit = True
-                ImageCache.increment_use(song_id, "netease")
-            else:
-                up = self.sender.upload_file_from_url(data["cover"])
-                if up.get("code") == "success":
-                    att = up["data"]
-                    attachments = [att]
-                    image_cache_id = ImageCache.save(song_id, "netease", data["cover"], att)
-
-        # 歌曲缓存
-        song_cache_id = SongCache.get_or_create(song_id, "netease", data, image_cache_id)
-        SongCache.add_play_history(song_cache_id, "netease", channel, user)
-        Statistics.update_today("netease", cache_hit)
-
-        # 消息文本
-        user_name = self.names.user(user) if user else "未知用户"
-        text = (
-            f"{user_name} 点播了:\n"
-            "来自于网易云:\n"
-            f"歌曲: {data['name']}\n"
-            f"歌手: {data['artists']}\n"
-            f"专辑: {data['album']}\n"
-            f"时长: {data['durationText']}"
-        )
-
-        link = self._get_web_link()
-        if link:
-            text += f"\n{link}"
-
-        if attachments:
-            att = attachments[0]
-            text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
-
-        # 决定立即播放还是排队
-        is_playing = self._is_playing()
-        current_song = self.queue.get_current()
-        queue_length = self.queue.get_queue_length()
-
-        # 清理残留状态
-        if not is_playing and current_song is not None:
-            logger.info("检测到残留状态: 歌曲已播完但 current 存在, 自动清理")
-            self.queue.clear_current()
-            current_song = None
 
         song_data = {
             "platform": "netease",
-            "song_id": str(song_id),
+            "song_id": str(data.get("id", keyword)),
             "name": data["name"],
             "artists": data["artists"],
             "album": data["album"],
@@ -905,30 +853,117 @@ class MusicHandler:
             "cover": data.get("cover"),
             "duration": data["durationText"],
             "duration_ms": data.get("duration", 0),
-            "attachments": attachments,
+            "attachments": [],
             "channel": channel,
             "area": area,
             "user": user,
         }
 
+        return {"code": "success", "song_data": song_data}
+
+    def _resolve_song_attachments(self, song_data: dict) -> tuple[list, Optional[int], bool]:
+        """在真正提交播放前再处理封面，避免失败请求也触发上传和写库。"""
+        attachments = list(song_data.get("attachments", []))
+        image_cache_id = None
+        cache_hit = False
+        song_id = song_data.get("song_id")
+        cover = song_data.get("cover")
+        platform = song_data.get("platform", "netease")
+
+        if not cover or not song_id:
+            return attachments, image_cache_id, cache_hit
+
+        cached = ImageCache.get_by_source(song_id, platform)
+        if cached:
+            attachments = [cached["attachment_data"]]
+            image_cache_id = cached["id"]
+            cache_hit = True
+            ImageCache.increment_use(song_id, platform)
+            return attachments, image_cache_id, cache_hit
+
+        up = self.sender.upload_file_from_url(cover)
+        if up.get("code") == "success":
+            att = up["data"]
+            attachments = [att]
+            image_cache_id = ImageCache.save(song_id, platform, cover, att)
+        return attachments, image_cache_id, cache_hit
+
+    def _build_song_request_text(self, song_data: dict) -> str:
+        """统一构建点歌通知文本。"""
+        user_name = self.names.user(song_data.get("user", "")) if song_data.get("user") else "未知用户"
+        text = (
+            f"{user_name} 点播了:\n"
+            "来自于网易云:\n"
+            f"歌曲: {song_data['name']}\n"
+            f"歌手: {song_data['artists']}\n"
+            f"专辑: {song_data['album']}\n"
+            f"时长: {song_data['duration']}"
+        )
+
+        link = self._get_web_link()
+        if link:
+            text += f"\n{link}"
+
+        attachments = song_data.get("attachments", [])
+        if attachments:
+            att = attachments[0]
+            text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
+        return text
+
+    def _commit_song_request(self, song_data: dict) -> dict:
+        """将已准备好的歌曲请求正式提交为播放或排队。"""
+        song_data = dict(song_data)
+        attachments, image_cache_id, cache_hit = self._resolve_song_attachments(song_data)
+        song_data["attachments"] = attachments
+        is_playing = self._is_playing()
+        current_song = self.queue.get_current()
+        queue_length = self.queue.get_queue_length()
+
+        if not is_playing and current_song is not None:
+            logger.info("检测到残留状态: 歌曲已播完但 current 存在, 自动清理")
+            self.queue.clear_current()
+            current_song = None
+
         if not is_playing and current_song is None and queue_length == 0:
             # 立即播放
+            song_data = dict(song_data)
             play_uuid = str(uuid.uuid4())
             song_data["play_uuid"] = play_uuid
-            self._start_playing(data.get("duration", 0))
+            self._start_playing(song_data.get("duration_ms", 0))
             self.queue.set_current(song_data)
 
             threading.Thread(
                 target=self._stream_to_voice_channel,
-                args=(data["url"], data["name"], channel, area,
-                      str(data.get("id", "")), data.get("duration", 0)),
+                args=(
+                    song_data["url"],
+                    song_data["name"],
+                    song_data.get("channel", ""),
+                    song_data.get("area", ""),
+                    str(song_data.get("song_id", "")),
+                    song_data.get("duration_ms", 0),
+                ),
                 daemon=True,
             ).start()
             self._preload_next_song_if_any()
+            text = self._build_song_request_text(song_data)
         else:
             pos = self.queue.add_to_queue(song_data)
             actual = pos + 1 + (1 if current_song or is_playing else 0)
-            text += f"\n已加入队列 (位置: {actual})"
+            text = self._build_song_request_text(song_data) + f"\n已加入队列 (位置: {actual})"
+
+        song_cache_id = SongCache.get_or_create(
+            song_data.get("song_id"),
+            song_data.get("platform", "netease"),
+            song_data,
+            image_cache_id,
+        )
+        SongCache.add_play_history(
+            song_cache_id,
+            song_data.get("platform", "netease"),
+            song_data.get("channel", ""),
+            song_data.get("user", ""),
+        )
+        Statistics.update_today(song_data.get("platform", "netease"), cache_hit)
 
         return {"code": "success", "message": text, "attachments": attachments}
 

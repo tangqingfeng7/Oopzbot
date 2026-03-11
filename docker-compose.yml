@@ -15,6 +15,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+    init: true
     restart: unless-stopped
     depends_on:
       redis:
@@ -27,6 +28,7 @@ services:
       BOT_DISABLE_VOICE: "1"
     ports:
       - "8080:8080"
+    shm_size: "1gb"
     volumes:
       - ./config.py:/app/config.py:ro
       - ./private_key.py:/app/private_key.py:ro

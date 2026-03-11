@@ -6,6 +6,7 @@ Redis 播放队列管理模块
 import json
 import time
 from typing import Optional
+import threading
 
 import redis
 
@@ -18,6 +19,9 @@ logger = get_logger("QueueManager")
 KEY_QUEUE = "music:queue"
 KEY_CURRENT = "music:current"
 KEY_DEFAULT_CHANNEL = "music:default_channel"
+
+_redis_client = None
+_redis_lock = threading.Lock()
 
 
 class _InMemoryRedis:
@@ -129,13 +133,7 @@ class QueueManager:
     """基于 Redis 的播放队列管理器（Redis 不可用时自动回退到内存队列）"""
 
     def __init__(self):
-        try:
-            self.redis = redis.Redis(**REDIS_CONFIG)
-            self.redis.ping()
-            logger.info("Redis 连接成功")
-        except Exception as e:
-            logger.error(f"Redis 连接失败，将使用内存队列: {e}")
-            self.redis = _InMemoryRedis()
+        self.redis = get_redis_client()
 
     # ------------------------------------------------------------------
     # 队列操作
@@ -219,3 +217,21 @@ class QueueManager:
         if isinstance(val, bytes):
             return val.decode("utf-8", errors="ignore")
         return val
+
+
+def get_redis_client(force_reset: bool = False):
+    """返回全局共享 Redis 客户端；连接失败时统一回退到内存实现。"""
+    global _redis_client
+    with _redis_lock:
+        if force_reset:
+            _redis_client = None
+        if _redis_client is None:
+            try:
+                client = redis.Redis(**REDIS_CONFIG)
+                client.ping()
+                logger.info("Redis 连接成功")
+                _redis_client = client
+            except Exception as e:
+                logger.error(f"Redis 连接失败，将使用内存队列: {e}")
+                _redis_client = _InMemoryRedis()
+        return _redis_client

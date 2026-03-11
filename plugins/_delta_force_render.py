@@ -14,6 +14,10 @@ from logger_config import get_logger
 from ._delta_force_assets import TEMPLATES_DIR
 
 logger = get_logger("DeltaForceRender")
+_PLAYWRIGHT_RENDER_ARGS = [
+    "--no-sandbox",
+    "--disable-dev-shm-usage",
+]
 
 
 class DeltaForceRenderer:
@@ -66,7 +70,7 @@ class DeltaForceRenderer:
 
         try:
             with sync_playwright() as pw:
-                browser = pw.chromium.launch()
+                browser = pw.chromium.launch(headless=True, channel="chromium", args=_PLAYWRIGHT_RENDER_ARGS)
                 page = browser.new_page(viewport={"width": self._width, "height": 2200})
                 page.goto(html_path.resolve().as_uri(), wait_until="networkidle", timeout=self._timeout_ms)
                 page.locator("#poster").screenshot(path=str(png_path))

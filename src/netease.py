@@ -66,9 +66,14 @@ class NeteaseCloud:
         song = songs[0]
         return self._parse_song(song)
 
-    def search_many(self, keyword: str, limit: int = 10) -> list[dict]:
+    def search_many(self, keyword: str, limit: int = 10, offset: int = 0) -> list[dict]:
         """搜索歌曲，返回多条结果列表"""
-        data = self._get("/cloudsearch", params={"keywords": keyword, "limit": limit, "type": 1})
+        data = self._get("/cloudsearch", params={
+            "keywords": keyword,
+            "limit": limit,
+            "offset": max(0, int(offset or 0)),
+            "type": 1,
+        })
         if not data or data.get("code") != 200:
             return []
 

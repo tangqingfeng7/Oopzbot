@@ -95,7 +95,7 @@ docker compose --profile music up -d --build
 | **OOPZ_CONFIG** | `person_uid`、`device_id`、`jwt_token`、`default_area`、`default_channel`；语音推流需填写 `agora_app_id` |
 | **REDIS_CONFIG** | 队列与播放状态存储，需先启动 Redis |
 | **NETEASE_CLOUD** | `base_url`、`cookie`、`auto_start_path`；弱网时可调大 `audio_download_timeout`、`audio_download_retries`，音质可选 `audio_quality: "standard"`（体积小）或 `"exhigh"` |
-| **WEB_PLAYER_CONFIG** | Web 播放器监听 `host`/`port`，以及对外展示的 `url`（留空则自动检测） |
+| **WEB_PLAYER_CONFIG** | Web 播放器监听 `host`/`port`、对外 `url`，以及管理后台（`admin_enabled`/`admin_password`） |
 | **插件配置（JSON）** | 插件配置位于 `config/plugins/*.json`，当前包含 `lol_ban`、`lol_fa8` 与 `delta_force`（字段说明见 [配置说明](docs/configuration.md)） |
 | **ADMIN_UIDS** | 可执行管理命令的用户 UID 列表，为空则不限制 |
 
@@ -126,7 +126,7 @@ Bot 发送的所有消息默认使用**公告样式**（`styleTags: ["IMPORTANT"
 | [配置说明](docs/configuration.md) | config.py 各配置项详解 |
 | [机器人命令](docs/commands.md) | @ 指令与 / 斜杠命令参考 |
 | [系统架构](docs/architecture.md) | 架构、技术栈、项目结构、数据库 |
-| [Web 播放器](docs/web-player.md) | Web 播放器功能说明与 HTTP API（歌词同步、音量记忆、喜欢列表全量搜索等） |
+| [Web 播放器](docs/web-player.md) | Web 播放器与管理后台说明（功能、配置、HTTP API） |
 | [API 参考](docs/api-reference.md) | Oopz 平台 API 端点说明 |
 
 ---

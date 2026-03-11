@@ -1,0 +1,1054 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
+  <title>Oopz Bot 管理后台</title>
+  <style>
+    :root {
+      --bg: #e9edf3;
+      --window: rgba(255, 255, 255, 0.82);
+      --panel: rgba(255, 255, 255, 0.72);
+      --text: #1f2329;
+      --sub: #5f6773;
+      --line: rgba(50, 62, 80, 0.14);
+      --accent: #0a84ff;
+      --danger: #ff3b30;
+      --ok: #30d158;
+      --warning: #ff9f0a;
+      --shadow: 0 20px 50px rgba(31, 35, 41, 0.12);
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      font-family: "SF Pro Text", "SF Pro Display", -apple-system, BlinkMacSystemFont, "PingFang SC", sans-serif;
+      background:
+        radial-gradient(900px 500px at -10% -20%, #cfe0ff 0%, transparent 65%),
+        radial-gradient(900px 500px at 110% 0%, #d7fff2 0%, transparent 60%),
+        linear-gradient(180deg, #f7f9fc 0%, var(--bg) 100%);
+      color: var(--text);
+      min-height: 100vh;
+      letter-spacing: 0.01em;
+    }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 28px 16px 48px; }
+    .window {
+      border: 1px solid rgba(255, 255, 255, 0.9);
+      border-radius: 18px;
+      background: var(--window);
+      box-shadow: var(--shadow);
+      overflow: hidden;
+      backdrop-filter: saturate(170%) blur(18px);
+      -webkit-backdrop-filter: saturate(170%) blur(18px);
+      margin-bottom: 14px;
+    }
+    .titlebar {
+      height: 44px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 1px solid var(--line);
+      padding: 0 14px;
+      background: rgba(255, 255, 255, 0.75);
+    }
+    .dot { width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 1px 0 rgba(255,255,255,.6); }
+    .dot.red { background: #ff5f57; }
+    .dot.yellow { background: #febc2e; }
+    .dot.green { background: #28c840; }
+    .title {
+      margin-left: 6px;
+      font-size: 13px;
+      color: #5f6672;
+      font-weight: 600;
+    }
+    .content { padding: 16px; }
+    .card {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 14px;
+      backdrop-filter: blur(8px);
+      -webkit-backdrop-filter: blur(8px);
+    }
+    h1 { font-size: 24px; margin: 0 0 8px; font-weight: 700; }
+    h2 { font-size: 18px; margin: 0 0 12px; }
+    p { margin: 0; color: var(--sub); }
+    .row { display: flex; gap: 12px; flex-wrap: wrap; }
+    .stat {
+      flex: 1 1 180px;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 12px;
+      background: rgba(255, 255, 255, 0.68);
+    }
+    .label { font-size: 12px; color: var(--sub); margin-bottom: 6px; }
+    .value { font-size: 22px; font-weight: 700; }
+    .btns { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 10px; }
+    button {
+      border: 1px solid var(--line);
+      background: linear-gradient(180deg, #ffffff 0%, #f4f6f9 100%);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 8px 12px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: transform .12s ease, box-shadow .12s ease, filter .12s ease;
+    }
+    button:hover {
+      filter: brightness(1.02);
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(31, 35, 41, 0.08);
+    }
+    button:active { transform: translateY(0); }
+    .danger {
+      color: #fff;
+      background: linear-gradient(180deg, #ff5a52 0%, #ff3b30 100%);
+      border-color: rgba(198, 41, 34, 0.5);
+    }
+    .primary {
+      color: #fff;
+      background: linear-gradient(180deg, #3f9cff 0%, #0a84ff 100%);
+      border-color: rgba(9, 90, 184, 0.45);
+    }
+    .toolbar {
+      display: inline-flex;
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 3px;
+      background: rgba(255, 255, 255, 0.62);
+      gap: 3px;
+      flex-wrap: wrap;
+    }
+    .toolbar button { margin: 0; }
+    input {
+      width: 100%;
+      border: 1px solid var(--line);
+      background: rgba(255, 255, 255, 0.85);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px;
+      outline: none;
+    }
+    input:focus {
+      border-color: rgba(10, 132, 255, 0.45);
+      box-shadow: 0 0 0 4px rgba(10, 132, 255, 0.15);
+    }
+    .cfg-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .cfg-item {
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      background: rgba(255, 255, 255, 0.65);
+    }
+    .cfg-item label {
+      display: block;
+      margin-bottom: 6px;
+      color: #4d5663;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .cfg-item input[type="checkbox"] {
+      width: auto;
+      transform: scale(1.15);
+      margin-right: 6px;
+    }
+    .mono {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      font-size: 12px;
+      color: #4b5563;
+      word-break: break-all;
+    }
+    .split {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .tiny {
+      padding: 5px 8px;
+      font-size: 12px;
+      border-radius: 8px;
+    }
+    table { width: 100%; border-collapse: collapse; }
+    th, td {
+      border-bottom: 1px solid var(--line);
+      text-align: left;
+      padding: 10px 8px;
+      font-size: 14px;
+    }
+    th { color: #556070; font-weight: 600; }
+    pre {
+      margin: 0;
+      max-height: 360px;
+      overflow: auto;
+      background: #f8fafc;
+      border: 1px solid var(--line);
+      border-radius: 10px;
+      padding: 10px;
+      font-size: 12px;
+      line-height: 1.5;
+      white-space: pre-wrap;
+      color: #374151;
+    }
+    .hidden { display: none; }
+    .msg { margin-top: 8px; color: var(--accent); }
+    .err { color: var(--danger); }
+    @media (max-width: 768px) {
+      .wrap { padding: 12px 10px 28px; }
+      .title { display: none; }
+      .card { padding: 14px; }
+      h1 { font-size: 21px; }
+      .value { font-size: 20px; }
+      .cfg-grid { grid-template-columns: 1fr; }
+      .split { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="title">Oopz Bot Admin</span>
+      </div>
+      <div class="content">
+        <div class="card">
+          <h1>Oopz Bot 管理后台</h1>
+          <p>控制台：运行概览、音乐控制、统计和日志。</p>
+        </div>
+      </div>
+    </div>
+
+    <div class="window">
+      <div class="titlebar">
+        <span class="dot red"></span>
+        <span class="dot yellow"></span>
+        <span class="dot green"></span>
+        <span class="title">Authentication</span>
+      </div>
+      <div class="content">
+        <div id="loginCard" class="card">
+          <h2>登录</h2>
+          <div class="row">
+            <div style="flex:1;min-width:220px;">
+              <input id="password" type="password" placeholder="请输入后台密码" />
+            </div>
+            <div>
+              <button class="primary" onclick="login()">登录</button>
+            </div>
+          </div>
+          <div id="loginMsg" class="msg"></div>
+        </div>
+        <div id="mainPanel" class="hidden">
+          <div class="card">
+            <h2>概览</h2>
+            <div class="row">
+              <div class="stat"><div class="label">Redis</div><div id="sRedis" class="value">-</div></div>
+              <div class="stat"><div class="label">运行时长(秒)</div><div id="sUp" class="value">-</div></div>
+              <div class="stat"><div class="label">队列长度</div><div id="sQueue" class="value">-</div></div>
+              <div class="stat"><div class="label">累计播放</div><div id="sTotal" class="value">-</div></div>
+            </div>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="loadOverview()">刷新概览</button>
+                <button onclick="logout()">退出登录</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>音乐控制</h2>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="control('pause')">暂停</button>
+                <button onclick="control('resume')">恢复</button>
+                <button onclick="control('next')">下一首</button>
+                <button class="danger" onclick="control('stop')">停止</button>
+                <button class="danger" onclick="clearQueue()">清空队列</button>
+                <button onclick="refreshLiked()">刷新喜欢缓存</button>
+              </div>
+            </div>
+            <div id="ctlMsg" class="msg"></div>
+          </div>
+
+          <div class="card">
+            <h2>配置中心</h2>
+            <div class="cfg-grid">
+              <div class="cfg-item">
+                <label>播放器 URL</label>
+                <input id="cfg_web_url" type="text" placeholder="http://x.x.x.x:8080" />
+              </div>
+              <div class="cfg-item">
+                <label>播放器 Token TTL（秒）</label>
+                <input id="cfg_web_token_ttl" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label>播放器 Cookie MaxAge（秒）</label>
+                <input id="cfg_web_cookie_age" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label>后台会话 TTL（秒）</label>
+                <input id="cfg_admin_session_ttl" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label>后台新密码（可留空不改）</label>
+                <input id="cfg_admin_password" type="password" />
+              </div>
+              <div class="cfg-item">
+                <label>空闲释放链接（秒）</label>
+                <input id="cfg_link_idle" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_cookie_secure" type="checkbox" />播放器 Cookie Secure</label>
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_admin_cookie_secure" type="checkbox" />后台 Cookie Secure</label>
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_auto_recall_enabled" type="checkbox" />自动撤回开关</label>
+              </div>
+              <div class="cfg-item">
+                <label>自动撤回延迟（秒）</label>
+                <input id="cfg_auto_recall_delay" type="number" min="1" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_area_notify_enabled" type="checkbox" />域加入通知开关</label>
+              </div>
+              <div class="cfg-item">
+                <label>域成员轮询间隔（秒）</label>
+                <input id="cfg_area_poll" type="number" min="2" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_chat_enabled" type="checkbox" />聊天自动回复开关</label>
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_profanity_enabled" type="checkbox" />脏话检测开关</label>
+              </div>
+              <div class="cfg-item">
+                <label>禁言时长（分钟）</label>
+                <input id="cfg_mute_duration" type="number" min="1" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_warn_before_mute" type="checkbox" />先警告后禁言</label>
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_skip_admins" type="checkbox" />脏话检测跳过管理员</label>
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_context_detection" type="checkbox" />启用上下文检测</label>
+              </div>
+              <div class="cfg-item">
+                <label>上下文窗口（秒）</label>
+                <input id="cfg_context_window" type="number" min="5" />
+              </div>
+              <div class="cfg-item">
+                <label>上下文最大消息数</label>
+                <input id="cfg_context_max_messages" type="number" min="1" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_ai_detection" type="checkbox" />启用 AI 检测</label>
+              </div>
+              <div class="cfg-item">
+                <label>AI 检测最短长度</label>
+                <input id="cfg_ai_min_length" type="number" min="1" />
+              </div>
+
+              <div class="cfg-item">
+                <label>默认区域 ID</label>
+                <input id="cfg_oopz_default_area" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>默认频道 ID</label>
+                <input id="cfg_oopz_default_channel" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>OOPZ 代理</label>
+                <input id="cfg_oopz_proxy" type="text" placeholder="direct / http://127.0.0.1:7890" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_oopz_announcement" type="checkbox" />发送公告样式消息</label>
+              </div>
+
+              <div class="cfg-item">
+                <label>网易云 API 地址</label>
+                <input id="cfg_netease_base_url" type="text" placeholder="http://localhost:3000" />
+              </div>
+              <div class="cfg-item">
+                <label>网易云音频超时（秒）</label>
+                <input id="cfg_netease_timeout" type="number" min="5" />
+              </div>
+              <div class="cfg-item">
+                <label>网易云音频重试次数</label>
+                <input id="cfg_netease_retries" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label>网易云音质（standard/exhigh）</label>
+                <input id="cfg_netease_quality" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>网易云 Cookie（可留空不改）</label>
+                <input id="cfg_netease_cookie" type="password" />
+              </div>
+
+              <div class="cfg-item">
+                <label>Redis Host</label>
+                <input id="cfg_redis_host" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>Redis Port</label>
+                <input id="cfg_redis_port" type="number" min="1" />
+              </div>
+              <div class="cfg-item">
+                <label>Redis DB</label>
+                <input id="cfg_redis_db" type="number" min="0" />
+              </div>
+              <div class="cfg-item">
+                <label>Redis 密码（可留空不改）</label>
+                <input id="cfg_redis_password" type="password" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_redis_decode" type="checkbox" />Redis decode_responses</label>
+              </div>
+
+              <div class="cfg-item">
+                <label><input id="cfg_doubao_enabled" type="checkbox" />启用豆包聊天</label>
+              </div>
+              <div class="cfg-item">
+                <label>豆包聊天 Base URL</label>
+                <input id="cfg_doubao_base_url" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>豆包聊天模型</label>
+                <input id="cfg_doubao_model" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>豆包 max_tokens</label>
+                <input id="cfg_doubao_max_tokens" type="number" min="1" />
+              </div>
+              <div class="cfg-item">
+                <label>豆包 temperature</label>
+                <input id="cfg_doubao_temperature" type="number" step="0.1" min="0" max="2" />
+              </div>
+              <div class="cfg-item">
+                <label>豆包系统提示词</label>
+                <input id="cfg_doubao_system_prompt" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>豆包 API Key（可留空不改）</label>
+                <input id="cfg_doubao_api_key" type="password" />
+              </div>
+
+              <div class="cfg-item">
+                <label><input id="cfg_doubao_img_enabled" type="checkbox" />启用豆包文生图</label>
+              </div>
+              <div class="cfg-item">
+                <label>文生图 Base URL</label>
+                <input id="cfg_doubao_img_base_url" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>文生图模型</label>
+                <input id="cfg_doubao_img_model" type="text" />
+              </div>
+              <div class="cfg-item">
+                <label>文生图尺寸</label>
+                <input id="cfg_doubao_img_size" type="text" placeholder="1920x1920" />
+              </div>
+              <div class="cfg-item">
+                <label><input id="cfg_doubao_img_watermark" type="checkbox" />图片水印</label>
+              </div>
+              <div class="cfg-item">
+                <label>文生图 API Key（可留空不改）</label>
+                <input id="cfg_doubao_img_api_key" type="password" />
+              </div>
+            </div>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="loadConfig()">刷新配置</button>
+                <button class="primary" onclick="saveConfig(true)">保存并持久化</button>
+                <button onclick="saveConfig(false)">仅本次生效</button>
+                <button class="danger" onclick="resetOverrides()">清除持久化覆盖</button>
+              </div>
+            </div>
+            <div id="cfgMsg" class="msg"></div>
+          </div>
+
+          <div class="split">
+            <div class="card">
+              <h2>播放器链接</h2>
+              <div class="row">
+                <div style="flex:1;min-width:220px;">
+                  <input id="playerLink" type="text" readonly />
+                </div>
+              </div>
+              <div class="btns">
+                <div class="toolbar">
+                  <button onclick="loadPlayerLink()">刷新链接</button>
+                  <button onclick="copyPlayerLink()">复制链接</button>
+                  <button class="danger" onclick="rotatePlayerLink()">重置链接</button>
+                </div>
+              </div>
+              <div id="linkMsg" class="msg"></div>
+            </div>
+
+            <div class="card">
+              <h2>系统信息</h2>
+              <pre id="systemInfo">-</pre>
+              <div class="btns">
+                <div class="toolbar">
+                  <button onclick="loadSystemInfo()">刷新系统信息</button>
+                  <button class="danger" onclick="clearPlayHistory()">清空播放历史</button>
+                </div>
+              </div>
+              <div id="sysMsg" class="msg"></div>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>后台点歌</h2>
+            <div class="row">
+              <div style="flex:1;min-width:220px;">
+                <input id="searchKeyword" type="text" placeholder="输入关键词搜索歌曲" />
+              </div>
+              <div>
+                <button class="primary" onclick="searchAdminSongs()">搜索</button>
+              </div>
+            </div>
+            <table style="margin-top:10px;">
+              <thead><tr><th>歌曲</th><th>歌手</th><th>专辑</th><th>操作</th></tr></thead>
+              <tbody id="searchResults"></tbody>
+            </table>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="changeSearchPage(-1)">上一页</button>
+                <button onclick="changeSearchPage(1)">下一页</button>
+              </div>
+              <span id="searchPageInfo" class="mono"></span>
+            </div>
+            <div id="searchMsg" class="msg"></div>
+          </div>
+
+          <div class="card">
+            <h2>队列管理</h2>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="loadAdminQueue()">刷新队列</button>
+              </div>
+            </div>
+            <table style="margin-top:10px;">
+              <thead><tr><th>#</th><th>歌曲</th><th>歌手</th><th>时长</th><th>操作</th></tr></thead>
+              <tbody id="adminQueueRows"></tbody>
+            </table>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="changeQueuePage(-1)">上一页</button>
+                <button onclick="changeQueuePage(1)">下一页</button>
+              </div>
+              <span id="queuePageInfo" class="mono"></span>
+            </div>
+            <div id="queueMsg" class="msg"></div>
+          </div>
+
+          <div class="card">
+            <h2>Top 歌曲</h2>
+            <table>
+              <thead><tr><th>歌曲</th><th>歌手</th><th>播放次数</th><th>最后播放</th></tr></thead>
+              <tbody id="topSongs"></tbody>
+            </table>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="changeTopPage(-1)">上一页</button>
+                <button onclick="changeTopPage(1)">下一页</button>
+              </div>
+              <span id="topPageInfo" class="mono"></span>
+            </div>
+          </div>
+
+          <div class="card">
+            <h2>运行日志</h2>
+            <div class="btns">
+              <div class="toolbar">
+                <button onclick="loadLogs(200)">刷新日志</button>
+                <button onclick="loadLogs(600)">加载更多</button>
+              </div>
+            </div>
+            <pre id="logs">-</pre>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let adminSearchResults = [];
+    let topPage = 1;
+    let topPages = 1;
+    let queuePage = 1;
+    let queuePages = 1;
+    let searchPage = 1;
+    let searchPages = 1;
+    let searchKeyword = "";
+
+    async function req(url, options = {}) {
+      const resp = await fetch(url, {
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        ...options
+      });
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || data.ok === false) throw new Error(data.error || ("HTTP " + resp.status));
+      return data;
+    }
+
+    function showMsg(el, text, isErr = false) {
+      el.textContent = text;
+      el.classList.toggle("err", !!isErr);
+    }
+
+    async function checkLogin() {
+      try {
+        await req("/admin/api/me");
+        document.getElementById("loginCard").classList.add("hidden");
+        document.getElementById("mainPanel").classList.remove("hidden");
+        await loadOverview().catch(() => {});
+        await loadStats().catch(() => {});
+        await loadLogs(200).catch(() => {});
+        await loadConfig().catch(() => {});
+        await loadPlayerLink().catch(() => {});
+        await loadAdminQueue().catch(() => {});
+        await loadSystemInfo().catch(() => {});
+      } catch (_) {
+        document.getElementById("loginCard").classList.remove("hidden");
+        document.getElementById("mainPanel").classList.add("hidden");
+      }
+    }
+
+    async function login() {
+      const msg = document.getElementById("loginMsg");
+      const pwd = document.getElementById("password").value || "";
+      try {
+        await req("/admin/api/login", { method: "POST", body: JSON.stringify({ password: pwd }) });
+        showMsg(msg, "登录成功");
+        await checkLogin();
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function logout() {
+      await req("/admin/api/logout", { method: "POST", body: "{}" });
+      await checkLogin();
+    }
+
+    async function loadOverview() {
+      const d = await req("/admin/api/overview");
+      document.getElementById("sRedis").textContent = d.redis || "-";
+      document.getElementById("sUp").textContent = d.uptime_seconds ?? "-";
+      document.getElementById("sQueue").textContent = d.queue_length ?? "-";
+      document.getElementById("sTotal").textContent = d.statistics_summary?.total_plays ?? "-";
+    }
+
+    async function loadStats() {
+      const d = await req("/admin/api/statistics?days=7&top_page=" + topPage + "&top_page_size=10");
+      const rows = (d.top_songs || []).map((x) => (
+        `<tr><td>${x.song_name || "-"}</td><td>${x.artist || "-"}</td><td>${x.play_count || 0}</td><td>${x.last_played_at || "-"}</td></tr>`
+      ));
+      document.getElementById("topSongs").innerHTML = rows.join("") || "<tr><td colspan='4'>暂无数据</td></tr>";
+      topPage = d.top_page || 1;
+      topPages = d.top_pages || 1;
+      document.getElementById("topPageInfo").textContent = `第 ${topPage}/${topPages} 页，共 ${d.top_total || 0} 首`;
+    }
+
+    async function loadLogs(tail) {
+      const d = await req("/admin/api/logs?tail=" + tail);
+      document.getElementById("logs").textContent = (d.lines || []).join("\n") || "-";
+    }
+
+    async function control(action) {
+      const msg = document.getElementById("ctlMsg");
+      try {
+        await req("/admin/api/control", { method: "POST", body: JSON.stringify({ action }) });
+        showMsg(msg, "操作成功: " + action);
+        await loadOverview();
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function clearQueue() {
+      const msg = document.getElementById("ctlMsg");
+      try {
+        await req("/admin/api/queue/clear", { method: "POST", body: "{}" });
+        showMsg(msg, "队列已清空");
+        await loadOverview();
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function refreshLiked() {
+      const msg = document.getElementById("ctlMsg");
+      try {
+        await req("/admin/api/liked/refresh", { method: "POST", body: "{}" });
+        showMsg(msg, "喜欢列表缓存已刷新");
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    function setVal(id, value) {
+      const el = document.getElementById(id);
+      if (!el) return;
+      if (el.type === "checkbox") el.checked = !!value;
+      else el.value = value ?? "";
+    }
+
+    function getInt(id) {
+      const v = Number(document.getElementById(id).value);
+      return Number.isFinite(v) ? Math.trunc(v) : 0;
+    }
+
+    function getFloat(id) {
+      const v = Number(document.getElementById(id).value);
+      return Number.isFinite(v) ? v : 0;
+    }
+
+    async function loadConfig() {
+      const d = await req("/admin/api/config");
+      const c = d.config || {};
+      setVal("cfg_web_url", c.web_player?.url || "");
+      setVal("cfg_web_token_ttl", c.web_player?.token_ttl_seconds || 0);
+      setVal("cfg_web_cookie_age", c.web_player?.cookie_max_age_seconds || 0);
+      setVal("cfg_link_idle", c.web_player?.link_idle_release_seconds || 0);
+      setVal("cfg_cookie_secure", c.web_player?.cookie_secure);
+      setVal("cfg_admin_session_ttl", c.web_player?.admin_session_ttl_seconds || 0);
+      setVal("cfg_admin_cookie_secure", c.web_player?.admin_cookie_secure);
+      setVal("cfg_auto_recall_enabled", c.auto_recall?.enabled);
+      setVal("cfg_auto_recall_delay", c.auto_recall?.delay || 30);
+      setVal("cfg_area_notify_enabled", c.area_join_notify?.enabled);
+      setVal("cfg_area_poll", c.area_join_notify?.poll_interval_seconds || 2);
+      setVal("cfg_chat_enabled", c.chat?.enabled);
+      setVal("cfg_profanity_enabled", c.profanity?.enabled);
+      setVal("cfg_mute_duration", c.profanity?.mute_duration || 5);
+      setVal("cfg_warn_before_mute", c.profanity?.warn_before_mute);
+      setVal("cfg_skip_admins", c.profanity?.skip_admins);
+      setVal("cfg_context_detection", c.profanity?.context_detection);
+      setVal("cfg_context_window", c.profanity?.context_window || 30);
+      setVal("cfg_context_max_messages", c.profanity?.context_max_messages || 10);
+      setVal("cfg_ai_detection", c.profanity?.ai_detection);
+      setVal("cfg_ai_min_length", c.profanity?.ai_min_length || 2);
+
+      setVal("cfg_oopz_default_area", c.oopz?.default_area || "");
+      setVal("cfg_oopz_default_channel", c.oopz?.default_channel || "");
+      setVal("cfg_oopz_proxy", c.oopz?.proxy || "");
+      setVal("cfg_oopz_announcement", c.oopz?.use_announcement_style);
+
+      setVal("cfg_netease_base_url", c.netease?.base_url || "");
+      setVal("cfg_netease_timeout", c.netease?.audio_download_timeout || 120);
+      setVal("cfg_netease_retries", c.netease?.audio_download_retries || 2);
+      setVal("cfg_netease_quality", c.netease?.audio_quality || "standard");
+      setVal("cfg_redis_host", c.redis?.host || "");
+      setVal("cfg_redis_port", c.redis?.port || 6379);
+      setVal("cfg_redis_db", c.redis?.db || 0);
+      setVal("cfg_redis_decode", c.redis?.decode_responses);
+
+      setVal("cfg_doubao_enabled", c.doubao_chat?.enabled);
+      setVal("cfg_doubao_base_url", c.doubao_chat?.base_url || "");
+      setVal("cfg_doubao_model", c.doubao_chat?.model || "");
+      setVal("cfg_doubao_max_tokens", c.doubao_chat?.max_tokens || 256);
+      setVal("cfg_doubao_temperature", c.doubao_chat?.temperature ?? 0.7);
+      setVal("cfg_doubao_system_prompt", c.doubao_chat?.system_prompt || "");
+
+      setVal("cfg_doubao_img_enabled", c.doubao_image?.enabled);
+      setVal("cfg_doubao_img_base_url", c.doubao_image?.base_url || "");
+      setVal("cfg_doubao_img_model", c.doubao_image?.model || "");
+      setVal("cfg_doubao_img_size", c.doubao_image?.size || "");
+      setVal("cfg_doubao_img_watermark", c.doubao_image?.watermark);
+    }
+
+    function buildConfigUpdates() {
+      const updates = {
+        web_player: {
+          url: document.getElementById("cfg_web_url").value || "",
+          token_ttl_seconds: getInt("cfg_web_token_ttl"),
+          cookie_max_age_seconds: getInt("cfg_web_cookie_age"),
+          link_idle_release_seconds: getInt("cfg_link_idle"),
+          cookie_secure: document.getElementById("cfg_cookie_secure").checked,
+          admin_session_ttl_seconds: getInt("cfg_admin_session_ttl"),
+          admin_cookie_secure: document.getElementById("cfg_admin_cookie_secure").checked
+        },
+        auto_recall: {
+          enabled: document.getElementById("cfg_auto_recall_enabled").checked,
+          delay: getInt("cfg_auto_recall_delay")
+        },
+        area_join_notify: {
+          enabled: document.getElementById("cfg_area_notify_enabled").checked,
+          poll_interval_seconds: getInt("cfg_area_poll")
+        },
+        chat: {
+          enabled: document.getElementById("cfg_chat_enabled").checked
+        },
+        profanity: {
+          enabled: document.getElementById("cfg_profanity_enabled").checked,
+          mute_duration: getInt("cfg_mute_duration"),
+          warn_before_mute: document.getElementById("cfg_warn_before_mute").checked,
+          skip_admins: document.getElementById("cfg_skip_admins").checked,
+          context_detection: document.getElementById("cfg_context_detection").checked,
+          context_window: getInt("cfg_context_window"),
+          context_max_messages: getInt("cfg_context_max_messages"),
+          ai_detection: document.getElementById("cfg_ai_detection").checked,
+          ai_min_length: getInt("cfg_ai_min_length")
+        },
+        oopz: {
+          default_area: document.getElementById("cfg_oopz_default_area").value || "",
+          default_channel: document.getElementById("cfg_oopz_default_channel").value || "",
+          proxy: document.getElementById("cfg_oopz_proxy").value || "",
+          use_announcement_style: document.getElementById("cfg_oopz_announcement").checked
+        },
+        netease: {
+          base_url: document.getElementById("cfg_netease_base_url").value || "",
+          audio_download_timeout: getInt("cfg_netease_timeout"),
+          audio_download_retries: getInt("cfg_netease_retries"),
+          audio_quality: document.getElementById("cfg_netease_quality").value || "standard"
+        },
+        redis: {
+          host: document.getElementById("cfg_redis_host").value || "",
+          port: getInt("cfg_redis_port"),
+          db: getInt("cfg_redis_db"),
+          decode_responses: document.getElementById("cfg_redis_decode").checked
+        },
+        doubao_chat: {
+          enabled: document.getElementById("cfg_doubao_enabled").checked,
+          base_url: document.getElementById("cfg_doubao_base_url").value || "",
+          model: document.getElementById("cfg_doubao_model").value || "",
+          max_tokens: getInt("cfg_doubao_max_tokens"),
+          temperature: getFloat("cfg_doubao_temperature"),
+          system_prompt: document.getElementById("cfg_doubao_system_prompt").value || ""
+        },
+        doubao_image: {
+          enabled: document.getElementById("cfg_doubao_img_enabled").checked,
+          base_url: document.getElementById("cfg_doubao_img_base_url").value || "",
+          model: document.getElementById("cfg_doubao_img_model").value || "",
+          size: document.getElementById("cfg_doubao_img_size").value || "",
+          watermark: document.getElementById("cfg_doubao_img_watermark").checked
+        }
+      };
+      const newPassword = document.getElementById("cfg_admin_password").value || "";
+      if (newPassword) updates.web_player.admin_password = newPassword;
+      const neteaseCookie = document.getElementById("cfg_netease_cookie").value || "";
+      if (neteaseCookie) updates.netease.cookie = neteaseCookie;
+      const redisPassword = document.getElementById("cfg_redis_password").value || "";
+      if (redisPassword) updates.redis.password = redisPassword;
+      const doubaoApiKey = document.getElementById("cfg_doubao_api_key").value || "";
+      if (doubaoApiKey) updates.doubao_chat.api_key = doubaoApiKey;
+      const doubaoImgApiKey = document.getElementById("cfg_doubao_img_api_key").value || "";
+      if (doubaoImgApiKey) updates.doubao_image.api_key = doubaoImgApiKey;
+      return updates;
+    }
+
+    async function saveConfig(persist) {
+      const msg = document.getElementById("cfgMsg");
+      try {
+        const updates = buildConfigUpdates();
+        const d = await req("/admin/api/config", {
+          method: "POST",
+          body: JSON.stringify({ updates, persist })
+        });
+        if (Array.isArray(d.errors) && d.errors.length > 0) {
+          showMsg(msg, "部分失败: " + d.errors.join(" | "), true);
+        } else {
+          showMsg(msg, persist ? "配置已保存并持久化" : "配置已更新（仅本次进程）");
+        }
+        document.getElementById("cfg_admin_password").value = "";
+        document.getElementById("cfg_netease_cookie").value = "";
+        document.getElementById("cfg_redis_password").value = "";
+        document.getElementById("cfg_doubao_api_key").value = "";
+        document.getElementById("cfg_doubao_img_api_key").value = "";
+        await loadConfig();
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function resetOverrides() {
+      const msg = document.getElementById("cfgMsg");
+      try {
+        await req("/admin/api/config/reset", { method: "POST", body: "{}" });
+        showMsg(msg, "已清除持久化覆盖，重启后恢复为 config.py 配置");
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function loadPlayerLink() {
+      const d = await req("/admin/api/player/link");
+      document.getElementById("playerLink").value = d.url || "";
+    }
+
+    async function rotatePlayerLink() {
+      const msg = document.getElementById("linkMsg");
+      try {
+        const d = await req("/admin/api/player/link/rotate", { method: "POST", body: "{}" });
+        document.getElementById("playerLink").value = d.url || "";
+        showMsg(msg, "播放器链接已重置");
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function copyPlayerLink() {
+      const msg = document.getElementById("linkMsg");
+      const value = document.getElementById("playerLink").value || "";
+      if (!value) return showMsg(msg, "当前无可复制链接", true);
+      try {
+        await navigator.clipboard.writeText(value);
+        showMsg(msg, "链接已复制到剪贴板");
+      } catch (_) {
+        showMsg(msg, "复制失败，请手动复制", true);
+      }
+    }
+
+    async function loadAdminQueue() {
+      const d = await req("/admin/api/queue?page=" + queuePage + "&page_size=10");
+      const rows = [];
+      if (d.current) {
+        rows.push(
+          `<tr>
+            <td>NOW</td>
+            <td>${d.current.name || "-"}</td>
+            <td>${d.current.artists || "-"}</td>
+            <td>${d.current.durationText || "-"}</td>
+            <td><span class="mono">当前播放</span></td>
+          </tr>`
+        );
+      }
+      rows.push(...(d.queue || []).map((x) => (
+        `<tr>
+          <td>${x.index ?? "-"}</td>
+          <td>${x.name || "-"}</td>
+          <td>${x.artists || "-"}</td>
+          <td>${x.durationText || "-"}</td>
+          <td>
+            <button class="tiny" onclick="queueAction('top', ${x.index})">置顶</button>
+            <button class="tiny danger" onclick="queueAction('remove', ${x.index})">删除</button>
+          </td>
+        </tr>`
+      )));
+      document.getElementById("adminQueueRows").innerHTML = rows.join("") || "<tr><td colspan='5'>队列为空</td></tr>";
+      queuePage = d.page || 1;
+      queuePages = d.pages || 1;
+      document.getElementById("queuePageInfo").textContent = `第 ${queuePage}/${queuePages} 页，共 ${d.total || 0} 首`;
+    }
+
+    async function queueAction(action, index) {
+      const msg = document.getElementById("queueMsg");
+      try {
+        await req("/admin/api/queue/action", {
+          method: "POST",
+          body: JSON.stringify({ action, index })
+        });
+        showMsg(msg, "操作成功: " + action + " #" + index);
+        await Promise.all([loadAdminQueue(), loadOverview()]);
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function searchAdminSongs() {
+      const msg = document.getElementById("searchMsg");
+      const kw = (document.getElementById("searchKeyword").value || "").trim();
+      if (!kw) return showMsg(msg, "请输入关键词", true);
+      searchKeyword = kw;
+      searchPage = 1;
+      await loadSearchPage();
+    }
+
+    async function loadSearchPage() {
+      const msg = document.getElementById("searchMsg");
+      const kw = searchKeyword;
+      if (!kw) return;
+      try {
+        const d = await req("/admin/api/search?keyword=" + encodeURIComponent(kw) + "&page=" + searchPage + "&page_size=10");
+        adminSearchResults = d.results || [];
+        const rows = adminSearchResults.map((x, i) => {
+          return `<tr>
+            <td>${x.name || "-"}</td>
+            <td>${x.artists || "-"}</td>
+            <td>${x.album || "-"}</td>
+            <td><button class="tiny primary" onclick="addSongFromSearch(${i})">加入队列</button></td>
+          </tr>`;
+        });
+        document.getElementById("searchResults").innerHTML = rows.join("") || "<tr><td colspan='4'>无结果</td></tr>";
+        searchPage = d.page || 1;
+        searchPages = d.pages || 1;
+        document.getElementById("searchPageInfo").textContent = `第 ${searchPage}/${searchPages} 页，共 ${d.total || 0} 条`;
+        showMsg(msg, "搜索完成");
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    async function addSongFromSearch(index) {
+      const msg = document.getElementById("searchMsg");
+      try {
+        const song = adminSearchResults[index];
+        if (!song || !song.id) throw new Error("歌曲数据无效，请重新搜索");
+        const d = await req("/admin/api/add", { method: "POST", body: JSON.stringify(song) });
+        showMsg(msg, `已加入队列：${d.name || song.name}（位置 ${d.position ?? "-" }）`);
+        await Promise.all([loadAdminQueue(), loadOverview()]);
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    function changeTopPage(delta) {
+      const next = topPage + delta;
+      if (next < 1 || next > topPages) return;
+      topPage = next;
+      loadStats().catch(() => {});
+    }
+
+    function changeQueuePage(delta) {
+      const next = queuePage + delta;
+      if (next < 1 || next > queuePages) return;
+      queuePage = next;
+      loadAdminQueue().catch(() => {});
+    }
+
+    function changeSearchPage(delta) {
+      if (!searchKeyword) return;
+      const next = searchPage + delta;
+      if (next < 1 || next > searchPages) return;
+      searchPage = next;
+      loadSearchPage().catch(() => {});
+    }
+
+    async function loadSystemInfo() {
+      const d = await req("/admin/api/system");
+      document.getElementById("systemInfo").textContent = JSON.stringify(d, null, 2);
+    }
+
+    async function clearPlayHistory() {
+      const msg = document.getElementById("sysMsg");
+      try {
+        const d = await req("/admin/api/statistics/clear_history", { method: "POST", body: "{}" });
+        showMsg(msg, `已清理播放历史 ${d.deleted ?? 0} 条`);
+        await Promise.all([loadStats(), loadSystemInfo()]);
+      } catch (e) {
+        showMsg(msg, e.message, true);
+      }
+    }
+
+    checkLogin();
+    setInterval(() => {
+      const main = document.getElementById("mainPanel");
+      if (!main.classList.contains("hidden")) loadOverview().catch(() => {});
+    }, 8000);
+  </script>
+</body>
+</html>

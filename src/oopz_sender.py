@@ -30,6 +30,7 @@ except ImportError:
 from logger_config import get_logger
 
 logger = get_logger("OopzSender")
+UPLOAD_PUT_TIMEOUT = (10, 60)
 
 
 # ---------------------------------------------------------------------------
@@ -563,6 +564,7 @@ class OopzSender:
                     signed_url,
                     data=f,
                     headers={"Content-Type": "application/octet-stream"},
+                    timeout=UPLOAD_PUT_TIMEOUT,
                 ).raise_for_status()
         except Exception as e:
             logger.error(f"上传私信图片失败: {e}")
@@ -648,7 +650,12 @@ class OopzSender:
         cdn_url = data["url"]
 
         with open(file_path, "rb") as f:
-            put_resp = requests.put(upload_url, data=f, headers={"Content-Type": "application/octet-stream"})
+            put_resp = requests.put(
+                upload_url,
+                data=f,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=UPLOAD_PUT_TIMEOUT,
+            )
         if put_resp.status_code not in (200, 201):
             raise Exception(f"文件上传失败: {put_resp.text}")
 
@@ -677,7 +684,12 @@ class OopzSender:
             file_key = data["file"]
             cdn_url = data["url"]
 
-            put_resp = requests.put(signed_url, data=image_bytes, headers={"Content-Type": "application/octet-stream"})
+            put_resp = requests.put(
+                signed_url,
+                data=image_bytes,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=UPLOAD_PUT_TIMEOUT,
+            )
             put_resp.raise_for_status()
 
             attachment = {
@@ -729,7 +741,12 @@ class OopzSender:
             file_key = data["file"]
             cdn_url = data["url"]
 
-            put_resp = requests.put(signed_url, data=audio_bytes, headers={"Content-Type": "application/octet-stream"})
+            put_resp = requests.put(
+                signed_url,
+                data=audio_bytes,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=UPLOAD_PUT_TIMEOUT,
+            )
             put_resp.raise_for_status()
 
             base_name = os.path.splitext(filename or "")[0] or "music"
@@ -768,7 +785,12 @@ class OopzSender:
         cdn_url = data["url"]
 
         with open(file_path, "rb") as f:
-            requests.put(signed_url, data=f, headers={"Content-Type": "application/octet-stream"}).raise_for_status()
+            requests.put(
+                signed_url,
+                data=f,
+                headers={"Content-Type": "application/octet-stream"},
+                timeout=UPLOAD_PUT_TIMEOUT,
+            ).raise_for_status()
 
         attachments = [{
             "fileKey": file_key,
