@@ -21,8 +21,7 @@ pip install -r requirements.txt
 ## 2. 部署网易云音乐 API
 
 ```shell
-# 在项目根目录下克隆
-git clone https://gitlab.com/Binaryify/NeteaseCloudMusicApi.git
+git clone https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git NeteaseCloudMusicApi
 cd NeteaseCloudMusicApi
 npm install
 ```
