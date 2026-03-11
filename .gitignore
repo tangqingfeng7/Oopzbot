@@ -42,6 +42,7 @@ logs/
 NeteaseAPI_tmp/
 NeteaseAPI_tmp.zip
 NeteaseCloudMusicApi/
+Webintosh/
 
 # === 系统文件 ===
 Thumbs.db
