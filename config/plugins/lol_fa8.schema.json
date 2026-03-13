@@ -1,0 +1,33 @@
+{
+  "plugin_name": "lol_fa8",
+  "fields": [
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "example": false
+    },
+    {
+      "name": "username",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "example": ""
+    },
+    {
+      "name": "password",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "example": ""
+    },
+    {
+      "name": "default_area",
+      "type": "string",
+      "required": false,
+      "default": "1",
+      "example": "1"
+    }
+  ]
+}

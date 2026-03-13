@@ -3,6 +3,7 @@ config.py
 private_key.py
 config/plugins/*.json
 !config/plugins/*.example.json
+!config/plugins/*.schema.json
 data/credentials.txt
 .oopz_capture_credentials
 capture_recall_result.json
@@ -21,6 +22,8 @@ __pycache__/
 *.egg-info/
 test/
 tests/
+!tests/
+!tests/*.py
 dist/
 build/
 *.egg

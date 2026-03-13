@@ -268,6 +268,10 @@ class OopzSender:
             logger.info(f"响应状态: {resp.status_code}")
             if resp.text:
                 logger.debug(f"响应内容: {resp.text[:200]}")
+            result = resp.json()
+            if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
+                err = result.get("message") or result.get("error") or str(result)
+                raise RuntimeError(f"send_message failed: {err}")
             if auto_recall is not False:
                 self._schedule_auto_recall(resp, area, channel)
             return resp

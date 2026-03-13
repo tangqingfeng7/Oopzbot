@@ -6,7 +6,13 @@ LOL 战绩查询插件（FA8）
 @bot 战绩/查战绩/查询战绩 <召唤师名#编号>、/zj <召唤师名#编号>
 """
 
-from plugin_base import BotModule, PluginMetadata
+from plugin_base import (
+    BotModule,
+    PluginCommandCapabilities,
+    PluginConfigField,
+    PluginConfigSpec,
+    PluginMetadata,
+)
 
 
 class LolFa8Plugin(BotModule):
@@ -24,16 +30,27 @@ class LolFa8Plugin(BotModule):
         )
 
     @property
-    def mention_prefixes(self) -> tuple[str, ...]:
-        return ("查询战绩", "查战绩", "战绩")
-
-    @property
-    def slash_commands(self) -> tuple[str, ...]:
-        return ("/zj",)
+    def command_capabilities(self) -> PluginCommandCapabilities:
+        return PluginCommandCapabilities(
+            mention_prefixes=("查询战绩", "查战绩", "战绩"),
+            slash_commands=("/zj",),
+            is_public_command=True,
+        )
 
     @property
     def private_modules(self) -> tuple[str, ...]:
         return ("plugins._lol_fa8_service",)
+
+    @property
+    def config_spec(self) -> PluginConfigSpec:
+        return PluginConfigSpec(
+            (
+                PluginConfigField("enabled", default=False),
+                PluginConfigField("username", default=""),
+                PluginConfigField("password", default=""),
+                PluginConfigField("default_area", default="1"),
+            )
+        )
 
     def on_load(self, handler, config=None):
         self._config = (config or {}).copy()
@@ -54,7 +71,7 @@ class LolFa8Plugin(BotModule):
         return self._handler
 
     def _keyword(self, text: str) -> str:
-        for p in self.mention_prefixes:
+        for p in self.command_capabilities.mention_prefixes:
             if text.startswith(p):
                 return text[len(p):].strip()
         return text.strip()

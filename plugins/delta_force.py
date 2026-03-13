@@ -8,7 +8,20 @@ import re
 from typing import Optional
 
 from logger_config import get_logger
-from plugin_base import BotModule, PluginMetadata
+from plugin_base import (
+    BotModule,
+    PluginCommandCapabilities,
+    PluginConfigField,
+    PluginConfigSpec,
+    PluginMetadata,
+    parse_float,
+    parse_int,
+    parse_string_list,
+    validate_hhmm,
+    validate_http_url_list,
+    validate_min,
+    validate_range,
+)
 
 from ._delta_force_api import DeltaForceApiClient, describe_common_failure
 from ._delta_force_assets import normalize_mode
@@ -73,12 +86,12 @@ class DeltaForcePlugin(BotModule):
         )
 
     @property
-    def mention_prefixes(self) -> tuple[str, ...]:
-        return ("三角洲",)
-
-    @property
-    def slash_commands(self) -> tuple[str, ...]:
-        return ("/df",)
+    def command_capabilities(self) -> PluginCommandCapabilities:
+        return PluginCommandCapabilities(
+            mention_prefixes=("三角洲",),
+            slash_commands=("/df",),
+            is_public_command=True,
+        )
 
     @property
     def private_modules(self) -> tuple[str, ...]:
@@ -91,6 +104,130 @@ class DeltaForcePlugin(BotModule):
             "plugins._delta_force_place_push",
             "plugins._delta_force_render",
             "plugins._delta_force_store",
+        )
+
+    @property
+    def config_spec(self) -> PluginConfigSpec:
+        return PluginConfigSpec(
+            (
+                PluginConfigField("enabled", default=False, example=True),
+                PluginConfigField("api_key", default="", description="Delta Force API 密钥"),
+                PluginConfigField("client_id", default="", description="Delta Force 客户端标识"),
+                PluginConfigField(
+                    "api_mode",
+                    default="auto",
+                    choices=("auto", "eo", "esa"),
+                    description="API 路由模式",
+                    constraint="auto | eo | esa",
+                ),
+                PluginConfigField(
+                    "base_urls",
+                    default=[
+                        "https://df-api-eo.shallow.ink",
+                        "https://df-api-esa.shallow.ink",
+                        "https://df-api.shallow.ink",
+                    ],
+                    cast=parse_string_list,
+                    validator=validate_http_url_list,
+                    description="API 基础地址列表",
+                    constraint="http_url_list",
+                ),
+                PluginConfigField(
+                    "request_timeout_sec",
+                    default=30,
+                    cast=parse_int,
+                    validator=validate_min(1),
+                    description="API 请求超时秒数",
+                    constraint=">= 1",
+                ),
+                PluginConfigField(
+                    "request_retries",
+                    default=3,
+                    cast=parse_int,
+                    validator=validate_range(1, 10),
+                    description="API 请求重试次数",
+                    constraint="1 - 10",
+                ),
+                PluginConfigField(
+                    "login_timeout_sec",
+                    default=180,
+                    cast=parse_int,
+                    validator=validate_min(10),
+                    description="扫码登录总超时秒数",
+                    constraint=">= 10",
+                ),
+                PluginConfigField(
+                    "login_poll_interval_sec",
+                    default=1,
+                    cast=parse_int,
+                    validator=validate_min(1),
+                    description="扫码登录轮询间隔秒数",
+                    constraint=">= 1",
+                ),
+                PluginConfigField(
+                    "login_success_notice_delay_sec",
+                    default=10,
+                    cast=parse_int,
+                    validator=validate_min(0),
+                    description="登录成功提示延迟秒数",
+                    constraint=">= 0",
+                ),
+                PluginConfigField(
+                    "login_delivery_mode",
+                    default="private_message",
+                    choices=("private_message", "temp_channel"),
+                    description="二维码投递方式",
+                    constraint="private_message | temp_channel",
+                ),
+                PluginConfigField(
+                    "daily_keyword_push_check_interval_sec",
+                    default=60,
+                    cast=parse_int,
+                    validator=validate_min(30),
+                    description="每日口令推送检查间隔秒数",
+                    constraint=">= 30",
+                ),
+                PluginConfigField(
+                    "daily_keyword_push_time",
+                    default="08:00",
+                    validator=validate_hhmm,
+                    description="每日口令推送时间",
+                    constraint="HH:MM",
+                ),
+                PluginConfigField(
+                    "place_push_interval_sec",
+                    default=60,
+                    cast=parse_int,
+                    validator=validate_min(15),
+                    description="特勤处推送检查间隔秒数",
+                    constraint=">= 15",
+                ),
+                PluginConfigField(
+                    "render_timeout_sec",
+                    default=30,
+                    cast=parse_float,
+                    validator=validate_min(1),
+                    description="渲染超时秒数",
+                    constraint=">= 1",
+                ),
+                PluginConfigField(
+                    "render_width",
+                    default=1365,
+                    cast=parse_int,
+                    validator=validate_min(720),
+                    description="渲染宽度",
+                    constraint=">= 720",
+                ),
+                PluginConfigField(
+                    "render_scale",
+                    default=1.0,
+                    cast=parse_float,
+                    validator=validate_range(0.1, 4.0),
+                    description="渲染缩放比例",
+                    constraint="0.1 - 4.0",
+                ),
+                PluginConfigField("temp_dir", default="data/delta_force", description="临时文件目录"),
+            )
         )
 
     def on_load(self, handler, config=None) -> None:
@@ -123,7 +260,8 @@ class DeltaForcePlugin(BotModule):
             self._push.stop()
 
     def handle_mention(self, text, channel, area, user, handler) -> bool:
-        command = text[len("三角洲"):].strip() if text.startswith("三角洲") else text.strip()
+        mention_prefix = self.command_capabilities.mention_prefixes[0]
+        command = text[len(mention_prefix):].strip() if text.startswith(mention_prefix) else text.strip()
         if not command:
             self._send_text(handler, build_help_text(), channel, area)
             return True

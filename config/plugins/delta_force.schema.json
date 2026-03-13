@@ -1,0 +1,179 @@
+{
+  "plugin_name": "delta_force",
+  "fields": [
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "example": true
+    },
+    {
+      "name": "api_key",
+      "type": "string",
+      "required": false,
+      "description": "Delta Force API 密钥",
+      "default": "",
+      "example": ""
+    },
+    {
+      "name": "client_id",
+      "type": "string",
+      "required": false,
+      "description": "Delta Force 客户端标识",
+      "default": "",
+      "example": ""
+    },
+    {
+      "name": "api_mode",
+      "type": "string",
+      "required": false,
+      "description": "API 路由模式",
+      "constraint": "auto | eo | esa",
+      "default": "auto",
+      "example": "auto",
+      "choices": [
+        "auto",
+        "eo",
+        "esa"
+      ]
+    },
+    {
+      "name": "base_urls",
+      "type": "string[]",
+      "required": false,
+      "description": "API 基础地址列表",
+      "constraint": "http_url_list",
+      "default": [
+        "https://df-api-eo.shallow.ink",
+        "https://df-api-esa.shallow.ink",
+        "https://df-api.shallow.ink"
+      ],
+      "example": [
+        "https://df-api-eo.shallow.ink",
+        "https://df-api-esa.shallow.ink",
+        "https://df-api.shallow.ink"
+      ]
+    },
+    {
+      "name": "request_timeout_sec",
+      "type": "integer",
+      "required": false,
+      "description": "API 请求超时秒数",
+      "constraint": ">= 1",
+      "default": 30,
+      "example": 30
+    },
+    {
+      "name": "request_retries",
+      "type": "integer",
+      "required": false,
+      "description": "API 请求重试次数",
+      "constraint": "1 - 10",
+      "default": 3,
+      "example": 3
+    },
+    {
+      "name": "login_timeout_sec",
+      "type": "integer",
+      "required": false,
+      "description": "扫码登录总超时秒数",
+      "constraint": ">= 10",
+      "default": 180,
+      "example": 180
+    },
+    {
+      "name": "login_poll_interval_sec",
+      "type": "integer",
+      "required": false,
+      "description": "扫码登录轮询间隔秒数",
+      "constraint": ">= 1",
+      "default": 1,
+      "example": 1
+    },
+    {
+      "name": "login_success_notice_delay_sec",
+      "type": "integer",
+      "required": false,
+      "description": "登录成功提示延迟秒数",
+      "constraint": ">= 0",
+      "default": 10,
+      "example": 10
+    },
+    {
+      "name": "login_delivery_mode",
+      "type": "string",
+      "required": false,
+      "description": "二维码投递方式",
+      "constraint": "private_message | temp_channel",
+      "default": "private_message",
+      "example": "private_message",
+      "choices": [
+        "private_message",
+        "temp_channel"
+      ]
+    },
+    {
+      "name": "daily_keyword_push_check_interval_sec",
+      "type": "integer",
+      "required": false,
+      "description": "每日口令推送检查间隔秒数",
+      "constraint": ">= 30",
+      "default": 60,
+      "example": 60
+    },
+    {
+      "name": "daily_keyword_push_time",
+      "type": "string",
+      "required": false,
+      "description": "每日口令推送时间",
+      "constraint": "HH:MM",
+      "default": "08:00",
+      "example": "08:00"
+    },
+    {
+      "name": "place_push_interval_sec",
+      "type": "integer",
+      "required": false,
+      "description": "特勤处推送检查间隔秒数",
+      "constraint": ">= 15",
+      "default": 60,
+      "example": 60
+    },
+    {
+      "name": "render_timeout_sec",
+      "type": "number",
+      "required": false,
+      "description": "渲染超时秒数",
+      "constraint": ">= 1",
+      "default": 30,
+      "example": 30
+    },
+    {
+      "name": "render_width",
+      "type": "integer",
+      "required": false,
+      "description": "渲染宽度",
+      "constraint": ">= 720",
+      "default": 1365,
+      "example": 1365
+    },
+    {
+      "name": "render_scale",
+      "type": "number",
+      "required": false,
+      "description": "渲染缩放比例",
+      "constraint": "0.1 - 4.0",
+      "default": 1.0,
+      "example": 1.0
+    },
+    {
+      "name": "temp_dir",
+      "type": "string",
+      "required": false,
+      "description": "临时文件目录",
+      "default": "data/delta_force",
+      "example": "data/delta_force"
+    }
+  ]
+}

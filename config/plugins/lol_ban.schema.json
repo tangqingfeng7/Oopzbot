@@ -1,0 +1,33 @@
+{
+  "plugin_name": "lol_ban",
+  "fields": [
+    {
+      "name": "enabled",
+      "type": "boolean",
+      "required": false,
+      "default": false,
+      "example": false
+    },
+    {
+      "name": "api_url",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "example": "https://yun.4png.com/api/query.html"
+    },
+    {
+      "name": "token",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "example": ""
+    },
+    {
+      "name": "proxy",
+      "type": "string",
+      "required": false,
+      "default": "",
+      "example": ""
+    }
+  ]
+}

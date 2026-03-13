@@ -254,6 +254,41 @@ class MusicHandler:
         self._voice_enter_time = time.time()
         return True
 
+    def enter_voice_channel(self, voice_channel_id: str, area: str) -> dict:
+        if not self.voice or not self.voice.available:
+            return {"error": "voice_unavailable"}
+
+        voice_channel_id = (voice_channel_id or "").strip()
+        if not voice_channel_id:
+            return {"error": "missing_channel"}
+
+        from_channel = self._voice_channel_id or ""
+        from_area = self._voice_channel_area or ""
+
+        if self._voice_channel_id and self._voice_channel_id != voice_channel_id:
+            self._leave_current_voice_channel()
+
+        agora_pid = self.voice.agora_uid if self.voice and self.voice.available else ""
+        self.sender.enter_area(area=area)
+        data = self.sender.enter_channel(
+            channel=voice_channel_id,
+            area=area,
+            channel_type="VOICE",
+            from_channel=from_channel,
+            from_area=from_area,
+            pid=agora_pid,
+        )
+        if "error" in data:
+            logger.warning(f"Bot 进入语音频道失败: {data['error']}")
+            return data
+
+        logger.info(f"Bot 已进入语音频道 {self.names.channel(voice_channel_id)}")
+        self._join_agora_room(data)
+        self._voice_channel_id = voice_channel_id
+        self._voice_channel_area = area
+        self._voice_enter_time = time.time()
+        return data
+
     def _join_agora_room(self, channel_data: dict):
         """使用 enter_channel 返回的凭证连接 Agora RTC。"""
         if not self.voice or not self.voice.available:
@@ -335,9 +370,10 @@ class MusicHandler:
         self._start_playing(next_song.get("duration_ms", 0))
         self.queue.set_current(next_song)
 
-        SongCache.update_play_stats(
+        SongCache.record_play(
             song_id=next_song.get("song_id"),
             platform=next_song.get("platform"),
+            data=next_song,
             channel_id=channel,
             user_id=user,
         )
@@ -451,9 +487,6 @@ class MusicHandler:
                     image_cache_id = ImageCache.save(song_id, "netease", data["cover"], att)
 
         # 歌曲缓存 & 统计
-        song_cache_id = SongCache.get_or_create(song_id, "netease", data, image_cache_id)
-        SongCache.add_play_history(song_cache_id, "netease", channel, user)
-        Statistics.update_today("netease", cache_hit)
 
         # 消息
         user_name = self.names.user(user) if user else "未知用户"
@@ -504,6 +537,8 @@ class MusicHandler:
             song_data["play_uuid"] = play_uuid
             self._start_playing(data.get("duration", 0))
             self.queue.set_current(song_data)
+            SongCache.record_play(song_id, "netease", data, image_cache_id, channel, user)
+            Statistics.update_today("netease", cache_hit)
             threading.Thread(
                 target=self._stream_to_voice_channel,
                 args=(data["url"], data["name"], channel, area,
@@ -567,9 +602,6 @@ class MusicHandler:
                         image_cache_id = ImageCache.save(song_id, "netease", data["cover"], att)
 
             # 歌曲缓存
-            song_cache_id = SongCache.get_or_create(song_id, "netease", data, image_cache_id)
-            SongCache.add_play_history(song_cache_id, "netease", channel, user)
-            Statistics.update_today("netease", cache_hit)
 
             song_data = {
                 "platform": "netease",
@@ -603,6 +635,8 @@ class MusicHandler:
                     song_data["play_uuid"] = play_uuid
                     self._start_playing(data.get("duration", 0))
                     self.queue.set_current(song_data)
+                    SongCache.record_play(song_id, "netease", data, image_cache_id, channel, user)
+                    Statistics.update_today("netease", cache_hit)
                     threading.Thread(
                         target=self._stream_to_voice_channel,
                         args=(data["url"], data["name"], channel, area,
@@ -756,9 +790,12 @@ class MusicHandler:
                             self._start_playing(next_song.get("duration_ms", 0))
                             self.queue.set_current(next_song)
 
-                            SongCache.update_play_stats(
+                            SongCache.record_play(
                                 song_id=next_song.get("song_id"),
                                 platform=next_song.get("platform"),
+                                data=next_song,
+                                channel_id=ch,
+                                user_id=next_song.get("user", ""),
                             )
                             Statistics.update_today(next_song.get("platform", "netease"), cache_hit=False)
                             logger.info(f"自动播放: {next_song.get('name')}")
@@ -839,6 +876,14 @@ class MusicHandler:
                 except Exception as inner_e:
                     logger.debug(f"重新获取音频 URL 失败: {inner_e}")
             logger.warning(f"Agora 推流失败: {e}")
+
+            self._play_start_time = 0
+            self._play_duration = 0
+            self.queue.clear_current()
+            try:
+                self.queue.redis.delete("music:play_state")
+            except Exception as clear_e:
+                logger.debug(f"推流失败后清理 play_state 失败: {clear_e}")
 
     def _prepare_song_request(self, keyword: str, channel: str, area: str, user: str) -> dict:
         """搜索歌曲并准备播放数据，但不提前进入语音频道。"""
@@ -956,19 +1001,16 @@ class MusicHandler:
             actual = pos + 1 + (1 if current_song or is_playing else 0)
             text = self._build_song_request_text(song_data) + f"\n已加入队列 (位置: {actual})"
 
-        song_cache_id = SongCache.get_or_create(
-            song_data.get("song_id"),
-            song_data.get("platform", "netease"),
-            song_data,
-            image_cache_id,
-        )
-        SongCache.add_play_history(
-            song_cache_id,
-            song_data.get("platform", "netease"),
-            song_data.get("channel", ""),
-            song_data.get("user", ""),
-        )
-        Statistics.update_today(song_data.get("platform", "netease"), cache_hit)
+        if not is_playing and current_song is None and queue_length == 0:
+            SongCache.record_play(
+                song_data.get("song_id"),
+                song_data.get("platform", "netease"),
+                song_data,
+                image_cache_id,
+                song_data.get("channel", ""),
+                song_data.get("user", ""),
+            )
+            Statistics.update_today(song_data.get("platform", "netease"), cache_hit)
 
         return {"code": "success", "message": text, "attachments": attachments}
 
@@ -996,6 +1038,11 @@ class MusicHandler:
                     return True
         except Exception as e:
             logger.debug(f"读取 play_state 失败，按时间判定播放状态: {e}")
+        try:
+            if self.voice and self.voice.available and self._voice_channel_id and not self.voice.is_playing:
+                return False
+        except Exception as e:
+            logger.debug(f"读取语音推流状态失败，回退时间判定: {e}")
         elapsed = time.time() - self._play_start_time
         return elapsed < self._play_duration
 

@@ -263,6 +263,69 @@ class SongCache:
         conn.close()
 
     @staticmethod
+    def record_play(
+        song_id: str,
+        platform: str,
+        data: dict,
+        image_cache_id: Optional[int] = None,
+        channel_id: str = None,
+        user_id: str = None,
+    ) -> int:
+        now = cn_now()
+        conn = get_connection()
+
+        row = conn.execute(
+            "SELECT id FROM song_cache WHERE song_id=? AND platform=?",
+            (str(song_id), platform),
+        ).fetchone()
+
+        if row:
+            song_cache_id = row["id"]
+            conn.execute(
+                """UPDATE song_cache SET
+                   song_name=?,
+                   artist=?,
+                   album=?,
+                   play_count=play_count+1,
+                   image_cache_id=COALESCE(?, image_cache_id),
+                   last_played_at=?
+                   WHERE id=?""",
+                (
+                    data.get("name", ""),
+                    data.get("artists", ""),
+                    data.get("album", ""),
+                    image_cache_id,
+                    now,
+                    song_cache_id,
+                ),
+            )
+        else:
+            cursor = conn.execute(
+                """INSERT INTO song_cache
+                   (song_id, platform, song_name, artist, album, play_count, image_cache_id, created_at, last_played_at)
+                   VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                (
+                    str(song_id),
+                    platform,
+                    data.get("name", ""),
+                    data.get("artists", ""),
+                    data.get("album", ""),
+                    image_cache_id,
+                    now,
+                    now,
+                ),
+            )
+            song_cache_id = cursor.lastrowid
+
+        conn.execute(
+            "INSERT INTO play_history (song_cache_id, platform, channel_id, user_id, played_at) VALUES (?, ?, ?, ?, ?)",
+            (song_cache_id, platform, channel_id, user_id, now),
+        )
+        conn.commit()
+        conn.close()
+        return song_cache_id
+
+    @staticmethod
     def get_top_songs(limit: int = 10) -> list:
         conn = get_connection()
         rows = conn.execute(

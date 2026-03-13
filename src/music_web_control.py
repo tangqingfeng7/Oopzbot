@@ -101,7 +101,8 @@ class WebControlExecutor:
             return
         if not (self.h.voice and self.h.voice.available):
             return
-        self.h.voice.seek_audio(seek_time)
+        if not self.h.voice.seek_audio(seek_time):
+            return
         self.h._play_start_time = time.time() - seek_time
         self.h._update_play_state_redis(
             start_time=self.h._play_start_time,
@@ -117,7 +118,8 @@ class WebControlExecutor:
             return
         if not (self.h.voice and self.h.voice.available):
             return
-        self.h.voice.set_volume(vol)
+        if not self.h.voice.set_volume(vol):
+            return
         try:
             self.h.queue.redis.set("music:volume", str(vol))
         except Exception as e:

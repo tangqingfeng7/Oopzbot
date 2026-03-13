@@ -904,8 +904,6 @@ def _add_song_to_queue(body: dict) -> dict:
         "user": "web",
     }
     r = _get_redis()
-    song_cache_id = SongCache.get_or_create(song_data["song_id"], song_data["platform"], song_data)
-    SongCache.add_play_history(song_cache_id, song_data["platform"], song_data["channel"], song_data["user"])
     r.rpush("music:queue", json.dumps(song_data, ensure_ascii=False))
     queue_len = int(r.llen("music:queue") or 0)
     notify = json.dumps({"name": name, "artists": artists, "position": queue_len}, ensure_ascii=False)
@@ -1011,7 +1009,7 @@ def admin_get_config():
 
 @app.post("/admin/api/config")
 async def admin_update_config(request: Request):
-    global _redis, _netease
+    global _redis, _netease, _liked_ids_cache
     body = await request.json()
     updates = body.get("updates", {})
     persist = bool(body.get("persist", True))
@@ -1020,6 +1018,7 @@ async def admin_update_config(request: Request):
         _redis = get_redis_client(force_reset=True)
     if "netease" in applied:
         _netease = None
+        _liked_ids_cache = []
     _refresh_runtime_dependents(set(applied))
     if persist and persist_payload:
         merged = _merge_overrides(_read_admin_overrides(), persist_payload)
@@ -1035,7 +1034,7 @@ async def admin_update_config(request: Request):
 
 @app.post("/admin/api/config/reset")
 def admin_reset_config_overrides():
-    global _redis, _netease
+    global _redis, _netease, _liked_ids_cache
     if os.path.exists(_ADMIN_OVERRIDES_PATH):
         os.remove(_ADMIN_OVERRIDES_PATH)
     for group_name, group in _CONFIG_GROUPS.items():
@@ -1046,6 +1045,7 @@ def admin_reset_config_overrides():
             target.update(copy.deepcopy(baseline))
     _redis = get_redis_client(force_reset=True)
     _netease = None
+    _liked_ids_cache = []
     _refresh_runtime_dependents({"redis", "web_player"})
     return JSONResponse({"ok": True, "removed": True, "path": _ADMIN_OVERRIDES_PATH})
 

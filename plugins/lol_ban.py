@@ -6,7 +6,13 @@ LOL 封号查询插件
 @bot 查封号/封号/lol <QQ号>、/lol <QQ号>
 """
 
-from plugin_base import BotModule, PluginMetadata
+from plugin_base import (
+    BotModule,
+    PluginCommandCapabilities,
+    PluginConfigField,
+    PluginConfigSpec,
+    PluginMetadata,
+)
 
 
 class LolBanPlugin(BotModule):
@@ -24,16 +30,31 @@ class LolBanPlugin(BotModule):
         )
 
     @property
-    def mention_prefixes(self) -> tuple[str, ...]:
-        return ("查封号", "封号", "lol", "LOL")
-
-    @property
-    def slash_commands(self) -> tuple[str, ...]:
-        return ("/lol",)
+    def command_capabilities(self) -> PluginCommandCapabilities:
+        return PluginCommandCapabilities(
+            mention_prefixes=("查封号", "封号", "lol", "LOL"),
+            slash_commands=("/lol",),
+            is_public_command=True,
+        )
 
     @property
     def private_modules(self) -> tuple[str, ...]:
         return ("plugins._lol_query_service",)
+
+    @property
+    def config_spec(self) -> PluginConfigSpec:
+        return PluginConfigSpec(
+            (
+                PluginConfigField("enabled", default=False),
+                PluginConfigField(
+                    "api_url",
+                    default="",
+                    example="https://yun.4png.com/api/query.html",
+                ),
+                PluginConfigField("token", default=""),
+                PluginConfigField("proxy", default=""),
+            )
+        )
 
     def on_load(self, handler, config=None):
         self._config = (config or {}).copy()
@@ -41,7 +62,7 @@ class LolBanPlugin(BotModule):
         self._handler = LolQueryHandler(self._config)
 
     def _keyword(self, text: str) -> str:
-        for p in self.mention_prefixes:
+        for p in self.command_capabilities.mention_prefixes:
             if text.startswith(p):
                 return text[len(p):].strip()
         return text.strip()
