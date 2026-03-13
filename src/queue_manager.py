@@ -152,7 +152,13 @@ class QueueManager:
     """基于 Redis 的播放队列管理器（Redis 不可用时自动回退到内存队列）"""
 
     def __init__(self):
-        self.redis = get_redis_client()
+        self._redis = get_redis_client()
+
+    @property
+    def redis(self):
+        # Long-lived handlers should observe runtime Redis resets.
+        self._redis = get_redis_client()
+        return self._redis
 
     # ------------------------------------------------------------------
     # 队列操作

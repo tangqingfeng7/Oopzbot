@@ -27,6 +27,11 @@ logger = get_logger("Music")
 _resolved_web_url: str | None = None
 
 
+def reset_web_player_url_cache() -> None:
+    global _resolved_web_url
+    _resolved_web_url = None
+
+
 def _get_web_player_url() -> str:
     """获取 Web 播放器 URL，自动检测 IP（公网优先，回退内网）"""
     global _resolved_web_url

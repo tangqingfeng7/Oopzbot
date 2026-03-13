@@ -67,6 +67,16 @@ def _mount_static_if_exists(route: str, directory: str, name: str) -> None:
 _mount_static_if_exists("/admin-assets", _ADMIN_ASSETS_DIR, "admin-assets")
 _mount_static_if_exists("/webintosh-assets", _WEBINTOSH_ASSETS_DIR, "webintosh-assets")
 
+
+def _refresh_runtime_dependents(applied_groups: set[str]) -> None:
+    if "redis" not in applied_groups and "web_player" not in applied_groups:
+        return
+    try:
+        from music import reset_web_player_url_cache
+        reset_web_player_url_cache()
+    except Exception as e:
+        logger.debug("Refresh runtime dependents failed: %s", e)
+
 _CONFIG_GROUPS = {
     "web_player": {
         "target": WEB_PLAYER_CONFIG,
@@ -1010,6 +1020,7 @@ async def admin_update_config(request: Request):
         _redis = get_redis_client(force_reset=True)
     if "netease" in applied:
         _netease = None
+    _refresh_runtime_dependents(set(applied))
     if persist and persist_payload:
         merged = _merge_overrides(_read_admin_overrides(), persist_payload)
         _write_admin_overrides(merged)
@@ -1035,6 +1046,7 @@ def admin_reset_config_overrides():
             target.update(copy.deepcopy(baseline))
     _redis = get_redis_client(force_reset=True)
     _netease = None
+    _refresh_runtime_dependents({"redis", "web_player"})
     return JSONResponse({"ok": True, "removed": True, "path": _ADMIN_OVERRIDES_PATH})
 
 
