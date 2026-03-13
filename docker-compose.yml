@@ -24,8 +24,6 @@ services:
       TZ: Asia/Shanghai
       BOT_REDIS_HOST: redis
       BOT_NETEASE_BASE_URL: http://netease-api:3000
-      BOT_DISABLE_AUTO_START_NETEASE: "1"
-      BOT_DISABLE_VOICE: "1"
     ports:
       - "8080:8080"
     shm_size: "1gb"
@@ -37,13 +35,19 @@ services:
       - ./logs:/app/logs
 
   netease-api:
-    profiles: ["music"]
     build:
       context: ./NeteaseAPI_tmp
       dockerfile: Dockerfile
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - node -e "require('http').get('http://127.0.0.1:3000/',res=>process.exit(res.statusCode<500?0:1)).on('error',()=>process.exit(1))"
+      interval: 5s
+      timeout: 3s
+      retries: 20
     expose:
       - "3000"
     ports:

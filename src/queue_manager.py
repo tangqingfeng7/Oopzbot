@@ -33,6 +33,7 @@ class _InMemoryRedis:
     def __init__(self):
         self._kv: dict[str, object] = {}
         self._lists: dict[str, list] = {}
+        self._expires_at: dict[str, float] = {}
 
     # --- 兼容性方法 ---
     def ping(self):
@@ -40,6 +41,15 @@ class _InMemoryRedis:
 
     def _get_list(self, key: str) -> list:
         return self._lists.setdefault(key, [])
+
+    def _is_expired(self, key: str) -> bool:
+        expires_at = self._expires_at.get(key)
+        if expires_at is None:
+            return False
+        if time.time() < expires_at:
+            return False
+        self.delete(key)
+        return True
 
     # 列表操作
     def rpush(self, key: str, value):
@@ -102,15 +112,24 @@ class _InMemoryRedis:
         return removed
 
     # 字符串 / 通用键
-    def set(self, key: str, value):
+    def set(self, key: str, value, ex: Optional[int] = None, px: Optional[int] = None, **kwargs):
         self._kv[key] = value
+        if px is not None:
+            self._expires_at[key] = time.time() + (float(px) / 1000.0)
+        elif ex is not None:
+            self._expires_at[key] = time.time() + float(ex)
+        else:
+            self._expires_at.pop(key, None)
 
     def get(self, key: str):
+        if self._is_expired(key):
+            return None
         return self._kv.get(key)
 
     def delete(self, key: str):
         self._kv.pop(key, None)
         self._lists.pop(key, None)
+        self._expires_at.pop(key, None)
 
     def blpop(self, key: str, timeout: int = 0):
         """

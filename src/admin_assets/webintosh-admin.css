@@ -1,24 +1,6 @@
-@font-face {
-  font-family: "SFPro-Regular";
-  src: url("/webintosh-assets/fonts/sf-pro-display_regular.woff2");
-}
-
-@font-face {
-  font-family: "SFPro-Bold";
-  src: url("/webintosh-assets/fonts/sf-pro-display_semibold.woff2");
-}
-
-@font-face {
-  font-family: "PingFang-Regular";
-  src: url("/webintosh-assets/fonts/PingFangSC-Regular.woff2");
-}
-
-@font-face {
-  font-family: "PingFang-Bold";
-  src: url("/webintosh-assets/fonts/PingFangSC-Semibold.woff2");
-}
-
 :root {
+  --admin-font-regular: "Segoe UI", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
+  --admin-font-bold: "Segoe UI Semibold", "Helvetica Neue", "PingFang SC", "Microsoft YaHei", sans-serif;
   --admin-text: #1c2430;
   --admin-muted: #667487;
   --admin-line: rgba(255, 255, 255, 0.2);
@@ -90,10 +72,12 @@ body[data-admin-page] {
   min-height: 100vh;
   padding: 52px 20px 138px !important;
   color: var(--admin-text) !important;
-  font-family: "SFPro-Regular", "PingFang-Regular", sans-serif !important;
+  font-family: var(--admin-font-regular) !important;
   background:
+    radial-gradient(circle at top left, rgba(132, 184, 255, 0.24), transparent 26%),
+    radial-gradient(circle at top right, rgba(105, 237, 209, 0.18), transparent 24%),
     linear-gradient(180deg, rgba(8, 13, 22, 0.08), rgba(8, 13, 22, 0.18)),
-    url("/webintosh-assets/images/Wallpaper.png") center center / cover no-repeat fixed !important;
+    linear-gradient(135deg, #6782b8 0%, #6d8fc4 24%, #5271ab 52%, #2c3f6a 100%) fixed !important;
   position: relative;
   overflow-x: hidden;
 }
@@ -189,7 +173,7 @@ body[data-admin-page] .dot {
 
 body[data-admin-page] .title {
   color: var(--admin-text) !important;
-  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif !important;
+  font-family: var(--admin-font-bold) !important;
   font-size: 13px !important;
   letter-spacing: 0.02em;
   position: absolute;
@@ -240,7 +224,7 @@ body[data-admin-page] h1,
 body[data-admin-page] h2,
 body[data-admin-page] h3 {
   color: var(--admin-text);
-  font-family: "SFPro-Bold", "PingFang-Bold", sans-serif;
+  font-family: var(--admin-font-bold);
   letter-spacing: 0.01em;
 }
 
@@ -622,33 +606,23 @@ body[data-admin-page] .dock-link.active::after {
 }
 
 body[data-admin-page] .dock-link.i-home {
-  --dock-icon:
-    linear-gradient(180deg, rgba(110, 170, 255, 0.92), rgba(52, 107, 233, 0.95)),
-    url("/webintosh-assets/images/icon.desktop.png");
+  --dock-icon: linear-gradient(180deg, rgba(110, 170, 255, 0.92), rgba(52, 107, 233, 0.95));
 }
 
 body[data-admin-page] .dock-link.i-music {
-  --dock-icon:
-    linear-gradient(180deg, rgba(255, 141, 194, 0.92), rgba(239, 74, 145, 0.95)),
-    url("/webintosh-assets/images/App Store.png");
+  --dock-icon: linear-gradient(180deg, rgba(255, 141, 194, 0.92), rgba(239, 74, 145, 0.95));
 }
 
 body[data-admin-page] .dock-link.i-config {
-  --dock-icon:
-    linear-gradient(180deg, rgba(176, 186, 203, 0.92), rgba(109, 122, 141, 0.95)),
-    url("/webintosh-assets/images/icon.document.png");
+  --dock-icon: linear-gradient(180deg, rgba(176, 186, 203, 0.92), rgba(109, 122, 141, 0.95));
 }
 
 body[data-admin-page] .dock-link.i-stats {
-  --dock-icon:
-    linear-gradient(180deg, rgba(98, 214, 144, 0.92), rgba(33, 136, 82, 0.95)),
-    url("/webintosh-assets/images/icon.clock.png");
+  --dock-icon: linear-gradient(180deg, rgba(98, 214, 144, 0.92), rgba(33, 136, 82, 0.95));
 }
 
 body[data-admin-page] .dock-link.i-system {
-  --dock-icon:
-    linear-gradient(180deg, rgba(148, 170, 255, 0.92), rgba(83, 99, 202, 0.95)),
-    url("/webintosh-assets/images/icon.internal.drive.png");
+  --dock-icon: linear-gradient(180deg, rgba(148, 170, 255, 0.92), rgba(83, 99, 202, 0.95));
 }
 
 body[data-admin-page] .dock-link.active::before {
