@@ -28,6 +28,7 @@ try:
 except ImportError:
     AUTO_RECALL_CONFIG = {"enabled": False}
 from logger_config import get_logger
+from proxy_utils import configure_requests_session
 
 logger = get_logger("OopzSender")
 UPLOAD_PUT_TIMEOUT = (10, 60)
@@ -146,15 +147,11 @@ class OopzSender:
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
         self._area_members_cache_ttl = 2.0
         self._area_members_stale_ttl = 15.0
-        # 代理：留空/不设=使用系统代理(HTTP_PROXY/HTTPS_PROXY)；False 或 "direct"=直连；或 "http://ip:port"
-        proxy_cfg = OOPZ_CONFIG.get("proxy")
-        if proxy_cfg is False or (isinstance(proxy_cfg, str) and proxy_cfg.strip().lower() == "direct"):
-            self.session.trust_env = False
+        proxy_settings = configure_requests_session(self.session, OOPZ_CONFIG.get("proxy"))
+        if proxy_settings.mode == "direct":
             logger.info("OopzSender: 已禁用代理（直连）")
-        elif isinstance(proxy_cfg, str) and proxy_cfg.strip():
-            self.session.proxies = {"http": proxy_cfg.strip(), "https": proxy_cfg.strip()}
-            logger.info(f"OopzSender: 使用代理 {proxy_cfg.strip()}")
-        # 否则使用 requests 默认行为（读取环境变量）
+        elif proxy_settings.enabled:
+            logger.info("OopzSender: 使用代理 %s", proxy_settings.server)
 
         logger.info("OopzSender 已初始化")
         logger.info(f"  用户: {OOPZ_CONFIG['person_uid']}")

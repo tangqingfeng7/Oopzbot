@@ -1,6 +1,7 @@
-requests
+requests[socks]
 cryptography
 websocket-client
+python-socks
 pillow
 redis
 fastapi

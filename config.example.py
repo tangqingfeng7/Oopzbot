@@ -25,8 +25,9 @@ OOPZ_CONFIG = {
     "agora_app_id": "358eebceadb94c2a9fd91ecd7b341602",
     "agora_init_timeout": 1800,  # Playwright 浏览器启动等待秒数，首启或网络慢可调大
 
-    # 代理：不设或 "" = 使用系统代理(HTTP_PROXY/HTTPS_PROXY)；False 或 "direct" = 直连不走代理；或 "http://127.0.0.1:7890"
-    "proxy": "",  # 若本机未开代理却设置了环境变量，可设为 False 或 "direct" 避免连 127.0.0.1:7890 被拒
+    # 代理：不设或 "" = 使用系统代理(HTTP_PROXY/HTTPS_PROXY/ALL_PROXY)；False/"direct" = 直连；
+    # "clash" = http://127.0.0.1:7890；也可填 "http://127.0.0.1:7890" 或 "socks5://127.0.0.1:7891"
+    "proxy": "",  # WebSocket / HTTP / Agora 浏览器侧都会复用这项代理配置
 }
 
 # HTTP 请求头模板

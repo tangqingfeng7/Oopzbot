@@ -20,6 +20,7 @@ from typing import Optional, Tuple
 import requests as http_requests
 
 from logger_config import get_logger
+from proxy_utils import get_playwright_proxy, get_selenium_proxy_argument
 
 logger = get_logger("Voice")
 
@@ -115,11 +116,15 @@ class VoiceClient:
 
         async def _init():
             pw = await async_playwright().start()
-            browser = await pw.chromium.launch(
-                headless=True,
-                channel="chromium",
-                args=_PLAYWRIGHT_DOCKER_ARGS,
-            )
+            launch_kwargs = {
+                "headless": True,
+                "channel": "chromium",
+                "args": _PLAYWRIGHT_DOCKER_ARGS,
+            }
+            playwright_proxy = get_playwright_proxy()
+            if playwright_proxy:
+                launch_kwargs["proxy"] = playwright_proxy
+            browser = await pw.chromium.launch(**launch_kwargs)
             page = await browser.new_page()
             page.set_default_timeout(60000)
             await page.goto(f"file:///{_HTML_PATH.replace(os.sep, '/')}")
@@ -177,6 +182,9 @@ class VoiceClient:
         opts.add_argument("--use-fake-ui-for-media-stream")
         opts.add_argument("--no-sandbox")
         opts.add_argument("--disable-dev-shm-usage")
+        selenium_proxy_arg = get_selenium_proxy_argument()
+        if selenium_proxy_arg:
+            opts.add_argument(selenium_proxy_arg)
 
         driver = None
         last_error = None
@@ -225,6 +233,8 @@ class VoiceClient:
                 eopts.add_argument("--allow-file-access-from-files")
                 eopts.add_argument("--autoplay-policy=no-user-gesture-required")
                 eopts.add_argument("--no-sandbox")
+                if selenium_proxy_arg:
+                    eopts.add_argument(selenium_proxy_arg)
                 try:
                     from webdriver_manager.microsoft import EdgeChromiumDriverManager
                     driver = webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=eopts)

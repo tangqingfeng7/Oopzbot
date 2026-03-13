@@ -7,12 +7,16 @@ data/credentials.txt
 .oopz_capture_credentials
 capture_recall_result.json
 capture_trace.zip
+.env
+.env.local
+!.env.example
 
 # === 运行时生成的数据 ===
 data/names.json
 data/oopz_cache.db
 data/dump.rdb
 data/_events_debug.jsonl
+data/clash/
 
 # === Python ===
 __pycache__/

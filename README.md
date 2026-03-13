@@ -51,6 +51,35 @@ python main.py
 
 启动后会自动连接 Oopz WebSocket；若配置了 Agora，Bot 可加入语音频道并推流播放音乐。Web 歌词播放器默认在配置的端口（如 3001）提供页面。
 
+Linux 可直接使用一键启动脚本：
+
+```shell
+./start.sh
+```
+
+也可以把启动参数放到项目根目录的 `.env`（可先复制 `.env.example`）：
+
+```shell
+cp .env.example .env
+```
+
+如果希望同时自动下载 Clash 订阅并拉起 mihomo/clash 内核，再启动 Bot，可使用：
+
+```shell
+CLASH_SUBSCRIPTION_URL="https://example.com/clash.yaml" CLASH_AUTO_START=1 ./start.sh
+```
+
+常用环境变量：
+
+- `CLASH_SUBSCRIPTION_URL`：Clash/Mihomo 订阅地址
+- `CLASH_KERNEL_BIN`：内核命令或绝对路径，默认自动查找 `mihomo`、`clash-meta`、`clash`
+- `CLASH_MIXED_PORT`：本地 mixed 代理端口，默认 `7890`
+- `CLASH_SOCKS_PORT`：本地 socks 代理端口，默认 `7891`
+- `CLASH_PROXY` / `BOT_OOPZ_PROXY`：Bot 使用的代理地址；未设置时会默认指向 `http://127.0.0.1:$CLASH_MIXED_PORT`
+
+`start.sh` 会按顺序自动读取项目根目录下的 `.env`、`.env.local`，后者可覆盖前者。
+如果订阅内容不是 Clash YAML，而是常见的 base64 通用订阅（`vmess://` / `vless://` / `trojan://` / `ss://`），脚本会先在本地转换成 Mihomo 配置再启动。
+
 ### 5. Docker 启动
 
 已提供 `Dockerfile` 与 `docker-compose.yml`，默认会同时启动：
@@ -64,26 +93,19 @@ python main.py
 docker compose up -d --build
 ```
 
-如需同时启用网易云 API 容器，使用 `music` profile：
-
-```shell
-docker compose --profile music up -d --build
-```
-
-默认会映射 Web 播放器端口 `8080`，并自动通过环境变量适配容器环境：
+默认会同时拉起 `bot`、`redis`、`netease-api` 三个服务，映射 Web 播放器端口 `8080`，并自动通过环境变量适配容器环境：
 
 - `BOT_REDIS_HOST=redis`
 - `BOT_NETEASE_BASE_URL=http://netease-api:3000`
-- `BOT_DISABLE_AUTO_START_NETEASE=1`
-- `BOT_DISABLE_VOICE=1`
 
 可选环境变量示例见 `docker.env.example`。
 
 说明：
 
-- Docker 默认关闭“自动启动网易云 API 子进程”，如需使用外部网易云 API，可额外设置 `BOT_NETEASE_BASE_URL`
-- 若使用 `--profile music`，会额外构建并启动本地 `NeteaseAPI_tmp` 目录中的网易云 API 服务
-- Docker 默认关闭 Agora 语音推流；如需启用，请移除 `BOT_DISABLE_VOICE`，并自行提供浏览器运行环境
+- Docker 默认启用完整能力：Redis、网易云 API、Web 播放器，以及在已配置 `agora_app_id` 时的 Agora 语音推流
+- `netease-api` 服务带健康检查，`bot` 会等待其就绪后再启动，避免启动顺序导致音乐功能异常
+- 如需改用外部网易云 API，可覆盖 `BOT_NETEASE_BASE_URL`
+- 只有在排障时才建议额外设置 `BOT_DISABLE_AUTO_START_NETEASE=1` 或 `BOT_DISABLE_VOICE=1`
 - 运行时会挂载 `./config.py`、`./private_key.py`、`./config/`、`./data/`、`./logs/`
 
 ---

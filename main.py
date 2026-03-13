@@ -87,6 +87,7 @@ from command_handler import CommandHandler
 from voice_client import VoiceClient
 from web_player import run_server as run_web_player
 from area_join_notifier import start_area_join_notifier
+from proxy_utils import apply_process_proxy_env
 
 logger = setup_logger("Main")
 
@@ -141,6 +142,7 @@ def _start_netease_api():
     local_bin = os.path.expanduser("~/.local/bin")
     if local_bin and local_bin not in env.get("PATH", ""):
         env["PATH"] = local_bin + os.pathsep + env.get("PATH", "")
+    env = apply_process_proxy_env(env)
 
     logger.info(f"正在启动网易云 API: {api_dir}")
     try:

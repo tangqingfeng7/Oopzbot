@@ -53,3 +53,28 @@ python main.py
 - 否则需先手动启动：`cd NeteaseAPI_tmp && node app.js`，再运行 `python main.py`
 
 启动后 Bot 自动通过 WebSocket 连接 Oopz 平台。
+
+Linux 上也可以使用一键脚本：
+
+```shell
+./start.sh
+```
+
+脚本会自动读取项目根目录下的 `.env`、`.env.local`。可先复制示例：
+
+```shell
+cp .env.example .env
+```
+
+如需自动下载 Clash 订阅并启动 mihomo/clash 内核：
+
+```shell
+CLASH_SUBSCRIPTION_URL="https://example.com/clash.yaml" CLASH_AUTO_START=1 ./start.sh
+```
+
+说明：
+
+- 需系统已安装 `mihomo`、`clash-meta` 或 `clash`，也可通过 `CLASH_KERNEL_BIN` 指定可执行文件
+- 脚本会将订阅保存到 `data/clash/subscription.yaml`，并生成运行时配置 `data/clash/config.yaml`
+- 默认会将 mixed 端口固定为 `7890`、socks 端口固定为 `7891`
+- 如果订阅是 base64 通用订阅（包含 `vmess://` / `vless://` / `trojan://` / `ss://`），脚本会先本地转换为 Mihomo 可读配置
