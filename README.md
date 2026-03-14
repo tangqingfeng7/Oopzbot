@@ -53,8 +53,6 @@ python main.py
 - `*.example.json`
 - `*.schema.json`
 
-实际部署时，可把真实配置文件加入忽略规则，避免提交敏感信息。
-
 ## 文档索引
 
 - [快速开始](docs/quickstart.md)
