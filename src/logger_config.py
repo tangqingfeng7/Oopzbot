@@ -1,8 +1,3 @@
-"""
-统一日志配置模块
-所有模块使用相同的日志格式和输出方式
-"""
-
 import glob
 import os
 import sys

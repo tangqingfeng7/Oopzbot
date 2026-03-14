@@ -1,8 +1,3 @@
-"""
-英雄联盟战绩查询 (FA8)
-通过 fa.3ui.cc API 自动登录并查询召唤师战绩
-"""
-
 import hashlib
 import re
 import threading
@@ -559,4 +554,3 @@ class FA8Handler:
 
         lines.append("═══════════════════")
         return "\n".join(lines)
-

@@ -73,7 +73,7 @@ class BotApplicationCompositionTest(unittest.TestCase):
 
 
 class CommandHandlerCompositionTest(unittest.TestCase):
-    def test_initialization_builds_infrastructure_registry_and_plugin_host(self) -> None:
+    def test_initialization_builds_runtime_registry_and_plugin_host(self) -> None:
         import command_handler as command_handler_module
 
         infrastructure = Mock()
@@ -91,11 +91,13 @@ class CommandHandlerCompositionTest(unittest.TestCase):
             self.assertIs(handler.services, registry)
             self.assertIs(handler.plugin_host, sentinel.plugin_host)
             build_infra.assert_called_once_with(sentinel.sender, voice_client=sentinel.voice)
-            build_registry.assert_called_once_with(
-                handler,
-                bot_uid=command_handler_module._BOT_UID,
-                bot_mention=command_handler_module._BOT_MENTION,
-            )
+
+            runtime = build_registry.call_args.args[0]
+            self.assertIs(runtime.infrastructure, infrastructure)
+            self.assertEqual(runtime.bot_uid, command_handler_module._BOT_UID)
+            self.assertEqual(runtime.bot_mention, command_handler_module._BOT_MENTION)
+            self.assertIs(handler.recent_messages, runtime.recent_messages)
+
             plugin_host_cls.assert_called_once()
             infrastructure.plugins.load_all.assert_called_once_with(handler=sentinel.plugin_host)
 

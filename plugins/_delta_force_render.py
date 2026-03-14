@@ -1,7 +1,3 @@
-"""
-HTML-to-image rendering for Delta Force posters.
-"""
-
 from __future__ import annotations
 
 import os

@@ -1,5 +1,3 @@
-"""应用上下文组装。"""
-
 from area_join_notifier import start_area_join_notifier
 from command_handler import CommandHandler
 from oopz_client import OopzClient

@@ -1,11 +1,3 @@
-"""
-LOL 封号查询插件
-
-通过 QQ 号查询英雄联盟封禁状态。
-配置文件：config/plugins/lol_ban.json
-@bot 查封号/封号/lol <QQ号>、/lol <QQ号>
-"""
-
 from plugin_base import (
     BotModule,
     PluginCommandCapabilities,

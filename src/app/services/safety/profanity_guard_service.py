@@ -1,8 +1,6 @@
-"""违禁词防护服务。"""
-
 import re
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from config import PROFANITY_CONFIG
 from domain.safety.profanity_rules import (
@@ -12,12 +10,9 @@ from domain.safety.profanity_rules import (
     match_keyword,
 )
 from logger_config import get_logger
+from app.services.runtime import CommandRuntimeView, sender_of
 
 logger = get_logger("ProfanityGuardService")
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
 
 
 class ProfanityGuardService:
@@ -36,9 +31,8 @@ class ProfanityGuardService:
         "🐷": "猪", "💀": "死", "🖕": "操",
         "*": "", "#": "", "@": "", "×": "",
     })
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._sender = handler.infrastructure.sender
+    def __init__(self, runtime: CommandRuntimeView):
+        self._sender = sender_of(runtime)
         self._keywords = [keyword.lower() for keyword in PROFANITY_CONFIG.get("keywords", [])]
         self._user_msg_buffer: dict[str, list[dict]] = {}
         self._warnings: dict[str, int] = {}

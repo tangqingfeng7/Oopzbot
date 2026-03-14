@@ -1,19 +1,15 @@
-"""音乐命令服务。"""
+from typing import Optional
 
-from typing import TYPE_CHECKING, Optional
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
+from app.services.runtime import CommandRuntimeView, music_of, sender_of
 
 
 class MusicCommandService:
     """处理音乐相关的中文指令和斜杠命令。"""
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._sender = handler.infrastructure.sender
-        self._music = handler.infrastructure.music
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._sender = sender_of(runtime)
+        self._music = music_of(runtime)
 
     def handle_mention(self, text: str, channel: str, area: str, user: str) -> bool:
         """处理 @bot 中文音乐指令。"""

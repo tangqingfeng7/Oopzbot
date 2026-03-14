@@ -1,7 +1,3 @@
-"""
-Background scheduler for Delta Force daily keyword push.
-"""
-
 from __future__ import annotations
 
 import threading

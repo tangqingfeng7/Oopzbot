@@ -1,5 +1,3 @@
-"""聊天能力网关。"""
-
 from chat import ChatHandler
 
 

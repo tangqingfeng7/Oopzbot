@@ -1,9 +1,3 @@
-"""
-名称解析器
-维护 person_uid / channel_id / area_id → 显示名称 的映射。
-优先从本地缓存读取，未知用户自动通过 Oopz API 查询并持久化。
-"""
-
 import os
 import atexit
 import json
@@ -133,6 +127,20 @@ class NameResolver:
             daemon=True,
             name="NameResolverBatchFetch",
         ).start()
+
+    def ensure_users(self, uids: List[str]) -> dict[str, str]:
+        """同步确保一批用户名称已进入缓存，并返回当前名称映射。"""
+        unique_uids = [uid for uid in dict.fromkeys(uids) if uid]
+        if not unique_uids:
+            return {}
+
+        to_fetch = self._claim_pending_uids(unique_uids)
+        if to_fetch:
+            self._fetch_user_names_batch(to_fetch)
+
+        with self._lock:
+            users = self._data.get("users", {})
+            return {uid: users.get(uid, "") for uid in unique_uids}
 
     # ------------------------------------------------------------------
     # Oopz API 调用

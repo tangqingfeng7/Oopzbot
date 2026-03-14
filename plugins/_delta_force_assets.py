@@ -1,7 +1,3 @@
-"""
-Utility helpers for Delta Force plugin presentation.
-"""
-
 from __future__ import annotations
 
 from pathlib import Path

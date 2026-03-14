@@ -1,5 +1,3 @@
-"""插件配置资产导出工具。"""
-
 from __future__ import annotations
 
 import argparse

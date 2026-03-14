@@ -1,14 +1,3 @@
-"""
-Agora RTC 语音频道客户端（Playwright 或 Selenium + Agora Web SDK）
-
-通过无头 Chromium 运行 Agora Web SDK。优先使用 Playwright；
-若 Playwright 不可用（如 Windows 上 greenlet DLL 错误），自动回退到 Selenium。
-
-依赖（二选一即可）:
-  - playwright: pip install playwright && playwright install chromium
-  - selenium: pip install selenium（需已安装 Chrome 或 Chromium）
-"""
-
 import base64
 import os
 import queue

@@ -1,7 +1,3 @@
-"""
-Background polling for Delta Force place completion notifications.
-"""
-
 from __future__ import annotations
 
 import threading

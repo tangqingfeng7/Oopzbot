@@ -43,6 +43,13 @@ class ArchitectureSmokeTest(unittest.TestCase):
         self.assertIn("app.services.registry", imports)
         self.assertNotIn("app.service_registry", imports)
 
+    def test_service_modules_do_not_import_command_handler(self) -> None:
+        service_root = SRC_ROOT / "app" / "services"
+        for path in service_root.rglob("*.py"):
+            with self.subTest(path=path):
+                imports = _parse_imports(path)
+                self.assertNotIn("command_handler", imports)
+
     def test_core_architecture_modules_compile(self) -> None:
         targets = [
             SRC_ROOT / "app" / "__init__.py",
@@ -50,6 +57,8 @@ class ArchitectureSmokeTest(unittest.TestCase):
             SRC_ROOT / "app" / "runtime.py",
             SRC_ROOT / "app" / "lifecycle" / "__init__.py",
             SRC_ROOT / "app" / "lifecycle" / "context.py",
+            SRC_ROOT / "app" / "services" / "runtime" / "__init__.py",
+            SRC_ROOT / "app" / "services" / "runtime" / "command_runtime.py",
             SRC_ROOT / "app" / "services" / "registry" / "__init__.py",
             SRC_ROOT / "app" / "services" / "registry" / "command_service_registry.py",
             SRC_ROOT / "app" / "infrastructure" / "__init__.py",

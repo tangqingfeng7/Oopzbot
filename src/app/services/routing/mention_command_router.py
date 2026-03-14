@@ -1,222 +1,174 @@
-"""@bot 中文命令路由。"""
-
 import re
-from typing import TYPE_CHECKING
 
+from app.services.runtime import CommandRuntimeView, plugins_of, sender_of
 
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
+from .builtin_command_actions import build_builtin_command_actions
 
 
 class MentionCommandRouter:
-    """负责解析 @bot 中文命令。"""
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._services = runtime.services
+        self._sender = sender_of(runtime)
+        self._plugins = plugins_of(runtime)
+        self._actions = build_builtin_command_actions(runtime)
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._services = handler.services
-        self._sender = handler.infrastructure.sender
+    def _dispatch_exact(self, text: str, aliases: tuple[str, ...], callback) -> bool:
+        if text not in aliases:
+            return False
+        callback()
+        return True
+
+    def _dispatch_prefixed_arg(
+        self,
+        text: str,
+        prefixes: tuple[str, ...],
+        callback,
+        usage: str,
+        channel: str,
+        area: str,
+    ) -> bool:
+        for prefix in prefixes:
+            if not text.startswith(prefix):
+                continue
+            arg = text[len(prefix) :].strip()
+            if arg:
+                callback(arg)
+            else:
+                self._sender.send_message(usage, channel=channel, area=area)
+            return True
+        return False
+
+    def _dispatch_prefixed_pair(
+        self,
+        text: str,
+        prefixes: tuple[str, ...],
+        callback,
+        usage: str,
+        channel: str,
+        area: str,
+    ) -> bool:
+        for prefix in prefixes:
+            if not text.startswith(prefix):
+                continue
+            rest = text[len(prefix) :].strip().split(None, 1)
+            if len(rest) >= 2:
+                callback(rest[0], rest[1])
+            else:
+                self._sender.send_message(usage, channel=channel, area=area)
+            return True
+        return False
+
+    def _dispatch_prefixed_raw(self, text: str, prefixes: tuple[str, ...], callback) -> bool:
+        for prefix in prefixes:
+            if not text.startswith(prefix):
+                continue
+            callback(text[len(prefix) :].strip())
+            return True
+        return False
+
+    def _exact_rules(self, channel: str, area: str, user: str):
+        return (
+            (("成员", "在线", "成员列表", "谁在线"), lambda: self._actions.community.show_members(channel, area)),
+            (("个人信息", "我是谁", "信息"), lambda: self._actions.community.show_profile(channel, area, user)),
+            (("我的资料", "我的详细资料", "我的信息"), lambda: self._actions.community.show_myinfo(channel, area, user)),
+            (("语音", "语音频道", "语音在线", "谁在语音"), lambda: self._actions.interaction.show_voice_channels(channel, area)),
+            (("每日一句", "一句", "名言", "语录", "鸡汤"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
+            (("清理历史", "清理记录", "清除历史", "清空历史", "清理数据"), lambda: self._actions.recall.clear_history(channel, area)),
+            (("封禁列表", "封禁名单", "黑名单"), lambda: self._actions.moderation.show_block_list(channel, area)),
+            (("插件列表", "扩展列表", "插件"), lambda: self._actions.plugins.show_plugin_list(channel, area)),
+            (("帮助", "help", "指令", "命令"), lambda: self._actions.interaction.show_help(channel, area, user)),
+        )
+
+    def _arg_rules(self, channel: str, area: str, user: str):
+        return (
+            (("查看", "资料", "查询资料"), lambda target: self._actions.community.show_whois(target, channel, area), "用法: @bot 查看用户名"),
+            (("角色",), lambda target: self._actions.community.show_user_roles(target, channel, area), "用法: @bot 角色用户名"),
+            (
+                ("可分配角色", "分配角色"),
+                lambda target: self._actions.community.show_assignable_roles(target, channel, area),
+                "用法: @bot 可分配角色用户名",
+            ),
+            (("搜索成员", "搜索", "找人"), lambda keyword: self._actions.community.search_members(keyword, channel, area), "用法: @bot 搜索用户名"),
+            (("进入频道", "进入"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: @bot 进入频道 <频道ID>"),
+            (("加载插件", "启用插件", "loadplugin"), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: @bot 加载插件 <名>"),
+            (("卸载插件", "禁用插件", "unloadplugin"), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: @bot 卸载插件 <名>"),
+            (
+                ("画", "画一个", "画一张", "生成图片", "生成", "画图"),
+                lambda prompt: self._actions.interaction.generate_image(prompt, channel, area, user),
+                "请描述要画的内容，例如: @bot 画一只可爱的猫咪",
+            ),
+        )
+
+    def _pair_rules(self, channel: str, area: str):
+        return (
+            (
+                ("给身份组", "添加身份组", "addrole"),
+                lambda target, role_name: self._actions.community.give_role(target, role_name, channel, area),
+                "用法: @bot 给身份组 用户 身份组名或ID",
+            ),
+            (
+                ("取消身份组", "移除身份组", "removerole"),
+                lambda target, role_name: self._actions.community.remove_role(target, role_name, channel, area),
+                "用法: @bot 取消身份组 用户 身份组名或ID",
+            ),
+        )
+
+    def _raw_rules(self, channel: str, area: str):
+        return (
+            (("禁言",), lambda raw: self._actions.moderation.mute_user(raw, channel, area, "用法: @bot 禁言 谁 10")),
+            (("解除禁言", "解禁"), lambda raw: self._actions.moderation.unmute_user(raw, channel, area, "用法: @bot 解禁 谁")),
+            (("禁麦",), lambda raw: self._actions.moderation.mute_mic(raw, channel, area, "用法: @bot 禁麦 谁")),
+            (("解除禁麦", "解麦"), lambda raw: self._actions.moderation.unmute_mic(raw, channel, area, "用法: @bot 解麦 谁")),
+            (
+                ("移出域", "踢出", "移出"),
+                lambda raw: self._actions.moderation.remove_from_area(raw, channel, area, "用法: @bot 移出域 用户 或 @bot 踢出 用户"),
+            ),
+            (
+                ("解除域内封禁", "解封"),
+                lambda raw: self._actions.moderation.unblock_in_area(
+                    raw,
+                    channel,
+                    area,
+                    "用法: @bot 解封 用户（可先 @bot 封禁列表 查看）",
+                ),
+            ),
+            (("自动撤回",), lambda arg: self._actions.recall.configure_auto_recall(arg, channel, area)),
+            (("撤回",), lambda raw: self._actions.recall.recall(raw or None, channel, area)),
+        )
 
     def dispatch(self, text: str, channel: str, area: str, user: str) -> None:
-        """将 @bot 后的文本路由到具体命令。"""
-        if self._handler.infrastructure.plugins.try_dispatch_mention(
+        if self._plugins.try_dispatch_mention(
             text,
             channel,
             area,
             user,
-            self._handler.plugin_host,
+            self._runtime.plugin_host,
         ):
             return
         if self._services.interaction.music.handle_mention(text, channel, area, user):
             return
 
-        if text in ("成员", "在线", "成员列表", "谁在线"):
-            self._services.community.member.show_members(channel, area)
-            return
-        if text in ("个人信息", "我是谁", "信息"):
-            self._services.community.member.show_profile(channel, area, user)
-            return
-        if text in ("我的资料", "我的详细资料", "我的信息"):
-            self._services.community.member.show_myinfo(channel, area, user)
-            return
-
-        for prefix in ("查看", "资料", "查询资料"):
-            if text.startswith(prefix):
-                target = text[len(prefix):].strip()
-                if target:
-                    self._services.community.member.show_whois(target, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 查看用户名", channel=channel, area=area)
+        for aliases, callback in self._exact_rules(channel, area, user):
+            candidate = text.strip() if "封禁列表" in aliases or "插件列表" in aliases else text
+            if self._dispatch_exact(candidate, aliases, callback):
                 return
 
-        if text.startswith("角色"):
-            target = text[2:].strip()
-            if target:
-                self._services.community.role.show_user_roles(target, channel, area)
-            else:
-                self._sender.send_message("用法: @bot 角色用户名", channel=channel, area=area)
-            return
-
-        for prefix in ("可分配角色", "分配角色"):
-            if text.startswith(prefix):
-                target = text[len(prefix):].strip()
-                if target:
-                    self._services.community.role.show_assignable_roles(target, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 可分配角色用户名", channel=channel, area=area)
+        for prefixes, callback, usage in self._arg_rules(channel, area, user):
+            if self._dispatch_prefixed_arg(text, prefixes, callback, usage, channel, area):
                 return
 
-        for prefix in ("给身份组", "添加身份组", "addrole"):
-            if text.startswith(prefix):
-                rest = text[len(prefix):].strip().split(None, 1)
-                if len(rest) >= 2:
-                    self._services.community.role.give_role(rest[0], rest[1], channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 给身份组 用户 身份组名或ID", channel=channel, area=area)
+        for prefixes, callback, usage in self._pair_rules(channel, area):
+            if self._dispatch_prefixed_pair(text, prefixes, callback, usage, channel, area):
                 return
 
-        for prefix in ("取消身份组", "移除身份组", "removerole"):
-            if text.startswith(prefix):
-                rest = text[len(prefix):].strip().split(None, 1)
-                if len(rest) >= 2:
-                    self._services.community.role.remove_role(rest[0], rest[1], channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 取消身份组 用户 身份组名或ID", channel=channel, area=area)
-                return
-
-        for prefix in ("搜索成员", "搜索", "找人"):
-            if text.startswith(prefix):
-                keyword = text[len(prefix):].strip()
-                if keyword:
-                    self._services.community.member.search_members(keyword, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 搜索用户名", channel=channel, area=area)
-                return
-
-        if text in ("语音", "语音频道", "语音在线", "谁在语音"):
-            self._services.interaction.common.show_voice_channels(channel, area)
-            return
-
-        for prefix in ("进入频道", "进入"):
-            if text.startswith(prefix):
-                channel_id = text[len(prefix):].strip()
-                if channel_id:
-                    self._services.interaction.common.enter_channel(channel_id, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 进入频道<频道ID>", channel=channel, area=area)
-                return
-
-        if text in ("每日一句", "一句", "名言", "语录", "鸡汤"):
-            self._services.interaction.common.show_daily_speech(channel, area)
-            return
-
-        if text.startswith("禁言"):
-            uid, duration = self._services.community.target_resolution.parse_mute_args(text[2:])
-            if uid:
-                self._services.safety.moderation.mute_user(uid, duration, channel, area)
-            else:
-                self._sender.send_message("用法: @bot 禁言皇 10", channel=channel, area=area)
-            return
-
-        for prefix in ("解除禁言", "解禁"):
-            if text.startswith(prefix):
-                uid = self._services.community.target_resolution.resolve_target(text[len(prefix):])
-                if uid:
-                    self._services.safety.moderation.unmute_user(uid, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 解禁皇", channel=channel, area=area)
-                return
-
-        if text.startswith("禁麦"):
-            uid, duration = self._services.community.target_resolution.parse_mute_args(text[2:])
-            if uid:
-                self._services.safety.moderation.mute_mic(uid, channel, area, duration)
-            else:
-                self._sender.send_message("用法: @bot 禁麦皇", channel=channel, area=area)
-            return
-
-        for prefix in ("解除禁麦", "解麦"):
-            if text.startswith(prefix):
-                uid = self._services.community.target_resolution.resolve_target(text[len(prefix):])
-                if uid:
-                    self._services.safety.moderation.unmute_mic(uid, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 解麦皇", channel=channel, area=area)
-                return
-
-        for prefix in ("移出域", "踢出", "移出"):
-            if text.startswith(prefix):
-                uid = self._services.community.target_resolution.resolve_target(text[len(prefix):].strip())
-                if uid:
-                    self._services.safety.moderation.remove_from_area(uid, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 移出域 用户 或 @bot 踢出 用户", channel=channel, area=area)
-                return
-
-        for prefix in ("解除域内封禁", "解封"):
-            if text.startswith(prefix):
-                uid = self._services.community.target_resolution.resolve_target(text[len(prefix):].strip())
-                if uid:
-                    self._services.safety.moderation.unblock_in_area(uid, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 解封 用户（可先 @bot 封禁列表 查看）", channel=channel, area=area)
-                return
-
-        if text.strip() in ("封禁列表", "封禁名单", "黑名单"):
-            self._services.safety.moderation.show_block_list(channel, area)
-            return
-
-        match = re.match(r"撤回\s*(\d+)\s*条", text)
+        match = re.match(r"撤回\s*(\d+)\s*条", text.strip())
         if match:
-            self._services.safety.recall.recall_multiple(int(match.group(1)), channel, area)
+            self._actions.recall.recall_multiple(int(match.group(1)), channel, area)
             return
 
-        if text.startswith("撤回"):
-            message_id = text[2:].strip()
-            self._services.safety.recall.recall_message(message_id, channel, area)
-            return
-
-        if text.startswith("自动撤回"):
-            arg = text[4:].strip()
-            self._services.safety.recall.configure_auto_recall(arg, channel, area)
-            return
-
-        if text in ("清理历史", "清理记录", "清除历史", "清空历史", "清理数据"):
-            self._services.safety.recall.clear_history(channel, area)
-            return
-
-        if text.strip() in ("插件列表", "扩展列表", "插件"):
-            self._services.plugins.management.show_plugin_list(channel, area)
-            return
-
-        for prefix in ("加载插件", "启用插件", "loadplugin"):
-            if text.startswith(prefix):
-                name = text[len(prefix):].strip()
-                if name:
-                    self._services.plugins.management.load(name, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 加载插件 <名>", channel=channel, area=area)
-                return
-
-        for prefix in ("卸载插件", "禁用插件", "unloadplugin"):
-            if text.startswith(prefix):
-                name = text[len(prefix):].strip()
-                if name:
-                    self._services.plugins.management.unload(name, channel, area)
-                else:
-                    self._sender.send_message("用法: @bot 卸载插件 <名>", channel=channel, area=area)
-                return
-
-        if text in ("帮助", "help", "指令", "命令"):
-            self._services.interaction.help.show_help(channel, area, user)
-            return
-
-        for prefix in ("画", "画一个", "画一张", "生成图片", "生成", "画图"):
-            if text.startswith(prefix):
-                prompt = text[len(prefix):].strip()
-                if prompt:
-                    self._services.interaction.common.generate_image(prompt, channel, area, user)
-                else:
-                    self._sender.send_message("请描述要画的内容，例如: @bot 画一只可爱的猫咪", channel=channel, area=area)
+        for prefixes, callback in self._raw_rules(channel, area):
+            if self._dispatch_prefixed_raw(text, prefixes, callback):
                 return
 
         self._services.interaction.chat.handle_mention_fallback(text, channel, area)

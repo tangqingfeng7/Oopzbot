@@ -15,7 +15,7 @@ if str(SRC_ROOT) not in sys.path:
 class CommandAccessServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.plugins = Mock()
-        self.handler = SimpleNamespace(infrastructure=SimpleNamespace(plugins=self.plugins))
+        self.runtime = SimpleNamespace(plugins=self.plugins, bot_mention="(met)bot(met)")
 
     def test_is_admin_allows_anyone_when_admin_list_empty(self) -> None:
         import app.services.routing.command_access_service as module
@@ -33,7 +33,7 @@ class CommandAccessServiceTest(unittest.TestCase):
     def test_public_mention_prefers_domain_rule(self) -> None:
         from app.services.routing.command_access_service import CommandAccessService
 
-        service = CommandAccessService(self.handler, bot_mention="(met)bot(met)")
+        service = CommandAccessService(self.runtime)
 
         self.assertTrue(service.is_public_command("(met)bot(met) 帮助"))
         self.plugins.has_public_mention_prefix.assert_not_called()
@@ -41,7 +41,7 @@ class CommandAccessServiceTest(unittest.TestCase):
     def test_public_mention_can_fallback_to_plugin_capability(self) -> None:
         import app.services.routing.command_access_service as module
 
-        service = module.CommandAccessService(self.handler, bot_mention="(met)bot(met)")
+        service = module.CommandAccessService(self.runtime)
         self.plugins.has_public_mention_prefix.return_value = True
 
         with patch.object(module, "is_public_mention_text", return_value=False):
@@ -52,7 +52,7 @@ class CommandAccessServiceTest(unittest.TestCase):
     def test_public_slash_can_fallback_to_plugin_capability(self) -> None:
         import app.services.routing.command_access_service as module
 
-        service = module.CommandAccessService(self.handler, bot_mention="(met)bot(met)")
+        service = module.CommandAccessService(self.runtime)
         self.plugins.has_public_slash_command.return_value = True
 
         with patch.object(module, "is_public_slash_command", return_value=False):
@@ -198,6 +198,87 @@ class MemberServiceTest(unittest.TestCase):
         self.sender.send_message.assert_called_once()
 
 
+class TargetResolutionServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sender = Mock()
+        self.runtime = SimpleNamespace(
+            infrastructure=SimpleNamespace(sender=self.sender),
+        )
+
+    def test_resolve_target_returns_unique_prefix_match_in_area(self) -> None:
+        from app.services.community.target_resolution_service import TargetResolutionService
+
+        self.sender.get_area_members.side_effect = [
+            {"members": [{"uid": "user-1"}, {"uid": "user-2"}], "totalCount": 2},
+        ]
+
+        service = TargetResolutionService(self.runtime)
+        with patch("app.services.community.target_resolution_service.get_resolver") as get_resolver:
+            resolver = get_resolver.return_value
+            resolver.find_uid_by_name.return_value = None
+            resolver.ensure_users.return_value = {"user-1": "皇帝", "user-2": "小明"}
+            resolver.user_cached.side_effect = lambda uid: {"user-1": "皇帝", "user-2": "小明"}.get(uid, "")
+
+            uid = service.resolve_target("皇", area="area-1")
+
+        self.assertEqual(uid, "user-1")
+        self.sender.get_area_members.assert_called_once_with(area="area-1", offset_start=0, offset_end=99, quiet=True)
+        resolver.ensure_users.assert_called_once_with(["user-1", "user-2"])
+
+    def test_resolve_target_rejects_ambiguous_matches_in_area(self) -> None:
+        from app.services.community.target_resolution_service import TargetResolutionService
+
+        self.sender.get_area_members.side_effect = [
+            {"members": [{"uid": "user-1"}, {"uid": "user-2"}], "totalCount": 2},
+        ]
+
+        service = TargetResolutionService(self.runtime)
+        with patch("app.services.community.target_resolution_service.get_resolver") as get_resolver:
+            resolver = get_resolver.return_value
+            resolver.find_uid_by_name.return_value = None
+            resolver.ensure_users.return_value = {"user-1": "皇帝", "user-2": "皇后"}
+            resolver.user_cached.side_effect = lambda uid: {"user-1": "皇帝", "user-2": "皇后"}.get(uid, "")
+
+            uid = service.resolve_target("皇", area="area-1")
+
+        self.assertIsNone(uid)
+
+
+class ModerationCommandActionsTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sender = Mock()
+        self.target_resolution = Mock()
+        self.moderation = Mock()
+        self.runtime = SimpleNamespace(
+            infrastructure=SimpleNamespace(sender=self.sender),
+            services=SimpleNamespace(
+                community=SimpleNamespace(target_resolution=self.target_resolution),
+                safety=SimpleNamespace(moderation=self.moderation),
+            ),
+        )
+
+    def test_mute_user_reports_missing_target_instead_of_usage(self) -> None:
+        from app.services.routing.builtin_command_actions import ModerationCommandActions
+
+        self.target_resolution.parse_mute_args.return_value = (None, 10)
+
+        actions = ModerationCommandActions(self.runtime)
+        actions.mute_user("皇 10", "channel-1", "area-1", "用法: @bot 禁言 谁 10")
+
+        self.moderation.mute_user.assert_not_called()
+        self.sender.send_message.assert_called_once_with("找不到用户: 皇", channel="channel-1", area="area-1")
+
+    def test_mute_user_still_reports_usage_when_target_is_empty(self) -> None:
+        from app.services.routing.builtin_command_actions import ModerationCommandActions
+
+        self.target_resolution.parse_mute_args.return_value = (None, 10)
+
+        actions = ModerationCommandActions(self.runtime)
+        actions.mute_user("   ", "channel-1", "area-1", "用法: @bot 禁言 谁 10")
+
+        self.sender.send_message.assert_called_once_with("用法: @bot 禁言 谁 10", channel="channel-1", area="area-1")
+
+
 class ProfanityGuardServiceTest(unittest.TestCase):
     def setUp(self) -> None:
         self.sender = Mock()
@@ -294,6 +375,8 @@ class ProfanityGuardServiceTest(unittest.TestCase):
 
 class RecallServiceTest(unittest.TestCase):
     def setUp(self) -> None:
+        from app.services.runtime import RecentMessageStore
+
         self.sender = Mock()
         self.message_lookup = Mock()
         self.handler = SimpleNamespace(
@@ -301,7 +384,7 @@ class RecallServiceTest(unittest.TestCase):
             services=SimpleNamespace(
                 safety=SimpleNamespace(message_lookup=self.message_lookup),
             ),
-            _recent_messages=[],
+            recent_messages=RecentMessageStore(),
         )
 
     def test_recall_message_reports_empty_recent_messages(self) -> None:
@@ -316,10 +399,10 @@ class RecallServiceTest(unittest.TestCase):
     def test_recall_message_uses_latest_message_in_same_channel(self) -> None:
         from app.services.safety.recall_service import RecallService
 
-        self.handler._recent_messages = [
+        self.handler.recent_messages.replace([
             {"messageId": "old", "channel": "channel-2", "area": "area-1", "content": "旧消息", "timestamp": "ts-old"},
             {"messageId": "new", "channel": "channel-1", "area": "area-1", "content": "新消息", "timestamp": "ts-new"},
-        ]
+        ])
         self.message_lookup.resolve_timestamp.return_value = "resolved-ts"
         self.sender.recall_message.return_value = {"ok": True}
 

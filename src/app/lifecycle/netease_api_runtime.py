@@ -1,11 +1,10 @@
-"""网易云 API 进程管理。"""
-
 import atexit
 import os
 import shutil
 import subprocess
 import sys
 import time
+from pathlib import Path
 from typing import Optional
 
 import requests
@@ -17,20 +16,25 @@ logger = setup_logger("NeteaseApiRuntime")
 
 
 class NeteaseApiRuntime:
-    """负责启动、探测并停止网易云 API 进程。"""
-
     def __init__(self) -> None:
         self._process: Optional[subprocess.Popen] = None
+
+    @staticmethod
+    def _project_root() -> Path:
+        return Path(__file__).resolve().parents[3]
+
+    @classmethod
+    def _resolve_api_dir(cls, raw_path: str) -> Path:
+        return cls._project_root() / raw_path.strip()
 
     def start(self) -> None:
         path = NETEASE_CLOUD.get("auto_start_path", "")
         if not path or not path.strip():
             return
 
-        project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        api_dir = os.path.join(project_root, path.strip())
-        app_js = os.path.join(api_dir, "app.js")
-        if not os.path.isfile(app_js):
+        api_dir = self._resolve_api_dir(path)
+        app_js = api_dir / "app.js"
+        if not app_js.is_file():
             logger.info("网易云 API 目录不存在，跳过启动: %s", api_dir)
             return
 
@@ -44,7 +48,7 @@ class NeteaseApiRuntime:
         try:
             self._process = subprocess.Popen(
                 [node_cmd, "app.js"],
-                cwd=api_dir,
+                cwd=str(api_dir),
                 env=env,
                 stdout=subprocess.DEVNULL,
                 stderr=subprocess.DEVNULL,

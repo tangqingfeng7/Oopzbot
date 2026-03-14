@@ -12,6 +12,12 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 
+def _build_recent_store():
+    from app.services.runtime import RecentMessageStore
+
+    return RecentMessageStore()
+
+
 class MessageContextTest(unittest.TestCase):
     def test_message_context_normalizes_message_payload(self) -> None:
         from app.services.routing.command_message_service import MessageContext
@@ -41,7 +47,7 @@ class MessageContextTest(unittest.TestCase):
 
         ctx = MessageContext.from_message(
             {
-                "content": "(met)bot(met) 帮助",
+                "content": "(met)bot(met) help",
                 "channel": "channel-1",
                 "area": "area-1",
                 "person": "user-1",
@@ -51,7 +57,7 @@ class MessageContextTest(unittest.TestCase):
 
         self.assertTrue(ctx.is_mention_command("(met)bot(met)"))
         self.assertTrue(ctx.is_command("(met)bot(met)"))
-        self.assertEqual(ctx.mention_text("(met)bot(met)"), "帮助")
+        self.assertEqual(ctx.mention_text("(met)bot(met)"), "help")
 
 
 class CommandMessageServiceTest(unittest.TestCase):
@@ -61,19 +67,22 @@ class CommandMessageServiceTest(unittest.TestCase):
         self.access = Mock()
         self.profanity = Mock()
         self.command = Mock()
-        self.handler = SimpleNamespace(
-            infrastructure=SimpleNamespace(sender=self.sender, chat=self.chat),
+        self.runtime = SimpleNamespace(
+            sender=self.sender,
+            chat=self.chat,
+            bot_uid="bot-uid",
+            bot_mention="(met)bot(met)",
             services=SimpleNamespace(
                 routing=SimpleNamespace(access=self.access, command=self.command),
                 safety=SimpleNamespace(profanity=self.profanity),
             ),
-            _recent_messages=[],
+            recent_messages=_build_recent_store(),
         )
 
     def _build_service(self):
         from app.services.routing.command_message_service import CommandMessageService
 
-        return CommandMessageService(self.handler, bot_uid="bot-uid", bot_mention="(met)bot(met)")
+        return CommandMessageService(self.runtime)
 
     def test_remember_message_appends_and_limits_recent_messages(self) -> None:
         from app.services.routing.command_message_service import MessageContext
@@ -91,9 +100,10 @@ class CommandMessageServiceTest(unittest.TestCase):
             )
             service.remember_message(ctx)
 
-        self.assertEqual(len(self.handler._recent_messages), 50)
-        self.assertEqual(self.handler._recent_messages[0]["messageId"], "id-5")
-        self.assertEqual(self.handler._recent_messages[-1]["messageId"], "id-54")
+        recent_messages = list(self.runtime.recent_messages)
+        self.assertEqual(len(recent_messages), 50)
+        self.assertEqual(recent_messages[0]["messageId"], "id-5")
+        self.assertEqual(recent_messages[-1]["messageId"], "id-54")
 
     def test_handle_profanity_short_circuits_on_direct_keyword_match(self) -> None:
         from app.services.routing.command_message_service import MessageContext
@@ -102,14 +112,14 @@ class CommandMessageServiceTest(unittest.TestCase):
         service = self._build_service()
         ctx = MessageContext(
             raw={},
-            content="坏词",
+            content="bad",
             channel="channel",
             area="area",
             user="user-1",
             message_id="msg-1",
             timestamp="ts-1",
         )
-        self.profanity.check_profanity.return_value = "坏词"
+        self.profanity.check_profanity.return_value = "bad"
 
         with patch.object(module, "PROFANITY_CONFIG", {"enabled": True, "skip_admins": False}):
             result = service.handle_profanity(ctx)
@@ -119,7 +129,7 @@ class CommandMessageServiceTest(unittest.TestCase):
             "user-1",
             "channel",
             "area",
-            "坏词",
+            "bad",
             [{"message_id": "msg-1", "channel": "channel", "area": "area", "timestamp": "ts-1"}],
         )
 
@@ -130,7 +140,7 @@ class CommandMessageServiceTest(unittest.TestCase):
         service = self._build_service()
         ctx = MessageContext(
             raw={},
-            content="第一句",
+            content="part-1",
             channel="channel",
             area="area",
             user="user-1",
@@ -139,12 +149,12 @@ class CommandMessageServiceTest(unittest.TestCase):
         )
         self.profanity.check_profanity.return_value = None
         self.profanity.check_context_profanity.return_value = None
-        self.profanity.clean_text.return_value = "第一句"
+        self.profanity.clean_text.return_value = "part-1"
         self.profanity.get_user_buffer.return_value = [
-            {"content": "第一句"},
-            {"content": "第二句"},
+            {"content": "part-1"},
+            {"content": "part-2"},
         ]
-        self.chat.check_profanity.side_effect = [None, "拼接违规"]
+        self.chat.check_profanity.side_effect = [None, "joined violation"]
 
         config = {
             "enabled": True,
@@ -159,7 +169,7 @@ class CommandMessageServiceTest(unittest.TestCase):
         self.assertTrue(result)
         self.profanity.push_user_buffer.assert_called_once_with(
             "user-1",
-            "第一句",
+            "part-1",
             "msg-1",
             "channel",
             "area",
@@ -169,7 +179,7 @@ class CommandMessageServiceTest(unittest.TestCase):
             "user-1",
             "channel",
             "area",
-            "AI:拼接违规",
+            "AI:joined violation",
             list(self.profanity.get_user_buffer.return_value),
         )
 
@@ -193,7 +203,7 @@ class CommandMessageServiceTest(unittest.TestCase):
 
         self.assertTrue(result)
         self.sender.send_message.assert_called_once()
-        self.assertIn("无权限", self.sender.send_message.call_args.args[0])
+        self.assertIn("[x]", self.sender.send_message.call_args.args[0])
 
 
 class CommandRouterTest(unittest.TestCase):
@@ -202,18 +212,19 @@ class CommandRouterTest(unittest.TestCase):
         self.slash = Mock()
         self.chat = Mock()
         self.recall_scheduler = Mock()
-        self.handler = SimpleNamespace(
+        self.runtime = SimpleNamespace(
+            bot_mention="(met)bot(met)",
             services=SimpleNamespace(
                 routing=SimpleNamespace(mention=self.mention, slash=self.slash),
                 interaction=SimpleNamespace(chat=self.chat),
                 safety=SimpleNamespace(recall_scheduler=self.recall_scheduler),
-            )
+            ),
         )
 
     def _build_router(self):
         from app.services.routing.command_router import CommandRouter
 
-        return CommandRouter(self.handler, bot_mention="(met)bot(met)")
+        return CommandRouter(self.runtime)
 
     def test_route_mention_dispatches_and_schedules_recall(self) -> None:
         from app.services.routing.command_message_service import MessageContext
@@ -221,7 +232,7 @@ class CommandRouterTest(unittest.TestCase):
         router = self._build_router()
         ctx = MessageContext(
             raw={},
-            content="(met)bot(met) 帮助",
+            content="(met)bot(met) help",
             channel="channel",
             area="area",
             user="user-1",
@@ -231,7 +242,7 @@ class CommandRouterTest(unittest.TestCase):
 
         router.route(ctx)
 
-        self.mention.dispatch.assert_called_once_with("帮助", "channel", "area", "user-1")
+        self.mention.dispatch.assert_called_once_with("help", "channel", "area", "user-1")
         self.recall_scheduler.schedule_user_message_recall.assert_called_once_with(
             "msg-1",
             "channel",
@@ -269,7 +280,7 @@ class CommandRouterTest(unittest.TestCase):
         router = self._build_router()
         ctx = MessageContext(
             raw={},
-            content="普通聊天",
+            content="plain chat",
             channel="channel",
             area="area",
             user="user-1",
@@ -279,7 +290,7 @@ class CommandRouterTest(unittest.TestCase):
 
         router.route(ctx)
 
-        self.chat.handle_plain_chat.assert_called_once_with("普通聊天", "channel", "area")
+        self.chat.handle_plain_chat.assert_called_once_with("plain chat", "channel", "area")
         self.recall_scheduler.schedule_user_message_recall.assert_not_called()
 
 
