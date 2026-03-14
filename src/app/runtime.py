@@ -1,5 +1,3 @@
-"""程序入口使用的运行时配置辅助方法。"""
-
 import os
 
 import config as runtime_config

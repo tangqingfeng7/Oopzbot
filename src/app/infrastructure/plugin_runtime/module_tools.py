@@ -1,5 +1,3 @@
-"""插件模块装载辅助工具。"""
-
 from __future__ import annotations
 
 import importlib.util

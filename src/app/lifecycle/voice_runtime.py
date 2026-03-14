@@ -1,5 +1,3 @@
-"""语音客户端构建。"""
-
 from typing import Optional
 
 from config import OOPZ_CONFIG

@@ -1,7 +1,3 @@
-"""
-Delta Force MVP plugin for Oopz Bot.
-"""
-
 from __future__ import annotations
 
 import re

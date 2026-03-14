@@ -1,5 +1,3 @@
-"""命令处理依赖的基础设施导出。"""
-
 from .gateways import ChatGateway, SenderGateway
 from .runtime import BotInfrastructure, MusicGateway, PluginHost, PluginRuntime, build_bot_infrastructure
 

@@ -1,7 +1,3 @@
-"""
-Async QR login manager for Delta Force plugin.
-"""
-
 from __future__ import annotations
 
 import base64

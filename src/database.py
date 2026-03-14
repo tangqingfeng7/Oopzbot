@@ -1,8 +1,3 @@
-"""
-SQLite 数据库管理模块
-管理图片缓存、歌曲缓存、播放统计
-"""
-
 import os
 import json
 import sqlite3

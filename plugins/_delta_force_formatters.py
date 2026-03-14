@@ -1,7 +1,3 @@
-"""
-Formatting helpers for Delta Force plugin responses.
-"""
-
 from __future__ import annotations
 
 from datetime import datetime

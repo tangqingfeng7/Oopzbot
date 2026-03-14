@@ -1,5 +1,3 @@
-"""应用生命周期模块导出。"""
-
 from .background_services import BackgroundServiceRunner
 from .context import AppContext
 from .context_builder import AppContextBuilder

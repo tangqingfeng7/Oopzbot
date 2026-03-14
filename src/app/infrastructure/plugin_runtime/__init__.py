@@ -1,5 +1,3 @@
-"""插件运行时导出。"""
-
 from .config_assets import (
     build_plugin_config_example,
     build_plugin_config_schema,

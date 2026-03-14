@@ -1,26 +1,19 @@
-"""帮助命令服务。"""
-
-from typing import TYPE_CHECKING
-
 from app.services.plugins.plugin_capability_formatter import format_plugin_command_summary
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
+from app.services.runtime import CommandRuntimeView, chat_of, plugins_of, sender_of
 
 
 class HelpService:
     """负责组织和发送帮助说明。"""
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._sender = handler.infrastructure.sender
-        self._chat = handler.infrastructure.chat
-        self._plugins = handler.infrastructure.plugins
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._sender = sender_of(runtime)
+        self._chat = chat_of(runtime)
+        self._plugins = plugins_of(runtime)
 
     def show_help(self, channel: str, area: str, user: str = "") -> None:
         """发送当前用户可见的帮助命令列表。"""
-        is_admin = self._handler.services.routing.access.is_admin(user)
+        is_admin = self._runtime.services.routing.access.is_admin(user)
         role_label = "管理员" if is_admin else "普通用户"
         plugin_caps = self._plugins.list_command_descriptors(public_only=not is_admin)
 

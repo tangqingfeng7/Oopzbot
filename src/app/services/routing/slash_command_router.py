@@ -1,22 +1,121 @@
-"""斜杠命令路由。"""
+from app.services.runtime import CommandRuntimeView, plugins_of, sender_of
 
-from typing import TYPE_CHECKING
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
+from .builtin_command_actions import build_builtin_command_actions
 
 
 class SlashCommandRouter:
-    """负责解析 `/` 命令。"""
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._services = runtime.services
+        self._sender = sender_of(runtime)
+        self._plugins = plugins_of(runtime)
+        self._actions = build_builtin_command_actions(runtime)
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._services = handler.services
-        self._sender = handler.infrastructure.sender
+    def _rest(self, parts: list[str]) -> str:
+        return " ".join(parts[1:]).strip()
+
+    def _dispatch_exact(self, command: str, aliases: tuple[str, ...], callback) -> bool:
+        if command not in aliases:
+            return False
+        callback()
+        return True
+
+    def _dispatch_required_arg(
+        self,
+        command: str,
+        aliases: tuple[str, ...],
+        raw: str,
+        callback,
+        usage: str,
+        channel: str,
+        area: str,
+    ) -> bool:
+        if command not in aliases:
+            return False
+        if raw:
+            callback(raw)
+        else:
+            self._sender.send_message(usage, channel=channel, area=area)
+        return True
+
+    def _dispatch_required_pair(
+        self,
+        command: str,
+        aliases: tuple[str, ...],
+        parts: list[str],
+        callback,
+        usage: str,
+        channel: str,
+        area: str,
+    ) -> bool:
+        if command not in aliases:
+            return False
+        if len(parts) >= 3:
+            role_arg = " ".join(parts[2:]).strip()
+            if role_arg:
+                callback(parts[1], role_arg)
+                return True
+        self._sender.send_message(usage, channel=channel, area=area)
+        return True
+
+    def _admin_rules(self, channel: str, area: str):
+        return (
+            (("/plugins",), lambda: self._actions.plugins.show_plugin_list(channel, area), None),
+            (("/loadplugin",), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: /loadplugin <名>"),
+            (("/unloadplugin",), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: /unloadplugin <名>"),
+        )
+
+    def _exact_rules(self, channel: str, area: str, user: str, raw: str):
+        return (
+            (("/help",), lambda: self._actions.interaction.show_help(channel, area, user)),
+            (("/members", "/online"), lambda: self._actions.community.show_members(channel, area)),
+            (("/me",), lambda: self._actions.community.show_profile(channel, area, user)),
+            (("/myinfo",), lambda: self._actions.community.show_myinfo(channel, area, user)),
+            (("/voice",), lambda: self._actions.interaction.show_voice_channels(channel, area)),
+            (("/daily", "/quote"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
+            (("/禁言", "/mute"), lambda: self._actions.moderation.mute_user(raw, channel, area, "用法: /禁言 谁 10")),
+            (("/解禁", "/unmute"), lambda: self._actions.moderation.unmute_user(raw, channel, area, "用法: /解禁 谁")),
+            (("/禁麦", "/mutemic"), lambda: self._actions.moderation.mute_mic(raw, channel, area, "用法: /禁麦 谁")),
+            (("/解麦", "/unmutemic"), lambda: self._actions.moderation.unmute_mic(raw, channel, area, "用法: /解麦 谁")),
+            (("/ban",), lambda: self._actions.moderation.remove_from_area(raw, channel, area, "用法: /ban 用户")),
+            (
+                ("/unblock",),
+                lambda: self._actions.moderation.unblock_in_area(
+                    raw,
+                    channel,
+                    area,
+                    "用法: /unblock 用户（可先 /blocklist 查看封禁列表）",
+                ),
+            ),
+            (("/blocklist",), lambda: self._actions.moderation.show_block_list(channel, area)),
+            (("/autorecall",), lambda: self._actions.recall.configure_auto_recall(raw, channel, area)),
+            (("/recall",), lambda: self._actions.recall.recall(raw or None, channel, area)),
+        )
+
+    def _arg_rules(self, channel: str, area: str):
+        return (
+            (("/whois",), lambda target: self._actions.community.show_whois(target, channel, area), "用法: /whois 用户名"),
+            (("/role",), lambda target: self._actions.community.show_user_roles(target, channel, area), "用法: /role 用户名"),
+            (("/roles",), lambda target: self._actions.community.show_assignable_roles(target, channel, area), "用法: /roles 用户名"),
+            (("/search",), lambda keyword: self._actions.community.search_members(keyword, channel, area), "用法: /search 关键词"),
+            (("/enter",), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: /enter 频道ID"),
+        )
+
+    def _pair_rules(self, channel: str, area: str):
+        return (
+            (
+                ("/addrole",),
+                lambda target, role_name: self._actions.community.give_role(target, role_name, channel, area),
+                "用法: /addrole 用户 身份组名或ID\n示例: /addrole 谁 管理员",
+            ),
+            (
+                ("/removerole",),
+                lambda target, role_name: self._actions.community.remove_role(target, role_name, channel, area),
+                "用法: /removerole 用户 身份组名或ID\n示例: /removerole 谁 管理员",
+            ),
+        )
 
     def dispatch(self, content: str, channel: str, area: str, user: str) -> None:
-        """将斜杠命令路由到具体处理逻辑。"""
         parts = content.split()
         if not parts:
             return
@@ -24,191 +123,45 @@ class SlashCommandRouter:
         command = parts[0].lower()
         subcommand = parts[1].lower() if len(parts) > 1 else None
         arg = " ".join(parts[2:]) if len(parts) > 2 else None
+        raw = self._rest(parts)
 
-        if self._handler.infrastructure.plugins.try_dispatch_slash(
+        if self._plugins.try_dispatch_slash(
             command,
             subcommand,
             arg,
             channel,
             area,
             user,
-            self._handler.plugin_host,
+            self._runtime.plugin_host,
         ):
             return
 
         if self._services.routing.access.is_admin(user):
-            if command == "/plugins":
-                self._services.plugins.management.show_plugin_list(channel, area)
-                return
-            if command == "/loadplugin":
-                raw_name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
-                if raw_name:
-                    self._services.plugins.management.load(raw_name, channel, area)
-                else:
-                    self._sender.send_message("用法: /loadplugin <名>", channel=channel, area=area)
-                return
-            if command == "/unloadplugin":
-                raw_name = " ".join(parts[1:]).strip() if len(parts) > 1 else ""
-                if raw_name:
-                    self._services.plugins.management.unload(raw_name, channel, area)
-                else:
-                    self._sender.send_message("用法: /unloadplugin <名>", channel=channel, area=area)
-                return
+            for aliases, callback, usage in self._admin_rules(channel, area):
+                if usage is None and self._dispatch_exact(command, aliases, callback):
+                    return
+                if usage is not None and self._dispatch_required_arg(command, aliases, raw, callback, usage, channel, area):
+                    return
 
-        if command == "/help":
-            self._services.interaction.help.show_help(channel, area, user)
+        if self._dispatch_exact(command, ("/help",), lambda: self._actions.interaction.show_help(channel, area, user)):
             return
         if self._services.interaction.music.handle_slash(command, subcommand, arg, parts, channel, area, user):
             return
 
-        if command in ("/members", "/online"):
-            self._services.community.member.show_members(channel, area)
-            return
-        if command == "/me":
-            self._services.community.member.show_profile(channel, area, user)
-            return
-        if command == "/myinfo":
-            self._services.community.member.show_myinfo(channel, area, user)
-            return
+        for aliases, callback in self._exact_rules(channel, area, user, raw):
+            if self._dispatch_exact(command, aliases, callback):
+                return
 
-        if command == "/whois":
-            target = " ".join(parts[1:]) if len(parts) > 1 else None
-            if target:
-                self._services.community.member.show_whois(target, channel, area)
-            else:
-                self._sender.send_message("用法: /whois 用户名", channel=channel, area=area)
-            return
+        for aliases, callback, usage in self._arg_rules(channel, area):
+            if self._dispatch_required_arg(command, aliases, raw, callback, usage, channel, area):
+                return
 
-        if command == "/role":
-            target = " ".join(parts[1:]) if len(parts) > 1 else None
-            if target:
-                self._services.community.role.show_user_roles(target, channel, area)
-            else:
-                self._sender.send_message("用法: /role 用户名", channel=channel, area=area)
-            return
+        for aliases, callback, usage in self._pair_rules(channel, area):
+            if self._dispatch_required_pair(command, aliases, parts, callback, usage, channel, area):
+                return
 
-        if command == "/roles":
-            target = " ".join(parts[1:]) if len(parts) > 1 else None
-            if target:
-                self._services.community.role.show_assignable_roles(target, channel, area)
-            else:
-                self._sender.send_message("用法: /roles 用户名", channel=channel, area=area)
-            return
-
-        if command == "/addrole":
-            if len(parts) >= 3:
-                role_arg = " ".join(parts[2:]).strip()
-                if role_arg:
-                    self._services.community.role.give_role(parts[1], role_arg, channel, area)
-                else:
-                    self._sender.send_message("用法: /addrole 用户 身份组名或ID", channel=channel, area=area)
-            else:
-                self._sender.send_message("用法: /addrole 用户 身份组名或ID\n示例: /addrole 皇 管理员", channel=channel, area=area)
-            return
-
-        if command == "/removerole":
-            if len(parts) >= 3:
-                role_arg = " ".join(parts[2:]).strip()
-                if role_arg:
-                    self._services.community.role.remove_role(parts[1], role_arg, channel, area)
-                else:
-                    self._sender.send_message("用法: /removerole 用户 身份组名或ID", channel=channel, area=area)
-            else:
-                self._sender.send_message("用法: /removerole 用户 身份组名或ID\n示例: /removerole 皇 管理员", channel=channel, area=area)
-            return
-
-        if command == "/search":
-            keyword = " ".join(parts[1:]) if len(parts) > 1 else None
-            if keyword:
-                self._services.community.member.search_members(keyword, channel, area)
-            else:
-                self._sender.send_message("用法: /search 关键词", channel=channel, area=area)
-            return
-
-        if command == "/voice":
-            self._services.interaction.common.show_voice_channels(channel, area)
-            return
-        if command == "/enter":
-            channel_id = " ".join(parts[1:]) if len(parts) > 1 else None
-            if channel_id:
-                self._services.interaction.common.enter_channel(channel_id, channel, area)
-            else:
-                self._sender.send_message("用法: /enter 频道ID", channel=channel, area=area)
-            return
-        if command in ("/daily", "/quote"):
-            self._services.interaction.common.show_daily_speech(channel, area)
-            return
-
-        if command in ("/禁言", "/mute"):
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid, duration = self._services.community.target_resolution.parse_mute_args(raw)
-            if uid:
-                self._services.safety.moderation.mute_user(uid, duration, channel, area)
-            else:
-                self._sender.send_message("用法: /禁言 皇 10", channel=channel, area=area)
-            return
-
-        if command in ("/解禁", "/unmute"):
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid = self._services.community.target_resolution.resolve_target(raw)
-            if uid:
-                self._services.safety.moderation.unmute_user(uid, channel, area)
-            else:
-                self._sender.send_message("用法: /解禁 皇", channel=channel, area=area)
-            return
-
-        if command in ("/禁麦", "/mutemic"):
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid, duration = self._services.community.target_resolution.parse_mute_args(raw)
-            if uid:
-                self._services.safety.moderation.mute_mic(uid, channel, area, duration)
-            else:
-                self._sender.send_message("用法: /禁麦 皇", channel=channel, area=area)
-            return
-
-        if command in ("/解麦", "/unmutemic"):
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid = self._services.community.target_resolution.resolve_target(raw)
-            if uid:
-                self._services.safety.moderation.unmute_mic(uid, channel, area)
-            else:
-                self._sender.send_message("用法: /解麦 皇", channel=channel, area=area)
-            return
-
-        if command == "/ban":
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid = self._services.community.target_resolution.resolve_target(raw)
-            if uid:
-                self._services.safety.moderation.remove_from_area(uid, channel, area)
-            else:
-                self._sender.send_message("用法: /ban 用户", channel=channel, area=area)
-            return
-
-        if command == "/unblock":
-            raw = " ".join(parts[1:]) if len(parts) > 1 else ""
-            uid = self._services.community.target_resolution.resolve_target(raw)
-            if uid:
-                self._services.safety.moderation.unblock_in_area(uid, channel, area)
-            else:
-                self._sender.send_message("用法: /unblock 用户（可先 /blocklist 查看封禁列表）", channel=channel, area=area)
-            return
-
-        if command == "/blocklist":
-            self._services.safety.moderation.show_block_list(channel, area)
-            return
-        if command == "/autorecall":
-            arg = " ".join(parts[1:]) if len(parts) > 1 else ""
-            self._services.safety.recall.configure_auto_recall(arg, channel, area)
-            return
         if command == "/clear" and subcommand == "history":
-            self._services.safety.recall.clear_history(channel, area)
-            return
-        if command == "/recall":
-            arg = " ".join(parts[1:]) if len(parts) > 1 else None
-            if arg and arg.isdigit():
-                self._services.safety.recall.recall_multiple(int(arg), channel, area)
-            else:
-                self._services.safety.recall.recall_message(arg, channel, area)
+            self._actions.recall.clear_history(channel, area)
             return
 
         self._services.interaction.chat.send_unknown_command(command, channel, area)

@@ -1,5 +1,3 @@
-"""插件能力展示格式化工具。"""
-
 from collections.abc import Mapping
 
 from plugin_base import PluginDescriptor

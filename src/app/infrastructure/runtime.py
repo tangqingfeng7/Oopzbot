@@ -1,5 +1,3 @@
-"""命令链路使用的基础设施运行时。"""
-
 from dataclasses import dataclass
 from typing import Optional
 
@@ -23,6 +21,7 @@ class MusicGateway:
     @property
     def handler(self):
         if self._handler is None:
+            # 只有真正用到音乐命令时才导入并创建处理器。
             from music import MusicHandler
 
             self._handler = MusicHandler(self._sender, voice=self._voice_client)
@@ -129,6 +128,7 @@ def build_bot_infrastructure(sender: OopzSender, voice_client=None) -> BotInfras
     sender_gateway = SenderGateway(sender)
     return BotInfrastructure(
         sender=sender_gateway,
+        # ChatHandler 足够轻量，可以在运行时初始化时直接创建。
         chat=ChatGateway(ChatHandler()),
         music=MusicGateway(sender_gateway, voice_client=voice_client),
         plugins=PluginRuntime(),

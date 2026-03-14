@@ -1,5 +1,3 @@
-"""插件运维结果模型。"""
-
 from dataclasses import dataclass
 from enum import StrEnum
 

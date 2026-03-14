@@ -1,5 +1,3 @@
-"""后台服务启动编排。"""
-
 import threading
 
 from config import WEB_PLAYER_CONFIG

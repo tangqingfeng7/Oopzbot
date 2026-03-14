@@ -1,5 +1,3 @@
-"""命令服务注册表导出。"""
-
 from .command_service_registry import (
     CommandServiceRegistry,
     CommunityServices,

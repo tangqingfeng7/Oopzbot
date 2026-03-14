@@ -1,8 +1,3 @@
-"""
-网易云音乐 API 封装
-依赖外部的网易云音乐 API 服务（如 NeteaseCloudMusicApi）
-"""
-
 import requests
 from typing import Optional
 

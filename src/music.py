@@ -1,8 +1,3 @@
-"""
-音乐点歌模块
-集成搜索、播放、队列管理、封面缓存、语音频道推流
-"""
-
 import json
 import time
 import uuid

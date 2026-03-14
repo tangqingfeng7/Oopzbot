@@ -1,5 +1,3 @@
-"""插件运维结果展示格式化。"""
-
 from domain.plugins.plugin_operation import PluginOperationCode, PluginOperationResult
 
 _INVALID_PLUGIN_NAME_MESSAGE = "[x] 插件名不合法，仅支持字母/数字/下划线"

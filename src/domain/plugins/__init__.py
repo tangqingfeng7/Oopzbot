@@ -1,5 +1,3 @@
-"""插件领域模型与规则。"""
-
 from .plugin_config import (
     PluginConfig,
     PluginConfigField,

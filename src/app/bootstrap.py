@@ -1,5 +1,3 @@
-"""应用组合根与生命周期管理。"""
-
 from typing import Optional
 
 from logger_config import setup_logger

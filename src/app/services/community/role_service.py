@@ -1,26 +1,20 @@
-"""角色域服务。"""
-
 import datetime
-from typing import TYPE_CHECKING
 
 from domain.community.role_rules import resolve_role_id
 from name_resolver import get_resolver
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
+from app.services.runtime import CommandRuntimeView, sender_of
 
 
 class RoleService:
     """处理角色查询、可分配角色和角色增删。"""
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._sender = handler.infrastructure.sender
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._sender = sender_of(runtime)
 
     def show_user_roles(self, target: str, channel: str, area: str) -> None:
         """查看指定用户在域内的角色和禁言/禁麦状态。"""
-        uid = self._handler.services.community.target_resolution.resolve_target(target)
+        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
         if not uid:
             self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
@@ -62,7 +56,7 @@ class RoleService:
 
     def show_assignable_roles(self, target: str, channel: str, area: str) -> None:
         """查看可以分配给目标用户的角色列表。"""
-        uid = self._handler.services.community.target_resolution.resolve_target(target)
+        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
         if not uid:
             self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
@@ -82,7 +76,7 @@ class RoleService:
 
     def give_role(self, target: str, role_arg: str, channel: str, area: str) -> None:
         """给目标用户添加身份组。"""
-        uid = self._handler.services.community.target_resolution.resolve_target(target)
+        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
         if not uid:
             self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
@@ -115,7 +109,7 @@ class RoleService:
 
     def remove_role(self, target: str, role_arg: str, channel: str, area: str) -> None:
         """取消目标用户的指定身份组。"""
-        uid = self._handler.services.community.target_resolution.resolve_target(target)
+        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
         if not uid:
             self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return

@@ -1,26 +1,21 @@
-"""撤回域服务。"""
-
 import os
 import time
-from typing import TYPE_CHECKING, Optional
+from typing import Optional
 
 from config import AUTO_RECALL_CONFIG
 from database import SongCache
 from logger_config import LOG_FILE, get_logger
+from app.services.runtime import CommandRuntimeView, sender_of
 
 logger = get_logger("RecallService")
-
-
-if TYPE_CHECKING:
-    from command_handler import CommandHandler
 
 
 class RecallService:
     """处理消息撤回、自动撤回和历史清理。"""
 
-    def __init__(self, handler: "CommandHandler"):
-        self._handler = handler
-        self._sender = handler.infrastructure.sender
+    def __init__(self, runtime: CommandRuntimeView):
+        self._runtime = runtime
+        self._sender = sender_of(runtime)
 
     def recall_message(self, message_id: Optional[str], channel: str, area: str) -> None:
         """撤回指定消息。"""
@@ -28,7 +23,7 @@ class RecallService:
         recent = None
 
         if not message_id or message_id.lower() in ("last", "最后", "最后一条", "上一条"):
-            if not self._handler._recent_messages:
+            if not self._runtime.recent_messages:
                 self._sender.send_message(
                     "[x] 没有可撤回的消息记录",
                     channel=channel,
@@ -36,7 +31,7 @@ class RecallService:
                 )
                 return
 
-            for message in reversed(self._handler._recent_messages):
+            for message in reversed(self._runtime.recent_messages):
                 if message.get("channel") == channel and message.get("area") == area:
                     recent = message
                     break
@@ -52,7 +47,7 @@ class RecallService:
             message_id = recent["messageId"]
             content_preview = recent.get("content", "")[:30]
 
-        timestamp = self._handler.services.safety.message_lookup.resolve_timestamp(message_id, channel, area)
+        timestamp = self._runtime.services.safety.message_lookup.resolve_timestamp(message_id, channel, area)
         result = self._sender.recall_message(
             message_id,
             area=area,
@@ -90,7 +85,7 @@ class RecallService:
             return
 
         channel_messages = [
-            message for message in self._handler._recent_messages
+            message for message in self._runtime.recent_messages
             if message.get("channel") == channel and message.get("area") == area
         ]
 
@@ -120,7 +115,7 @@ class RecallService:
         self._sender.send_message(f"[sync] 正在撤回 {len(to_recall)} 条消息...", channel=channel, area=area)
 
         for message in reversed(to_recall):
-            timestamp = message.get("timestamp") or self._handler.services.safety.message_lookup.resolve_timestamp(
+            timestamp = message.get("timestamp") or self._runtime.services.safety.message_lookup.resolve_timestamp(
                 message["messageId"],
                 channel,
                 area,
@@ -262,8 +257,7 @@ class RecallService:
             logger.error("清理日志文件失败: %s", exc)
             results.append("[x] 日志文件: 清理失败")
 
-        message_count = len(self._handler._recent_messages)
-        self._handler._recent_messages.clear()
+        message_count = self._runtime.recent_messages.clear()
         results.append(f"[ok] 消息历史记录: 已清空 ({message_count} 条)")
 
         message = "清理完成:\n" + "\n".join(results)

@@ -1,5 +1,3 @@
-"""应用启动时组装的运行时对象。"""
-
 from dataclasses import dataclass
 from typing import Any, Optional
 
