@@ -1,3 +1,12 @@
+"""
+Oopz 凭据获取工具
+通过浏览器自动化捕获 RSA 私钥、用户 UID、设备 ID、JWT Token
+
+用法:
+    python credential_tool.py           # 打开浏览器捕获凭据
+    python credential_tool.py --save    # 捕获并自动保存到配置文件
+"""
+
 import asyncio
 import json
 import os

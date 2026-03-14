@@ -1,3 +1,5 @@
+"""插件配置领域模型与配置规范。"""
+
 from __future__ import annotations
 
 from collections.abc import Callable, Iterator, Mapping

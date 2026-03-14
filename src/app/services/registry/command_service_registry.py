@@ -1,4 +1,7 @@
+"""命令处理相关服务注册表。"""
+
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from app.services.community.member_service import MemberService
 from app.services.community.role_service import RoleService
@@ -13,7 +16,6 @@ from app.services.routing.command_message_service import CommandMessageService
 from app.services.routing.command_router import CommandRouter
 from app.services.routing.mention_command_router import MentionCommandRouter
 from app.services.routing.slash_command_router import SlashCommandRouter
-from app.services.runtime import CommandRuntimeView
 from app.services.safety.message_lookup_service import MessageLookupService
 from app.services.safety.message_recall_scheduler import MessageRecallScheduler
 from app.services.safety.moderation_service import ModerationService
@@ -21,8 +23,14 @@ from app.services.safety.profanity_guard_service import ProfanityGuardService
 from app.services.safety.recall_service import RecallService
 
 
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
+
+
 @dataclass(frozen=True)
 class RoutingServices:
+    """命令和消息路由相关服务。"""
+
     access: CommandAccessService
     message: CommandMessageService
     command: CommandRouter
@@ -32,6 +40,8 @@ class RoutingServices:
 
 @dataclass(frozen=True)
 class InteractionServices:
+    """聊天交互和通用指令相关服务。"""
+
     chat: ChatInteractionService
     common: CommonCommandService
     help: HelpService
@@ -40,6 +50,8 @@ class InteractionServices:
 
 @dataclass(frozen=True)
 class CommunityServices:
+    """成员、角色和目标解析相关服务。"""
+
     member: MemberService
     role: RoleService
     target_resolution: TargetResolutionService
@@ -47,6 +59,8 @@ class CommunityServices:
 
 @dataclass(frozen=True)
 class SafetyServices:
+    """风控、撤回和消息查询相关服务。"""
+
     moderation: ModerationService
     profanity: ProfanityGuardService
     recall: RecallService
@@ -56,11 +70,15 @@ class SafetyServices:
 
 @dataclass(frozen=True)
 class PluginServices:
+    """插件相关服务。"""
+
     management: PluginManagementService
 
 
 @dataclass(frozen=True)
 class CommandServiceRegistry:
+    """收拢命令处理链路涉及的服务分组。"""
+
     routing: RoutingServices
     interaction: InteractionServices
     community: CommunityServices
@@ -68,54 +86,59 @@ class CommandServiceRegistry:
     plugins: PluginServices
 
 
-def _build_routing_services(runtime: CommandRuntimeView) -> RoutingServices:
-    return RoutingServices(
-        access=CommandAccessService(runtime),
-        message=CommandMessageService(runtime),
-        command=CommandRouter(runtime),
-        mention=MentionCommandRouter(runtime),
-        slash=SlashCommandRouter(runtime),
-    )
+def build_command_service_registry(
+    handler: "CommandHandler",
+    *,
+    bot_uid: str,
+    bot_mention: str,
+) -> CommandServiceRegistry:
+    """构建命令处理链路所需的所有服务。"""
+    access_service = CommandAccessService(handler, bot_mention=bot_mention)
+    message_service = CommandMessageService(handler, bot_uid=bot_uid, bot_mention=bot_mention)
+    command_router = CommandRouter(handler, bot_mention=bot_mention)
+    mention_router = MentionCommandRouter(handler)
+    slash_router = SlashCommandRouter(handler)
+    chat_interaction = ChatInteractionService(handler)
+    common_command = CommonCommandService(handler)
+    help_service = HelpService(handler)
+    music_command = MusicCommandService(handler)
+    member_service = MemberService(handler)
+    role_service = RoleService(handler)
+    target_resolution = TargetResolutionService(handler)
+    moderation_service = ModerationService(handler)
+    profanity_guard = ProfanityGuardService(handler)
+    recall_service = RecallService(handler)
+    message_lookup = MessageLookupService(handler)
+    recall_scheduler = MessageRecallScheduler(handler)
+    plugin_management = PluginManagementService(handler)
 
-
-def _build_interaction_services(runtime: CommandRuntimeView) -> InteractionServices:
-    return InteractionServices(
-        chat=ChatInteractionService(runtime),
-        common=CommonCommandService(runtime),
-        help=HelpService(runtime),
-        music=MusicCommandService(runtime),
-    )
-
-
-def _build_community_services(runtime: CommandRuntimeView) -> CommunityServices:
-    return CommunityServices(
-        member=MemberService(runtime),
-        role=RoleService(runtime),
-        target_resolution=TargetResolutionService(runtime),
-    )
-
-
-def _build_safety_services(runtime: CommandRuntimeView) -> SafetyServices:
-    return SafetyServices(
-        moderation=ModerationService(runtime),
-        profanity=ProfanityGuardService(runtime),
-        recall=RecallService(runtime),
-        message_lookup=MessageLookupService(runtime),
-        recall_scheduler=MessageRecallScheduler(runtime),
-    )
-
-
-def _build_plugin_services(runtime: CommandRuntimeView) -> PluginServices:
-    return PluginServices(
-        management=PluginManagementService(runtime),
-    )
-
-
-def build_command_service_registry(runtime: CommandRuntimeView) -> CommandServiceRegistry:
     return CommandServiceRegistry(
-        routing=_build_routing_services(runtime),
-        interaction=_build_interaction_services(runtime),
-        community=_build_community_services(runtime),
-        safety=_build_safety_services(runtime),
-        plugins=_build_plugin_services(runtime),
+        routing=RoutingServices(
+            access=access_service,
+            message=message_service,
+            command=command_router,
+            mention=mention_router,
+            slash=slash_router,
+        ),
+        interaction=InteractionServices(
+            chat=chat_interaction,
+            common=common_command,
+            help=help_service,
+            music=music_command,
+        ),
+        community=CommunityServices(
+            member=member_service,
+            role=role_service,
+            target_resolution=target_resolution,
+        ),
+        safety=SafetyServices(
+            moderation=moderation_service,
+            profanity=profanity_guard,
+            recall=recall_service,
+            message_lookup=message_lookup,
+            recall_scheduler=recall_scheduler,
+        ),
+        plugins=PluginServices(
+            management=plugin_management,
+        ),
     )

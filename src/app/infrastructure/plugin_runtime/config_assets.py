@@ -1,3 +1,5 @@
+"""插件配置资产导出。"""
+
 from __future__ import annotations
 
 import json

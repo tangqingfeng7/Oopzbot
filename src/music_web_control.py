@@ -1,3 +1,9 @@
+"""
+Music Web 控制命令执行器
+
+将 MusicHandler 中的 Web 命令处理逻辑拆分出来，降低主模块复杂度。
+"""
+
 import json
 import time
 

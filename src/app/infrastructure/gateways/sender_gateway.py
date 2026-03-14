@@ -1,3 +1,5 @@
+"""消息发送网关。"""
+
 from oopz_sender import OopzSender
 
 

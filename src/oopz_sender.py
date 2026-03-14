@@ -1,3 +1,8 @@
+"""
+Oopz 消息发送器
+负责 HTTP API 通信：RSA 签名、发送消息、上传文件
+"""
+
 import io
 import os
 import hashlib

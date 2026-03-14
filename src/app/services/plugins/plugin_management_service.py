@@ -1,7 +1,8 @@
-from typing import Optional
+"""插件管理服务。"""
+
+from typing import TYPE_CHECKING, Optional
 
 from domain.plugins.plugin_name import normalize_plugin_name
-from app.services.runtime import CommandRuntimeView, plugins_of, sender_of
 
 from .plugin_capability_formatter import format_plugin_status_lines
 from .plugin_operation_formatter import (
@@ -10,13 +11,17 @@ from .plugin_operation_formatter import (
 )
 
 
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
+
+
 class PluginManagementService:
     """处理插件列表、加载和卸载。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._runtime = runtime
-        self._sender = sender_of(runtime)
-        self._plugins = plugins_of(runtime)
+    def __init__(self, handler: "CommandHandler"):
+        self._handler = handler
+        self._sender = handler.infrastructure.sender
+        self._plugins = handler.infrastructure.plugins
 
     @staticmethod
     def normalize_plugin_name(raw_name: str) -> Optional[str]:
@@ -60,7 +65,7 @@ class PluginManagementService:
                 area=area,
             )
             return
-        result = self._plugins.load(name, handler=self._runtime.plugin_host)
+        result = self._plugins.load(name, handler=self._handler.plugin_host)
         self._sender.send_message(
             format_plugin_operation_message(result),
             channel=channel,
@@ -77,7 +82,7 @@ class PluginManagementService:
                 area=area,
             )
             return
-        result = self._plugins.unload(name, handler=self._runtime.plugin_host)
+        result = self._plugins.unload(name, handler=self._handler.plugin_host)
         self._sender.send_message(
             format_plugin_operation_message(result),
             channel=channel,

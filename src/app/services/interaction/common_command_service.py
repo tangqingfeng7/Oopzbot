@@ -1,15 +1,22 @@
+"""通用命令服务。"""
+
+from typing import TYPE_CHECKING
+
 from name_resolver import NameResolver, get_resolver
-from app.services.runtime import CommandRuntimeView, chat_of, music_of, sender_of
+
+
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
 
 
 class CommonCommandService:
     """处理语音频道、每日一句和 AI 图片生成。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._runtime = runtime
-        self._sender = sender_of(runtime)
-        self._music = music_of(runtime)
-        self._chat = chat_of(runtime)
+    def __init__(self, handler: "CommandHandler"):
+        self._handler = handler
+        self._sender = handler.infrastructure.sender
+        self._music = handler.infrastructure.music
+        self._chat = handler.infrastructure.chat
 
     def show_voice_channels(self, channel: str, area: str) -> None:
         """查看各语音频道的在线成员。"""
@@ -127,5 +134,5 @@ class CommonCommandService:
             attachments=[attachment],
             channel=channel,
             area=area,
-            auto_recall=self._runtime.services.safety.recall_scheduler.should_skip_auto_recall("ai_image"),
+            auto_recall=self._handler.services.safety.recall_scheduler.should_skip_auto_recall("ai_image"),
         )

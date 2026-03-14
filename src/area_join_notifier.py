@@ -1,3 +1,11 @@
+"""
+域成员加入/退出通知：当用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息。
+
+- 退出：依赖 WebSocket 推送（event 11 等），有则实时发再见。
+- 加入：服务端不推送“加入域”事件，改为轮询域成员 API，发现新成员则发欢迎。
+配置 AREA_JOIN_NOTIFY.enabled=True，可选 poll_interval_seconds（默认 2，最小 2）。
+若成员接口连续返回 429，会自动临时放慢轮询频率，恢复后再回到基础间隔。
+"""
 import json
 import re
 import threading

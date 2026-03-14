@@ -1,3 +1,5 @@
+"""插件脚手架创建工具。"""
+
 from __future__ import annotations
 
 import argparse

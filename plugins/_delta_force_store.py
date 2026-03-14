@@ -1,3 +1,7 @@
+"""
+Local persistence for Delta Force account selection.
+"""
+
 from __future__ import annotations
 
 import json

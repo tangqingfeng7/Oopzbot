@@ -1,15 +1,21 @@
+"""成员域服务。"""
+
 import datetime
+from typing import TYPE_CHECKING
 
 from name_resolver import get_resolver
-from app.services.runtime import CommandRuntimeView, sender_of
+
+
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
 
 
 class MemberService:
     """处理成员列表、资料查询和成员搜索。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._runtime = runtime
-        self._sender = sender_of(runtime)
+    def __init__(self, handler: "CommandHandler"):
+        self._handler = handler
+        self._sender = handler.infrastructure.sender
 
     def show_members(self, channel: str, area: str) -> None:
         """查询域内成员并展示在线状态。"""
@@ -149,7 +155,7 @@ class MemberService:
 
     def show_whois(self, target: str, channel: str, area: str) -> None:
         """查看他人完整详细资料。"""
-        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        uid = self._handler.services.community.target_resolution.resolve_target(target)
         if not uid:
             self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return

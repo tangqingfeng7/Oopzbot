@@ -1,15 +1,24 @@
-from app.services.runtime import CommandRuntimeView
+"""命令路由服务。"""
+
+from typing import TYPE_CHECKING
 
 from .command_message_service import MessageContext
 
 
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
+
+
 class CommandRouter:
-    def __init__(self, runtime: CommandRuntimeView):
-        self._runtime = runtime
-        self._services = runtime.services
-        self._bot_mention = runtime.bot_mention
+    """负责把标准化消息路由到对应处理分支。"""
+
+    def __init__(self, handler: "CommandHandler", bot_mention: str):
+        self._handler = handler
+        self._services = handler.services
+        self._bot_mention = bot_mention
 
     def route(self, ctx: MessageContext) -> None:
+        """根据消息类型执行路由。"""
         if ctx.is_mention_command(self._bot_mention):
             self._route_mention(ctx)
             return

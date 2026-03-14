@@ -1,3 +1,8 @@
+"""
+Oopz WebSocket 客户端
+负责与 Oopz 平台的实时通信：连接、认证、心跳、消息接收、自动重连
+"""
+
 import json
 import time
 import threading

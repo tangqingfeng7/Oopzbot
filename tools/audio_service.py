@@ -1,3 +1,9 @@
+"""
+AudioService - Python 音频播放服务
+使用 ffplay 播放音频，通过 Redis 同步播放状态
+兼容 oopzBOTS 的 C# AudioService 接口
+"""
+
 import json
 import logging
 import os

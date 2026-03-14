@@ -1,3 +1,8 @@
+"""
+聊天模块
+支持关键词匹配 + 豆包 AI 大模型回复 + AI 图片生成
+"""
+
 import requests
 from typing import Optional
 

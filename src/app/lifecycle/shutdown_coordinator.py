@@ -1,3 +1,5 @@
+"""应用关闭流程协调。"""
+
 from logger_config import setup_logger
 
 from app.lifecycle.context import AppContext

@@ -1,3 +1,9 @@
+"""
+插件注册表。
+
+负责插件注册、卸载、命令能力查询和按序分发，并确保单插件异常不会拖垮整条链路。
+"""
+
 from typing import Any, Optional
 from logger_config import get_logger
 
@@ -27,7 +33,6 @@ class PluginRegistry:
             self.unregister(name)
         self._modules[name] = module
         if name not in self._order:
-            # 注册顺序直接决定插件分发顺序，保持可预测性。
             self._order.append(name)
         if builtin:
             self._builtin.add(name)
@@ -201,7 +206,6 @@ class PluginRegistry:
             if not any(text.startswith(p) for p in capabilities.mention_prefixes):
                 continue
             try:
-                # 第一个声明自己已处理的插件会终止后续分发。
                 if module.handle_mention(text, channel, area, user, handler):
                     return True
             except Exception as e:
@@ -235,7 +239,6 @@ class PluginRegistry:
             if cmd_lower not in capabilities.slash_commands:
                 continue
             try:
-                # 第一个声明自己已处理的插件会终止后续分发。
                 if module.handle_slash(command, subcommand, arg, channel, area, user, handler):
                     return True
             except Exception as e:

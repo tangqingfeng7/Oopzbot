@@ -1,3 +1,11 @@
+"""
+LOL 战绩查询插件（FA8）
+
+通过 FA8 API 查询召唤师战绩。
+配置文件：config/plugins/lol_fa8.json
+@bot 战绩/查战绩/查询战绩 <召唤师名#编号>、/zj <召唤师名#编号>
+"""
+
 from plugin_base import (
     BotModule,
     PluginCommandCapabilities,

@@ -1,12 +1,20 @@
+"""管理域服务。"""
+
+from typing import TYPE_CHECKING
+
 from name_resolver import NameResolver, get_resolver
-from app.services.runtime import CommandRuntimeView, sender_of
+
+
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
 
 
 class ModerationService:
     """处理禁言、禁麦、移出域和封禁列表。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._sender = sender_of(runtime)
+    def __init__(self, handler: "CommandHandler"):
+        self._handler = handler
+        self._sender = handler.infrastructure.sender
 
     def mute_user(self, uid: str, duration: int, channel: str, area: str) -> None:
         """执行禁言。"""

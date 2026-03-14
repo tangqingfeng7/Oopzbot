@@ -1,3 +1,5 @@
+"""启动前资源准备。"""
+
 from dataclasses import dataclass
 
 from database import init_database

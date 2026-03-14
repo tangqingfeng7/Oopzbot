@@ -1,3 +1,8 @@
+"""
+Web 歌词播放器 — FastAPI 服务
+由 main.py 在后台线程启动，端口 8080
+"""
+
 import json
 import os
 import secrets

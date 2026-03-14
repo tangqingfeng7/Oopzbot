@@ -1,3 +1,5 @@
+"""插件脚手架生成。"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

@@ -1,3 +1,9 @@
+"""
+Web 播放器访问令牌管理
+
+优先读写 Redis；当 Redis 不可用时回退到进程内存，确保同进程线程间一致。
+"""
+
 import secrets
 import threading
 

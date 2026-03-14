@@ -1,3 +1,5 @@
+"""插件基础契约定义。"""
+
 from __future__ import annotations
 
 from abc import ABC, abstractmethod

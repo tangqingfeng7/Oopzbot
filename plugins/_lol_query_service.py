@@ -1,3 +1,8 @@
+"""
+英雄联盟封号查询
+通过 yun.4png.com API 查询 LOL 账号封禁状态（无需密码，按 QQ 号查询）
+"""
+
 import time
 
 import requests

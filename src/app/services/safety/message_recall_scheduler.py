@@ -1,15 +1,21 @@
+"""自动撤回调度服务。"""
+
 import threading
-from typing import Optional
+from typing import TYPE_CHECKING, Optional
 
 from config import AUTO_RECALL_CONFIG
-from app.services.runtime import CommandRuntimeView, sender_of
+
+
+if TYPE_CHECKING:
+    from command_handler import CommandHandler
 
 
 class MessageRecallScheduler:
     """负责自动撤回判定和异步调度。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._sender = sender_of(runtime)
+    def __init__(self, handler: "CommandHandler"):
+        self._handler = handler
+        self._sender = handler.infrastructure.sender
 
     @staticmethod
     def should_skip_auto_recall(command_type: str) -> Optional[bool]:
