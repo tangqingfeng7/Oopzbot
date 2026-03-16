@@ -9,8 +9,9 @@ logger = setup_logger("ShutdownCoordinator")
 class ShutdownCoordinator:
     """负责关闭应用运行时资源。"""
 
-    def stop(self, context: AppContext | None, netease_runtime: NeteaseApiRuntime) -> None:
-        netease_runtime.stop()
+    def stop(self, context: AppContext | None, netease_runtime: NeteaseApiRuntime | None) -> None:
+        if netease_runtime:
+            netease_runtime.stop()
 
         if not context or not context.voice:
             return

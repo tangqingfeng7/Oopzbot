@@ -63,6 +63,7 @@ REDIS_CONFIG = {
 
 # 网易云音乐 API 配置
 NETEASE_CLOUD = {
+    "enable": True,
     "base_url": "http://localhost:3000",   # 网易云音乐 API 服务地址
     "cookie": "",                          # 可选，登录后的 MUSIC_U Cookie
     "auto_start_path": "NeteaseCloudMusicApi",  # 相对于项目根目录，留空则不自动启动

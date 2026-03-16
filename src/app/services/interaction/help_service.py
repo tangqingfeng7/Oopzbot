@@ -1,6 +1,5 @@
 from app.services.plugins.plugin_capability_formatter import format_plugin_command_summary
-from app.services.runtime import CommandRuntimeView, chat_of, plugins_of, sender_of
-
+from app.services.runtime import CommandRuntimeView, chat_of, music_of, plugins_of, sender_of
 
 class HelpService:
     """负责组织和发送帮助说明。"""
@@ -10,6 +9,7 @@ class HelpService:
         self._sender = sender_of(runtime)
         self._chat = chat_of(runtime)
         self._plugins = plugins_of(runtime)
+        self._music = music_of(runtime)
 
     def show_help(self, channel: str, area: str, user: str = "") -> None:
         """发送当前用户可见的帮助命令列表。"""
@@ -54,12 +54,16 @@ class HelpService:
             ]
 
         if is_admin:
+            if self._music._voice_client is not None:
+                lines += [
+                    "",
+                    "**音乐播放**",
+                    "@bot 播放<歌名>  搜索并播放  |  @bot 停止  停止播放  |  @bot 下一首  切换下一首",
+                    "@bot 队列  查看播放队列  |  @bot 随机  随机播放喜欢  |  @bot 喜欢列表  喜欢的音乐",
+                    "/bf <歌名>  /st  /next  /queue  |  /like  /like list  /like play",
+                ]
+            
             lines += [
-                "",
-                "**音乐播放**",
-                "@bot 播放<歌名>  搜索并播放  |  @bot 停止  停止播放  |  @bot 下一首  切换下一首",
-                "@bot 队列  查看播放队列  |  @bot 随机  随机播放喜欢  |  @bot 喜欢列表  喜欢的音乐",
-                "/bf <歌名>  /st  /next  /queue  |  /like  /like list  /like play",
                 "",
                 "**成员查询**",
                 "@bot 成员  域成员在线  |  @bot 查看<用户>  他人详细资料  |  @bot 搜索<关键词>  搜索域成员",

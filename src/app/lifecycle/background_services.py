@@ -12,9 +12,11 @@ logger = setup_logger("BackgroundServices")
 class BackgroundServiceRunner:
     """负责启动命令链路依赖的后台线程与监听器。"""
 
-    def start(self, context: AppContext) -> None:
-        self._start_music_services(context)
-        self._start_web_player()
+    def start(self, context: AppContext, enable_music: bool) -> None:
+        if enable_music:
+            self._start_music_services(context)
+            self._start_web_player()
+        logger.info("WebSocket 客户端启动中...")
 
     def _start_music_services(self, context: AppContext) -> None:
         music = context.handler.infrastructure.music
@@ -34,4 +36,3 @@ class BackgroundServiceRunner:
             daemon=True,
         ).start()
         logger.info("Web 播放器已启动: http://%s:%s", web_host, web_port)
-        logger.info("WebSocket 客户端启动中...")

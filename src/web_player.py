@@ -135,6 +135,7 @@ _CONFIG_GROUPS = {
     "netease": {
         "target": NETEASE_CLOUD,
         "fields": {
+            "enabled": {"type": "bool"},
             "base_url": {"type": "str", "max_len": 300},
             "cookie": {"type": "str", "max_len": 3000, "sensitive": True, "expose_in_admin": True},
             "audio_download_timeout": {"type": "int", "min": 5, "max": 600},
