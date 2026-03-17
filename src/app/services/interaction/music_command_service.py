@@ -13,6 +13,9 @@ class MusicCommandService:
 
     def handle_mention(self, text: str, channel: str, area: str, user: str) -> bool:
         """处理 @bot 中文音乐指令。"""
+        if self._music._voice_client is None:
+            return False
+
         for prefix in ("播放", "放", "点播", "来一首", "唱"):
             if text.startswith(prefix):
                 keyword = text[len(prefix):].strip()
@@ -58,6 +61,9 @@ class MusicCommandService:
         user: str,
     ) -> bool:
         """处理音乐相关斜杠命令。"""
+        if self._music._voice_client is None:
+            return False
+
         if command in ("/bf", "/play"):
             keyword = " ".join(parts[1:]) if len(parts) > 1 else None
             if keyword:

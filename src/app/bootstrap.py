@@ -2,6 +2,7 @@ from typing import Optional
 
 from logger_config import setup_logger
 
+from config import NETEASE_CLOUD
 from app.lifecycle import (
     AppContext,
     AppContextBuilder,
@@ -19,12 +20,13 @@ class BotApplication:
     """负责组装并运行 Bot 应用。"""
 
     def __init__(self) -> None:
-        self._netease_runtime = NeteaseApiRuntime()
+        enable_music = NETEASE_CLOUD.get("enable", True)
+        self._netease_runtime = NeteaseApiRuntime() if enable_music else None
         self._background_services = BackgroundServiceRunner()
         self._context_builder = AppContextBuilder()
         self._shutdown = ShutdownCoordinator()
         self._startup_resources = StartupResourceBuilder()
-        self._voice_runtime = VoiceRuntimeBuilder()
+        self._voice_runtime = VoiceRuntimeBuilder() if enable_music else None
         self._context: Optional[AppContext] = None
 
     def run(self) -> None:
@@ -32,9 +34,13 @@ class BotApplication:
         logger.info("Oopz Bot 正在启动...")
         logger.info("=" * 50)
 
-        self._netease_runtime.start()
+        if self._netease_runtime:
+            self._netease_runtime.start()
+        else:
+            logger.info("音乐功能已禁用，跳过启动网易云音乐 API 服务。")
+            
         self._context = self._build_context()
-        self._background_services.start(self._context)
+        self._background_services.start(self._context, enable_music=self._netease_runtime is not None)
 
         try:
             self._context.client.start()
@@ -51,5 +57,5 @@ class BotApplication:
 
     def _build_context(self) -> AppContext:
         resources = self._startup_resources.build()
-        voice = self._voice_runtime.build()
+        voice = self._voice_runtime.build() if self._voice_runtime else None
         return self._context_builder.build(resources.sender, voice=voice)

@@ -663,9 +663,12 @@ class OopzSender:
     def upload_file_from_url(self, image_url: str) -> dict:
         """从网络 URL 下载图片并上传到 Oopz（不落地磁盘）"""
         try:
-            resp = requests.get(image_url, stream=True, timeout=15)
-            resp.raise_for_status()
-            image_bytes = resp.content
+            if image_url.startswith("base64://"):
+                image_bytes = base64.b64decode(image_url[9:])
+            else:
+                resp = requests.get(image_url, stream=True, timeout=15)
+                resp.raise_for_status()
+                image_bytes = resp.content
 
             img = Image.open(io.BytesIO(image_bytes))
             width, height = img.size
