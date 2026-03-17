@@ -3,422 +3,264 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
   <title>系统页</title>
-  <style>
-    :root {--bg-0:#eef3ff;--bg-1:#f8fbff;--glass:rgba(255,255,255,.68);--glass-strong:rgba(255,255,255,.82);--text:#1f2937;--muted:#667085;--line:rgba(15,23,42,.12);--shadow:0 24px 60px rgba(15,23,42,.14);--btn:linear-gradient(180deg,#fff 0%,#f3f6ff 100%);--accent:#0a84ff;--danger:#ff3b30;}
-    @media (prefers-color-scheme: dark){:root{--bg-0:#0a0f1e;--bg-1:#131a2e;--glass:rgba(20,28,46,.62);--glass-strong:rgba(20,28,46,.8);--text:#e5e7eb;--muted:#93a0b6;--line:rgba(148,163,184,.2);--shadow:0 26px 70px rgba(0,0,0,.45);--btn:linear-gradient(180deg,#1d2742 0%,#16203a 100%);--accent:#4da3ff;--danger:#ff6b63;}}
-    *{box-sizing:border-box}body{margin:0;font-family:"SF Pro Text","SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--text);background:radial-gradient(1200px 500px at -10% -10%,#c7dbff66 0%,transparent 60%),radial-gradient(900px 500px at 120% 0%,#b8ffe766 0%,transparent 60%),linear-gradient(170deg,var(--bg-1),var(--bg-0));padding:18px}
-    body::before{
-      content:"";position:fixed;inset:-20%;pointer-events:none;z-index:0;opacity:.55;filter:blur(42px);
-      background:
-        radial-gradient(420px 260px at 15% 20%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 70%),
-        radial-gradient(520px 300px at 80% 30%, rgba(58,236,193,.26), transparent 72%),
-        radial-gradient(360px 220px at 55% 85%, rgba(255,140,102,.22), transparent 70%);
-      animation:bgFloat 22s ease-in-out infinite alternate;
-    }
-    body::after{
-      content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
-      background:
-        linear-gradient(transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%),
-        linear-gradient(90deg, transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%);
-      background-size: 26px 26px;
-      mask-image: radial-gradient(circle at center, black 32%, transparent 90%);
-    }
-     .window{position:relative;z-index:1;max-width:1180px;margin:0 auto;border:1px solid var(--line);border-radius:18px;background:var(--glass-strong);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);box-shadow:var(--shadow);overflow:hidden}
-    .titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--glass-strong) 90%,transparent)}
-    .traffic{display:flex;gap:8px}.dot{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}.dot.red{background:#ff5f57}.dot.yellow{background:#febc2e}.dot.green{background:#28c840}.title{font-size:13px;color:var(--muted);font-weight:600}
-    .content{padding:14px 14px 24px}
-    .dock-nav{
-      position:fixed;left:50%;bottom:calc(8px + env(safe-area-inset-bottom));transform:translateX(-50%);width:auto;margin:0;padding:10px 12px;z-index:999;border-radius:20px;
-      background:color-mix(in srgb,var(--glass-strong) 88%,transparent);backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
-      box-shadow:0 14px 34px rgba(15,23,42,.22)
-    }
-    .dock-nav .row{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;scrollbar-width:none;gap:10px}
-    .dock-nav .row::-webkit-scrollbar{display:none}
-    .dock-link{
-      --icon-bg: linear-gradient(180deg,#6aa8ff,#2d7dff);
-      position: relative;
-      width: 42px;
-      height: 42px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 11px;
-      background: var(--icon-bg);
-      color: #fff;
-      text-decoration: none;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 6px 14px rgba(0,0,0,.2);
-      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
-      transform-origin: center bottom;
-    }
-    .dock-link .ico{font-size:20px; line-height:1;}
-    .dock-link .tip{
-      position:absolute;
-      bottom: calc(100% + 8px);
-      left:50%;
-      transform: translateX(-50%) translateY(6px);
-      opacity:0;
-      pointer-events:none;
-      font-size:12px;
-      color:var(--text);
-      background: color-mix(in srgb, var(--glass-strong) 92%, transparent);
-      border:1px solid var(--line);
-      border-radius:8px;
-      padding:3px 7px;
-      white-space:nowrap;
-      transition: opacity .16s ease, transform .16s ease;
-    }
-    .dock-link:hover{transform: translateY(-9px) scale(1.22); box-shadow: 0 14px 26px rgba(15,23,42,.28);}
-    .dock-link:hover .tip{opacity:1; transform: translateX(-50%) translateY(0);}
-    .dock-link.active::after{
-      content:"";
-      position:absolute;
-      left:50%;
-      bottom:-10px;
-      width:5px;
-      height:5px;
-      border-radius:50%;
-      transform:translateX(-50%);
-      background: color-mix(in srgb, var(--text) 78%, transparent);
-    }
-    .dock-link.i-home{--icon-bg: linear-gradient(180deg,#72afff,#2e7fff);}
-    .dock-link.i-music{--icon-bg: linear-gradient(180deg,#ff8bc3,#ff4b93);}
-    .dock-link.i-config{--icon-bg: linear-gradient(180deg,#b8c2d6,#8794ad);}
-    .dock-link.i-stats{--icon-bg: linear-gradient(180deg,#7ce6a1,#2ccf73);}
-    .dock-link.i-system{--icon-bg: linear-gradient(180deg,#8aa4ff,#6177ff);}
-    .card{border:1px solid var(--line);border-radius:14px;background:var(--glass);padding:14px;margin-bottom:12px;animation:rise .45s ease both}
-    .row{display:flex;gap:8px;flex-wrap:wrap}.btn{border:1px solid var(--line);border-radius:10px;background:var(--btn);color:var(--text);padding:8px 12px;text-decoration:none;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease}.btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(16,24,40,.12)}
-    input{width:100%;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--glass) 75%,transparent);color:var(--text);padding:10px;outline:none}
-    pre{background:color-mix(in srgb,var(--glass) 70%,transparent);border:1px solid var(--line);border-radius:10px;padding:10px;max-height:360px;overflow:auto;white-space:pre-wrap;color:var(--text)}
-    .hidden{display:none}.msg{margin-top:8px;color:var(--accent)}
-    @keyframes rise{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes bgFloat{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(2%,1%,0) scale(1.06)}}
-    @media (max-width:768px){body{padding:10px}.dock-nav{left:10px;right:10px;bottom:12px;transform:none}}
-    /* refined minimal theme */
-  :root{
-    --bg-0:#f4f6fb;
-    --bg-1:#eef2f8;
-    --glass:rgba(255,255,255,.72);
-    --glass-strong:rgba(255,255,255,.86);
-    --text:#0f172a;
-    --muted:#64748b;
-    --line:rgba(15,23,42,.10);
-    --shadow:0 20px 50px rgba(15,23,42,.10);
-    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
-    --accent:#2563eb;
-    --danger:#dc2626;
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --bg-0:#0b1220;
-      --bg-1:#111a2c;
-      --glass:rgba(16,24,40,.64);
-      --glass-strong:rgba(15,23,42,.82);
-      --text:#e2e8f0;
-      --muted:#94a3b8;
-      --line:rgba(148,163,184,.20);
-      --shadow:0 26px 70px rgba(0,0,0,.42);
-      --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
-      --accent:#60a5fa;
-      --danger:#f87171;
-    }
-  }
-  body{
-    background:
-      radial-gradient(1200px 700px at -15% -10%, rgba(59,130,246,.10), transparent 65%),
-      radial-gradient(900px 600px at 110% -5%, rgba(56,189,248,.10), transparent 62%),
-      linear-gradient(160deg,var(--bg-0),var(--bg-1)) !important;
-  }
-  body::before{
-    opacity:.45 !important;
-    filter:blur(56px) saturate(120%) !important;
-    background:
-      radial-gradient(420px 300px at 15% 25%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%),
-      radial-gradient(380px 260px at 78% 20%, rgba(45,212,191,.16), transparent 72%),
-      radial-gradient(360px 220px at 48% 86%, rgba(251,146,60,.14), transparent 72%) !important;
-    animation:bgFloat 30s cubic-bezier(.42,0,.2,1) infinite alternate !important;
-  }
-  body::after{display:none !important;}
-
-  .window{
-    border-radius:20px !important;
-    border:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass-strong) 92%, transparent) !important;
-    backdrop-filter:blur(18px) saturate(120%) !important;
-    -webkit-backdrop-filter:blur(18px) saturate(120%) !important;
-    box-shadow:var(--shadow) !important;
-  }
-  .titlebar{
-    min-height:54px;
-    padding:14px 18px !important;
-    justify-content:center !important;
-    border-bottom:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
-  }
-  .traffic{display:none !important;}
-  .title{font-size:14px !important;letter-spacing:.02em;color:var(--text) !important;font-weight:600 !important;}
-  .titlebar > div:last-child{display:flex !important;align-items:center;}
-
-  .content{padding:18px 18px 90px !important;}
-  .card{
-    border-radius:16px !important;
-    border:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass) 88%, transparent) !important;
-    box-shadow:0 8px 24px rgba(15,23,42,.06);
-    animation:cardIn .45s cubic-bezier(.22,1,.36,1) both !important;
-  }
-  .btn{
-    border-radius:10px !important;
-    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
-    background:var(--btn) !important;
-    transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s cubic-bezier(.22,1,.36,1),border-color .2s ease !important;
-  }
-  .btn:hover{
-    transform:translateY(-2px) !important;
-    box-shadow:0 10px 20px rgba(15,23,42,.12) !important;
-    border-color:color-mix(in srgb,var(--accent) 32%, var(--line)) !important;
-  }
-  input,select,textarea{
-    border-radius:10px !important;
-    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
-    background:color-mix(in srgb,var(--glass) 85%, transparent) !important;
-    transition:border-color .2s ease, box-shadow .2s ease, background .2s ease !important;
-  }
-  input:focus,select:focus,textarea:focus{
-    border-color:color-mix(in srgb,var(--accent) 55%, var(--line)) !important;
-    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%, transparent) !important;
-  }
-
-  .dock-nav{
-    bottom:calc(12px + env(safe-area-inset-bottom)) !important;
-    padding:8px !important;
-    border-radius:14px !important;
-    border:1px solid var(--line);
-    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
-    box-shadow:0 10px 30px rgba(15,23,42,.14) !important;
-    backdrop-filter:blur(14px) saturate(110%) !important;
-    -webkit-backdrop-filter:blur(14px) saturate(110%) !important;
-  }
-  .dock-nav .row{gap:6px !important;}
-  .dock-link{
-    width:auto !important;
-    min-width:72px;
-    height:36px !important;
-    padding:0 12px !important;
-    border-radius:10px !important;
-    border:1px solid transparent !important;
-    color:var(--muted) !important;
-    background:transparent !important;
-    box-shadow:none !important;
-    transform:none !important;
-    transition:all .22s cubic-bezier(.22,1,.36,1) !important;
-    gap:6px;
-  }
-  .dock-link .ico{font-size:14px !important;opacity:.85;}
-  .dock-link .tip{display:none !important;}
-  .dock-link:hover{
-    transform:translateY(-1px) !important;
-    color:var(--text) !important;
-    background:color-mix(in srgb,var(--glass) 96%, transparent) !important;
-    border-color:var(--line) !important;
-  }
-  .dock-link.active{
-    color:var(--text) !important;
-    background:color-mix(in srgb,var(--accent) 16%, var(--glass)) !important;
-    border-color:color-mix(in srgb,var(--accent) 30%, var(--line)) !important;
-  }
-  .dock-link.active::after{display:none !important;}
-
-  @media (max-width:768px){
-    .content{padding:14px 12px 92px !important;}
-    .dock-link{min-width:64px;font-size:12px;}
-  }
-  @keyframes cardIn{
-    from{opacity:0;transform:translateY(8px) scale(.995)}
-    to{opacity:1;transform:translateY(0) scale(1)}
-  }
-  html{color-scheme:light dark;}
-  html[data-theme="light"]{
-    color-scheme:light;
-    --bg-0:#f4f6fb;
-    --bg-1:#eef2f8;
-    --glass:rgba(255,255,255,.72);
-    --glass-strong:rgba(255,255,255,.86);
-    --text:#0f172a;
-    --muted:#64748b;
-    --line:rgba(15,23,42,.10);
-    --shadow:0 20px 50px rgba(15,23,42,.10);
-    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
-    --accent:#2563eb;
-    --danger:#dc2626;
-  }
-  html[data-theme="dark"]{
-    color-scheme:dark;
-    --bg-0:#0b1220;
-    --bg-1:#111a2c;
-    --glass:rgba(16,24,40,.64);
-    --glass-strong:rgba(15,23,42,.82);
-    --text:#e2e8f0;
-    --muted:#94a3b8;
-    --line:rgba(148,163,184,.20);
-    --shadow:0 26px 70px rgba(0,0,0,.42);
-    --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
-    --accent:#60a5fa;
-    --danger:#f87171;
-  }
-  .theme-switch{
-    border:1px solid var(--line);
-    border-radius:10px;
-    background:color-mix(in srgb,var(--glass) 85%, transparent);
-    color:var(--text);
-    padding:6px 8px;
-    font-size:12px;
-  }
-
-</style>
-<link rel="stylesheet" href="/admin-assets/webintosh-admin.css" />
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
+  <link rel="stylesheet" href="/admin-assets/admin-shell.css" />
 </head>
 <body data-admin-page="system">
-  <div class="window">
-    <div class="titlebar"><div class="traffic"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div><div class="title">后台管理 · 系统页</div><div></div></div>
-    <div class="content">
-      <div id="loginCard" class="card"><h3 style="margin:0 0 8px;">登录</h3><div class="row"><div style="flex:1;min-width:240px;"><input id="pwd" type="password" placeholder="后台密码"></div><div><button class="btn" onclick="login()">登录</button></div></div><div id="loginMsg" class="msg"></div></div>
-      <div id="panel" class="hidden">
-        <div class="card"><h3 style="margin:0 0 8px;">播放器链接</h3><div class="row"><div style="flex:1;min-width:300px;"><input id="playerLink" readonly></div></div><div class="row" style="margin-top:8px;"><button class="btn" onclick="loadLink()">刷新</button><button class="btn" onclick="copyLink()">复制</button><button class="btn" onclick="rotateLink()">重置链接</button></div><div id="linkMsg" class="msg"></div></div>
-        <div class="card"><h3 style="margin:0 0 8px;">系统信息</h3><pre id="sys">-</pre><div class="row"><button class="btn" onclick="loadSys()">刷新</button></div></div>
-        <div class="card"><h3 style="margin:0 0 8px;">日志</h3><pre id="logs">-</pre><div class="row"><button class="btn" onclick="loadLogs(200)">刷新</button><button class="btn" onclick="loadLogs(800)">更多</button><span id="logLiveHint" class="mono">实时刷新中</span></div></div>
+  <div class="shell-app">
+    <header class="shell-topbar">
+      <div class="topbar-main">
+        <div class="brand-lockup">
+          <p class="brand-lockup__eyebrow">Oopz Bot Admin</p>
+          <h1 class="brand-lockup__title">系统页</h1>
+          <p class="brand-lockup__copy">把播放器入口、系统快照和实时日志拆成明确的运维层级。</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="topStatus" class="status-text is-warning">等待登录</span>
+          <button class="btn btn-ghost" type="button" onclick="loadSys().catch(() => {})">刷新系统信息</button>
+          <button class="btn btn-ghost" type="button" onclick="loadLogs(logTailSize).catch(() => {})">刷新日志</button>
+          <button class="btn" type="button" onclick="logout()">退出登录</button>
+        </div>
       </div>
+      <div class="topbar-nav-row">
+        <nav id="topNav" class="top-nav" aria-label="后台导航"></nav>
+      </div>
+    </header>
+
+    <div class="mobile-nav-shell">
+      <div class="action-row" style="margin-bottom: 10px;">
+        <span id="mobileStatus" class="status-text is-warning">等待登录</span>
+      </div>
+      <nav id="mobileNav" class="mobile-nav" aria-label="移动端后台导航"></nav>
     </div>
+
+    <main class="shell-main">
+      <section id="loginCard" class="auth-stage">
+        <article class="auth-card">
+          <h3 class="auth-card__title">登录系统页</h3>
+          <p class="auth-card__copy">登录后查看链接、系统信息和日志。</p>
+          <div class="stack" style="margin-top: 24px;">
+            <input id="pwd" type="password" placeholder="请输入后台密码" />
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="login()">进入系统页</button>
+            </div>
+            <div id="loginMsg" class="msg"></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="logState" class="status-text is-warning">等待轮询</span>
+            <button class="btn btn-ghost" type="button" onclick="loadLink().catch(() => {})">刷新链接</button>
+            <button class="btn btn-ghost" type="button" onclick="loadSys().catch(() => {})">刷新系统信息</button>
+            <button class="btn" type="button" onclick="startLogPolling()">恢复轮询</button>
+            <button class="btn" type="button" onclick="stopLogPolling()">暂停轮询</button>
+          </div>
+        </article>
+
+        <div class="system-grid">
+          <article class="surface-card">
+            <div class="section-head">
+              <div>
+                <h3 class="section-title">播放器链接</h3>
+              </div>
+            </div>
+            <div class="link-box">
+              <input id="playerLink" type="text" readonly placeholder="登录后生成播放器链接" />
+            </div>
+            <div class="action-row" style="margin-top: 16px;">
+              <button class="btn btn-ghost" type="button" onclick="loadLink()">刷新链接</button>
+              <button class="btn" type="button" onclick="copyLink()">复制链接</button>
+              <button class="btn btn-danger" type="button" onclick="rotateLink()">重置链接</button>
+            </div>
+            <div id="linkMsg" class="msg"></div>
+          </article>
+
+          <article class="console-card">
+            <div class="section-head">
+              <div>
+                <h3 class="section-title">系统信息</h3>
+              </div>
+            </div>
+            <pre id="sys" class="console">-</pre>
+          </article>
+        </div>
+
+        <article class="console-card">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">日志</h3>
+            </div>
+          </div>
+          <pre id="logs" class="console">-</pre>
+          <div class="action-row" style="margin-top: 16px;">
+            <button class="btn btn-ghost" type="button" onclick="loadLogs(200)">最近 200 行</button>
+            <button class="btn btn-ghost" type="button" onclick="loadLogs(800)">最近 800 行</button>
+            <button class="btn" type="button" onclick="startLogPolling()">恢复轮询</button>
+            <button class="btn" type="button" onclick="stopLogPolling()">暂停轮询</button>
+          </div>
+        </article>
+      </section>
+    </main>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="/admin-assets/admin-shell.js"></script>
   <script>
-    async function req(url, options={}) {const r = await fetch(url, {credentials:"include", cache:"no-store", headers:{"Content-Type":"application/json"}, ...options});const d = await r.json().catch(()=>({}));if (!r.ok || d.ok===false) throw new Error(d.error || ("HTTP "+r.status));return d;}
-    function setMsg(id, text, bad=false){const el=document.getElementById(id);el.textContent=text;el.style.color=bad?"var(--danger)":"var(--accent)";}
     let logPollTimer = null;
     let logTailSize = 200;
     let logBusy = false;
-    function startLogPolling(){
+
+    function setPageState(text, variant) {
+      AdminShell.setStatus(text, variant, "topStatus");
+      AdminShell.setStatus(text, variant, "mobileStatus");
+      AdminShell.setStatus(text, variant, "logState");
+    }
+
+    function stopLogPolling() {
+      if (logPollTimer) {
+        clearInterval(logPollTimer);
+        logPollTimer = null;
+      }
+      const panel = AdminShell.byId("panel");
+      if (!panel || panel.classList.contains("hidden")) {
+        return;
+      }
+      setPageState("日志轮询已暂停", "warning");
+    }
+
+    function startLogPolling() {
+      const panel = AdminShell.byId("panel");
+      if (!panel || panel.classList.contains("hidden")) {
+        return;
+      }
       stopLogPolling();
-      const hint = document.getElementById("logLiveHint");
-      if (hint) hint.textContent = "实时刷新中";
-      logPollTimer = setInterval(() => { loadLogs(logTailSize).catch(()=>{}); }, 2000);
+      setPageState("日志轮询中", "success");
+      logPollTimer = setInterval(() => {
+        loadLogs(logTailSize).catch(() => {});
+      }, 2000);
     }
-    function stopLogPolling(){
-      if (logPollTimer){ clearInterval(logPollTimer); logPollTimer = null; }
-      const hint = document.getElementById("logLiveHint");
-      if (hint) hint.textContent = "已暂停";
-    }
-    async function check(){
-      try{
-        await req("/admin/api/me");
-        document.getElementById("loginCard").classList.add("hidden");
-        document.getElementById("panel").classList.remove("hidden");
+
+    async function check() {
+      try {
+        await AdminShell.req("/admin/api/me");
+        AdminShell.setAuthState({
+          loggedIn: true,
+          loggedInText: "已登录系统页",
+          statusTargets: ["topStatus", "mobileStatus"],
+        });
         await Promise.all([loadLink(), loadSys(), loadLogs(logTailSize)]);
         startLogPolling();
-      }catch{
+      } catch (_) {
         stopLogPolling();
-        document.getElementById("loginCard").classList.remove("hidden");
-        document.getElementById("panel").classList.add("hidden");
+        AdminShell.setAuthState({
+          loggedIn: false,
+          loggedOutText: "等待登录",
+          statusTargets: ["topStatus", "mobileStatus"],
+        });
+        AdminShell.showMessage("loginMsg", "");
+        setPageState("等待轮询", "warning");
       }
     }
-    async function login(){try{await req("/admin/api/login",{method:"POST",body:JSON.stringify({password:document.getElementById("pwd").value||""})});await check();}catch(e){setMsg("loginMsg",e.message,true);}}
-    async function loadLink(){const d=await req("/admin/api/player/link");document.getElementById("playerLink").value=d.url||"";}
-    async function rotateLink(){try{const d=await req("/admin/api/player/link/rotate",{method:"POST",body:"{}"});document.getElementById("playerLink").value=d.url||"";setMsg("linkMsg","已重置");}catch(e){setMsg("linkMsg",e.message,true);}}
-    async function copyLink(){try{await navigator.clipboard.writeText(document.getElementById("playerLink").value||"");setMsg("linkMsg","已复制");}catch{setMsg("linkMsg","复制失败",true);}}
-    async function loadSys(){const d=await req("/admin/api/system");document.getElementById("sys").textContent=JSON.stringify(d,null,2);}
-    async function loadLogs(lines){
+
+    async function login() {
+      try {
+        await AdminShell.req("/admin/api/login", {
+          method: "POST",
+          body: JSON.stringify({ password: AdminShell.byId("pwd").value || "" }),
+        });
+        AdminShell.showMessage("loginMsg", "登录成功");
+        await check();
+      } catch (error) {
+        AdminShell.showMessage("loginMsg", error.message, true);
+        setPageState("登录失败", "error");
+      }
+    }
+
+    async function logout() {
+      try {
+        await AdminShell.req("/admin/api/logout", { method: "POST", body: "{}" });
+      } catch (_) {
+      }
+      await check();
+    }
+
+    async function loadLink() {
+      const data = await AdminShell.req("/admin/api/player/link");
+      AdminShell.byId("playerLink").value = data.url || "";
+      AdminShell.flashUpdate("playerLink");
+    }
+
+    async function rotateLink() {
+      try {
+        const data = await AdminShell.req("/admin/api/player/link/rotate", { method: "POST", body: "{}" });
+        AdminShell.byId("playerLink").value = data.url || "";
+        AdminShell.showMessage("linkMsg", "播放器链接已重置");
+      } catch (error) {
+        AdminShell.showMessage("linkMsg", error.message, true);
+      }
+    }
+
+    async function copyLink() {
+      const value = AdminShell.byId("playerLink").value || "";
+      if (!value) {
+        AdminShell.showMessage("linkMsg", "当前没有可复制的链接", true);
+        return;
+      }
+      try {
+        await AdminShell.copyText(value);
+        AdminShell.showMessage("linkMsg", "链接已复制到剪贴板");
+      } catch (_) {
+        AdminShell.showMessage("linkMsg", "复制失败，请手动复制", true);
+      }
+    }
+
+    async function loadSys() {
+      const data = await AdminShell.req("/admin/api/system");
+      AdminShell.byId("sys").textContent = JSON.stringify(data, null, 2);
+      setPageState("系统信息已同步", "success");
+    }
+
+    async function loadLogs(lines) {
       logTailSize = lines || logTailSize;
-      if (logBusy) return;
+      if (logBusy) {
+        return;
+      }
       logBusy = true;
-      try{
-        const logsEl = document.getElementById("logs");
-        const stickBottom = logsEl.scrollTop + logsEl.clientHeight >= logsEl.scrollHeight - 8;
-        const d=await req("/admin/api/logs?tail="+logTailSize);
-        const content = (d.lines||d.logs||[]).join("\n") || "-";
-        logsEl.textContent = content;
-        if (stickBottom) logsEl.scrollTop = logsEl.scrollHeight;
-      }finally{
+      try {
+        const logsElement = AdminShell.byId("logs");
+        const stickBottom = logsElement.scrollTop + logsElement.clientHeight >= logsElement.scrollHeight - 8;
+        const data = await AdminShell.req("/admin/api/logs?tail=" + logTailSize);
+        const content = (data.lines || data.logs || []).join("\n") || "-";
+        logsElement.textContent = content;
+        if (stickBottom) {
+          logsElement.scrollTop = logsElement.scrollHeight;
+        }
+        setPageState("日志轮询中", "success");
+      } finally {
         logBusy = false;
       }
     }
-        function applyTheme(mode){
-      const root = document.documentElement;
-      root.removeAttribute("data-theme");
-      if (mode === "light" || mode === "dark") root.setAttribute("data-theme", mode);
-    }
-    function setTheme(mode){
-      localStorage.setItem("admin_theme", mode);
-      applyTheme(mode);
-    }
-    function initTheme(){
-      const mode = localStorage.getItem("admin_theme") || "auto";
-      const sel = document.getElementById("themeSelect");
-      if (sel) sel.value = mode;
-      applyTheme(mode);
-    }
-    function initMotion(){
-      if (!window.gsap || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      const win = document.querySelector('.window');
-      const cards = document.querySelectorAll('.card');
-      const dock = document.querySelector('.dock-nav');
-      const title = document.querySelector('.titlebar');
-      gsap.set([win, title, cards, dock], { willChange: 'transform, opacity' });
-      gsap.timeline({ defaults: { ease: 'expo.out' } })
-        .from(win, { y: 26, opacity: 0, scale: 0.988, duration: 1.05 })
-        .from(title, { y: -18, opacity: 0, duration: 0.62 }, '-=0.72')
-        .from(cards, { y: 20, opacity: 0, duration: 0.64, stagger: 0.08 }, '-=0.48')
-        .from(dock, { y: 26, opacity: 0, duration: 0.58 }, '-=0.52');
 
-      if (win) {
-        const rxTo = gsap.quickTo(win, 'rotateX', { duration: 0.55, ease: 'power3.out' });
-        const ryTo = gsap.quickTo(win, 'rotateY', { duration: 0.55, ease: 'power3.out' });
-        window.addEventListener('pointermove', (e) => {
-          const px = e.clientX / window.innerWidth - 0.5;
-          const py = e.clientY / window.innerHeight - 0.5;
-          rxTo(py * -2.4);
-          ryTo(px * 2.8);
-        }, { passive: true });
-        window.addEventListener('pointerleave', () => { rxTo(0); ryTo(0); });
-      }
-
-      gsap.utils.toArray('.btn, .dock-link').forEach((el) => {
-        el.addEventListener('mouseenter', () => gsap.to(el, { y: -2, duration: 0.22, ease: 'power2.out' }));
-        el.addEventListener('mouseleave', () => gsap.to(el, { y: 0, duration: 0.28, ease: 'power2.out' }));
-      });
-    }
-    initTheme();
-    initMotion();
+    AdminShell.init({ page: "system", passwordHandler: login });
     check();
+
     document.addEventListener("visibilitychange", () => {
-      const panelVisible = !document.getElementById("panel").classList.contains("hidden");
-      if (document.hidden || !panelVisible) stopLogPolling();
-      else startLogPolling();
+      const panel = AdminShell.byId("panel");
+      if (!panel || panel.classList.contains("hidden")) {
+        return;
+      }
+      if (document.hidden) {
+        stopLogPolling();
+      } else {
+        startLogPolling();
+      }
     });
+
     window.addEventListener("beforeunload", stopLogPolling);
   </script>
-  <nav id="dockNav" class="dock-nav" aria-label="后台导航"><div class="row">
-    <a class="dock-link i-home" href="/admin" aria-label="首页"><span class="ico">概览</span><span class="tip">概览</span></a>
-    <a class="dock-link i-music" href="/admin/music" aria-label="音乐管理"><span class="ico">音乐</span><span class="tip">音乐</span></a>
-    <a class="dock-link i-config" href="/admin/config" aria-label="配置中心"><span class="ico">配置</span><span class="tip">配置</span></a>
-    <a class="dock-link i-stats" href="/admin/stats" aria-label="统计页"><span class="ico">统计</span><span class="tip">统计</span></a>
-    <a class="dock-link i-system active" href="/admin/system" aria-label="系统页"><span class="ico">系统</span><span class="tip">系统</span></a>
-  </div></nav>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-

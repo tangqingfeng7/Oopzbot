@@ -3,588 +3,566 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
   <title>配置中心</title>
-  <style>
-    :root {--bg-0:#eef3ff;--bg-1:#f8fbff;--glass:rgba(255,255,255,.68);--glass-strong:rgba(255,255,255,.82);--text:#1f2937;--muted:#667085;--line:rgba(15,23,42,.12);--shadow:0 24px 60px rgba(15,23,42,.14);--btn:linear-gradient(180deg,#fff 0%,#f3f6ff 100%);--accent:#0a84ff;--danger:#ff3b30;}
-    @media (prefers-color-scheme: dark){:root{--bg-0:#0a0f1e;--bg-1:#131a2e;--glass:rgba(20,28,46,.62);--glass-strong:rgba(20,28,46,.8);--text:#e5e7eb;--muted:#93a0b6;--line:rgba(148,163,184,.2);--shadow:0 26px 70px rgba(0,0,0,.45);--btn:linear-gradient(180deg,#1d2742 0%,#16203a 100%);--accent:#4da3ff;--danger:#ff6b63;}}
-    *{box-sizing:border-box}html,body{height:100%}
-    body{margin:0;font-family:"SF Pro Text","SF Pro Display",-apple-system,BlinkMacSystemFont,"PingFang SC",sans-serif;color:var(--text);background:radial-gradient(1200px 500px at -10% -10%,#c7dbff66 0%,transparent 60%),radial-gradient(900px 500px at 120% 0%,#b8ffe766 0%,transparent 60%),linear-gradient(170deg,var(--bg-1),var(--bg-0));padding:18px}
-    body::before{
-      content:"";position:fixed;inset:-20%;pointer-events:none;z-index:0;opacity:.55;filter:blur(42px);
-      background:
-        radial-gradient(420px 260px at 15% 20%, color-mix(in srgb, var(--accent) 38%, transparent), transparent 70%),
-        radial-gradient(520px 300px at 80% 30%, rgba(58,236,193,.26), transparent 72%),
-        radial-gradient(360px 220px at 55% 85%, rgba(255,140,102,.22), transparent 70%);
-      animation:bgFloat 22s ease-in-out infinite alternate;
-    }
-    body::after{
-      content:"";position:fixed;inset:0;pointer-events:none;z-index:0;opacity:.35;
-      background:
-        linear-gradient(transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%),
-        linear-gradient(90deg, transparent 0 97%, color-mix(in srgb, var(--line) 72%, transparent) 97% 100%);
-      background-size: 26px 26px;
-      mask-image: radial-gradient(circle at center, black 32%, transparent 90%);
-    }
-     .window{position:relative;z-index:1;max-width:1260px;margin:0 auto;border:1px solid var(--line);border-radius:18px;background:var(--glass-strong);backdrop-filter:blur(18px) saturate(145%);-webkit-backdrop-filter:blur(18px) saturate(145%);box-shadow:var(--shadow);overflow:hidden}
-    .titlebar{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;border-bottom:1px solid var(--line);background:color-mix(in srgb,var(--glass-strong) 90%,transparent)}
-    .traffic{display:flex;gap:8px}.dot{width:12px;height:12px;border-radius:50%;box-shadow:inset 0 1px 0 rgba(255,255,255,.45)}.dot.red{background:#ff5f57}.dot.yellow{background:#febc2e}.dot.green{background:#28c840}.title{font-size:13px;color:var(--muted);font-weight:600}
-    .content{padding:14px 14px 24px}
-    .dock-nav{
-      position:fixed;left:50%;bottom:calc(8px + env(safe-area-inset-bottom));transform:translateX(-50%);width:auto;margin:0;padding:10px 12px;z-index:999;border-radius:20px;
-      background:color-mix(in srgb,var(--glass-strong) 88%,transparent);backdrop-filter:blur(20px) saturate(150%);-webkit-backdrop-filter:blur(20px) saturate(150%);
-      box-shadow:0 14px 34px rgba(15,23,42,.22)
-    }
-    .dock-nav .row{flex-wrap:nowrap;overflow-x:auto;white-space:nowrap;scrollbar-width:none;gap:10px}
-    .dock-nav .row::-webkit-scrollbar{display:none}
-    .dock-link{
-      --icon-bg: linear-gradient(180deg,#6aa8ff,#2d7dff);
-      position: relative;
-      width: 42px;
-      height: 42px;
-      display: inline-flex;
-      align-items: center;
-      justify-content: center;
-      border: 1px solid rgba(255,255,255,.35);
-      border-radius: 11px;
-      background: var(--icon-bg);
-      color: #fff;
-      text-decoration: none;
-      box-shadow: inset 0 1px 0 rgba(255,255,255,.36), 0 6px 14px rgba(0,0,0,.2);
-      transition: transform .16s ease, box-shadow .16s ease, filter .16s ease;
-      transform-origin: center bottom;
-    }
-    .dock-link .ico{font-size:20px; line-height:1;}
-    .dock-link .tip{
-      position:absolute;
-      bottom: calc(100% + 8px);
-      left:50%;
-      transform: translateX(-50%) translateY(6px);
-      opacity:0;
-      pointer-events:none;
-      font-size:12px;
-      color:var(--text);
-      background: color-mix(in srgb, var(--glass-strong) 92%, transparent);
-      border:1px solid var(--line);
-      border-radius:8px;
-      padding:3px 7px;
-      white-space:nowrap;
-      transition: opacity .16s ease, transform .16s ease;
-    }
-    .dock-link:hover{transform: translateY(-9px) scale(1.22); box-shadow: 0 14px 26px rgba(15,23,42,.28);}
-    .dock-link:hover .tip{opacity:1; transform: translateX(-50%) translateY(0);}
-    .dock-link.active::after{
-      content:"";
-      position:absolute;
-      left:50%;
-      bottom:-10px;
-      width:5px;
-      height:5px;
-      border-radius:50%;
-      transform:translateX(-50%);
-      background: color-mix(in srgb, var(--text) 78%, transparent);
-    }
-    .dock-link.i-home{--icon-bg: linear-gradient(180deg,#72afff,#2e7fff);}
-    .dock-link.i-music{--icon-bg: linear-gradient(180deg,#ff8bc3,#ff4b93);}
-    .dock-link.i-config{--icon-bg: linear-gradient(180deg,#b8c2d6,#8794ad);}
-    .dock-link.i-stats{--icon-bg: linear-gradient(180deg,#7ce6a1,#2ccf73);}
-    .dock-link.i-system{--icon-bg: linear-gradient(180deg,#8aa4ff,#6177ff);}
-    .card{border:1px solid var(--line);border-radius:14px;background:var(--glass);padding:14px;margin-bottom:12px;animation:rise .45s ease both}
-    .card:nth-child(2){animation-delay:.05s}.card:nth-child(3){animation-delay:.1s}
-    .row{display:flex;gap:8px;flex-wrap:wrap}
-    .btn{border:1px solid var(--line);border-radius:10px;background:var(--btn);color:var(--text);padding:8px 12px;text-decoration:none;cursor:pointer;transition:transform .18s ease,box-shadow .18s ease,filter .18s ease}
-    .btn:hover{transform:translateY(-1px);box-shadow:0 8px 20px rgba(16,24,40,.12)}.btn:active{transform:translateY(0)}
-    .cfg-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-    .cfg-item{border:1px solid var(--line);border-radius:12px;padding:10px;background:color-mix(in srgb,var(--glass) 65%,transparent);min-width:0;overflow:hidden}
-    .cfg-item label{display:block;margin-bottom:6px;font-size:12px;color:var(--muted);font-weight:600}
-    input{width:100%;max-width:100%;border:1px solid var(--line);border-radius:10px;background:color-mix(in srgb,var(--glass) 75%,transparent);color:var(--text);padding:10px;outline:none;transition:border-color .2s ease,box-shadow .2s ease}
-    input:focus{border-color:color-mix(in srgb,var(--accent) 55%,var(--line));box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 20%,transparent)}
-    input[type="checkbox"]{width:auto;transform:translateY(1px)}
-    .secret-wrap{display:flex;gap:6px;align-items:center}.secret-wrap input{flex:1 1 auto;min-width:0}.secret-toggle{white-space:nowrap}
-    .hidden{display:none}.msg{margin-top:8px;color:var(--accent)}
-    @keyframes rise{from{opacity:0;transform:translateY(10px) scale(.995)}to{opacity:1;transform:translateY(0) scale(1)}}
-    @keyframes bgFloat{from{transform:translate3d(-2%,-1%,0) scale(1)}to{transform:translate3d(2%,1%,0) scale(1.06)}}
-    @media (max-width:980px){body{padding:10px}.cfg-grid{grid-template-columns:1fr 1fr}.dock-nav{left:10px;right:10px;bottom:12px;transform:none}}
-    @media (max-width:680px){.cfg-grid{grid-template-columns:1fr}}
-    @media (prefers-reduced-motion: reduce){.card,.btn,body::before{animation:none!important;transition:none!important}}
-    /* refined minimal theme */
-  :root{
-    --bg-0:#f4f6fb;
-    --bg-1:#eef2f8;
-    --glass:rgba(255,255,255,.72);
-    --glass-strong:rgba(255,255,255,.86);
-    --text:#0f172a;
-    --muted:#64748b;
-    --line:rgba(15,23,42,.10);
-    --shadow:0 20px 50px rgba(15,23,42,.10);
-    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
-    --accent:#2563eb;
-    --danger:#dc2626;
-  }
-  @media (prefers-color-scheme: dark){
-    :root{
-      --bg-0:#0b1220;
-      --bg-1:#111a2c;
-      --glass:rgba(16,24,40,.64);
-      --glass-strong:rgba(15,23,42,.82);
-      --text:#e2e8f0;
-      --muted:#94a3b8;
-      --line:rgba(148,163,184,.20);
-      --shadow:0 26px 70px rgba(0,0,0,.42);
-      --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
-      --accent:#60a5fa;
-      --danger:#f87171;
-    }
-  }
-  body{
-    background:
-      radial-gradient(1200px 700px at -15% -10%, rgba(59,130,246,.10), transparent 65%),
-      radial-gradient(900px 600px at 110% -5%, rgba(56,189,248,.10), transparent 62%),
-      linear-gradient(160deg,var(--bg-0),var(--bg-1)) !important;
-  }
-  body::before{
-    opacity:.45 !important;
-    filter:blur(56px) saturate(120%) !important;
-    background:
-      radial-gradient(420px 300px at 15% 25%, color-mix(in srgb, var(--accent) 24%, transparent), transparent 70%),
-      radial-gradient(380px 260px at 78% 20%, rgba(45,212,191,.16), transparent 72%),
-      radial-gradient(360px 220px at 48% 86%, rgba(251,146,60,.14), transparent 72%) !important;
-    animation:bgFloat 30s cubic-bezier(.42,0,.2,1) infinite alternate !important;
-  }
-  body::after{display:none !important;}
-
-  .window{
-    border-radius:20px !important;
-    border:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass-strong) 92%, transparent) !important;
-    backdrop-filter:blur(18px) saturate(120%) !important;
-    -webkit-backdrop-filter:blur(18px) saturate(120%) !important;
-    box-shadow:var(--shadow) !important;
-  }
-  .titlebar{
-    min-height:54px;
-    padding:14px 18px !important;
-    justify-content:center !important;
-    border-bottom:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
-  }
-  .traffic{display:none !important;}
-  .title{font-size:14px !important;letter-spacing:.02em;color:var(--text) !important;font-weight:600 !important;}
-  .titlebar > div:last-child{display:flex !important;align-items:center;}
-
-  .content{padding:18px 18px 90px !important;}
-  .card{
-    border-radius:16px !important;
-    border:1px solid var(--line) !important;
-    background:color-mix(in srgb,var(--glass) 88%, transparent) !important;
-    box-shadow:0 8px 24px rgba(15,23,42,.06);
-    animation:cardIn .45s cubic-bezier(.22,1,.36,1) both !important;
-  }
-  .btn{
-    border-radius:10px !important;
-    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
-    background:var(--btn) !important;
-    transition:transform .2s cubic-bezier(.22,1,.36,1),box-shadow .2s cubic-bezier(.22,1,.36,1),border-color .2s ease !important;
-  }
-  .btn:hover{
-    transform:translateY(-2px) !important;
-    box-shadow:0 10px 20px rgba(15,23,42,.12) !important;
-    border-color:color-mix(in srgb,var(--accent) 32%, var(--line)) !important;
-  }
-  input,select,textarea{
-    border-radius:10px !important;
-    border:1px solid color-mix(in srgb,var(--line) 92%, transparent) !important;
-    background:color-mix(in srgb,var(--glass) 85%, transparent) !important;
-    transition:border-color .2s ease, box-shadow .2s ease, background .2s ease !important;
-  }
-  input:focus,select:focus,textarea:focus{
-    border-color:color-mix(in srgb,var(--accent) 55%, var(--line)) !important;
-    box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 18%, transparent) !important;
-  }
-
-  .dock-nav{
-    bottom:calc(12px + env(safe-area-inset-bottom)) !important;
-    padding:8px !important;
-    border-radius:14px !important;
-    border:1px solid var(--line);
-    background:color-mix(in srgb,var(--glass-strong) 94%, transparent) !important;
-    box-shadow:0 10px 30px rgba(15,23,42,.14) !important;
-    backdrop-filter:blur(14px) saturate(110%) !important;
-    -webkit-backdrop-filter:blur(14px) saturate(110%) !important;
-  }
-  .dock-nav .row{gap:6px !important;}
-  .dock-link{
-    width:auto !important;
-    min-width:72px;
-    height:36px !important;
-    padding:0 12px !important;
-    border-radius:10px !important;
-    border:1px solid transparent !important;
-    color:var(--muted) !important;
-    background:transparent !important;
-    box-shadow:none !important;
-    transform:none !important;
-    transition:all .22s cubic-bezier(.22,1,.36,1) !important;
-    gap:6px;
-  }
-  .dock-link .ico{font-size:14px !important;opacity:.85;}
-  .dock-link .tip{display:none !important;}
-  .dock-link:hover{
-    transform:translateY(-1px) !important;
-    color:var(--text) !important;
-    background:color-mix(in srgb,var(--glass) 96%, transparent) !important;
-    border-color:var(--line) !important;
-  }
-  .dock-link.active{
-    color:var(--text) !important;
-    background:color-mix(in srgb,var(--accent) 16%, var(--glass)) !important;
-    border-color:color-mix(in srgb,var(--accent) 30%, var(--line)) !important;
-  }
-  .dock-link.active::after{display:none !important;}
-
-  @media (max-width:768px){
-    .content{padding:14px 12px 92px !important;}
-    .dock-link{min-width:64px;font-size:12px;}
-  }
-  @keyframes cardIn{
-    from{opacity:0;transform:translateY(8px) scale(.995)}
-    to{opacity:1;transform:translateY(0) scale(1)}
-  }
-  html{color-scheme:light dark;}
-  html[data-theme="light"]{
-    color-scheme:light;
-    --bg-0:#f4f6fb;
-    --bg-1:#eef2f8;
-    --glass:rgba(255,255,255,.72);
-    --glass-strong:rgba(255,255,255,.86);
-    --text:#0f172a;
-    --muted:#64748b;
-    --line:rgba(15,23,42,.10);
-    --shadow:0 20px 50px rgba(15,23,42,.10);
-    --btn:linear-gradient(180deg,#ffffff 0%,#f7f9fe 100%);
-    --accent:#2563eb;
-    --danger:#dc2626;
-  }
-  html[data-theme="dark"]{
-    color-scheme:dark;
-    --bg-0:#0b1220;
-    --bg-1:#111a2c;
-    --glass:rgba(16,24,40,.64);
-    --glass-strong:rgba(15,23,42,.82);
-    --text:#e2e8f0;
-    --muted:#94a3b8;
-    --line:rgba(148,163,184,.20);
-    --shadow:0 26px 70px rgba(0,0,0,.42);
-    --btn:linear-gradient(180deg,#1e293b 0%,#172135 100%);
-    --accent:#60a5fa;
-    --danger:#f87171;
-  }
-  .theme-switch{
-    border:1px solid var(--line);
-    border-radius:10px;
-    background:color-mix(in srgb,var(--glass) 85%, transparent);
-    color:var(--text);
-    padding:6px 8px;
-    font-size:12px;
-  }
-
-</style>
-<link rel="stylesheet" href="/admin-assets/webintosh-admin.css" />
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
+  <link rel="stylesheet" href="/admin-assets/admin-shell.css" />
 </head>
 <body data-admin-page="config">
-  <div class="window">
-    <div class="titlebar">
-      <div class="traffic"><span class="dot red"></span><span class="dot yellow"></span><span class="dot green"></span></div>
-      <div class="title">后台管理 · 配置中心</div>
-      <div></div>
-    </div>
-    <div class="content">
-      <div id="loginCard" class="card">
-        <h3 style="margin:0 0 8px;">登录</h3>
-        <div class="row"><div style="flex:1;min-width:240px;"><input id="pwd" type="password" placeholder="后台密码"></div><div><button class="btn" onclick="login()">登录</button></div></div>
-        <div id="loginMsg" class="msg"></div>
-      </div>
-
-      <div id="panel" class="hidden">
-        <div class="card config-hero">
-          <div>
-            <h3>配置中心</h3>
-            <p>按功能分区调整后台能力。字段保持不变，只优化可读性和操作节奏。</p>
-          </div>
-          <div class="config-actions">
-            <button class="btn" onclick="loadConfig()">刷新配置</button>
-            <button class="btn primary" onclick="saveConfig(true)">保存并持久化</button>
-            <button class="btn" onclick="saveConfig(false)">仅本次生效</button>
-            <button class="btn danger" onclick="resetOverrides()">清除持久化覆盖</button>
-          </div>
-          <div id="msg" class="msg"></div>
+  <div class="shell-app">
+    <header class="shell-topbar">
+      <div class="topbar-main">
+        <div class="brand-lockup">
+          <p class="brand-lockup__eyebrow">Oopz Bot Admin</p>
+          <h1 class="brand-lockup__title">配置中心</h1>
+          <p class="brand-lockup__copy">把长表单整理成章节化配置工作台，保留原字段和保存接口。</p>
         </div>
-
-        <div class="config-layout">
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>访问与安全</h3>
-                <p>播放器访问、后台会话和基础安全选项。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item span-2"><label>播放器 URL</label><input id="cfg_web_url" type="text"></div>
-              <div class="cfg-item"><label>播放器 Token TTL（秒）</label><input id="cfg_web_token_ttl" type="number" min="0"></div>
-              <div class="cfg-item"><label>播放器 Cookie MaxAge（秒）</label><input id="cfg_web_cookie_age" type="number" min="0"></div>
-              <div class="cfg-item"><label>后台会话 TTL（秒）</label><input id="cfg_admin_session_ttl" type="number" min="0"></div>
-              <div class="cfg-item"><label>空闲释放链接（秒）</label><input id="cfg_link_idle" type="number" min="0"></div>
-              <div class="cfg-item span-2"><label>后台新密码</label><input id="cfg_admin_password" type="password"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_cookie_secure" type="checkbox"> 播放器 Cookie Secure</label></div>
-              <div class="cfg-item check-item"><label><input id="cfg_admin_cookie_secure" type="checkbox"> 后台 Cookie Secure</label></div>
-            </div>
-          </div>
-
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>机器人行为</h3>
-                <p>撤回、聊天、进群提示和脏话检测相关设置。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item check-item"><label><input id="cfg_auto_recall_enabled" type="checkbox"> 自动撤回开关</label></div>
-              <div class="cfg-item"><label>自动撤回延迟（秒）</label><input id="cfg_auto_recall_delay" type="number" min="1"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_area_notify_enabled" type="checkbox"> 域加入通知开关</label></div>
-              <div class="cfg-item"><label>域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_chat_enabled" type="checkbox"> 聊天自动回复开关</label></div>
-              <div class="cfg-item check-item"><label><input id="cfg_profanity_enabled" type="checkbox"> 脏话检测开关</label></div>
-              <div class="cfg-item"><label>禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_warn_before_mute" type="checkbox"> 先警告后禁言</label></div>
-              <div class="cfg-item check-item"><label><input id="cfg_skip_admins" type="checkbox"> 脏话检测跳过管理员</label></div>
-              <div class="cfg-item check-item"><label><input id="cfg_context_detection" type="checkbox"> 启用上下文检测</label></div>
-              <div class="cfg-item"><label>上下文窗口（秒）</label><input id="cfg_context_window" type="number" min="5"></div>
-              <div class="cfg-item"><label>上下文最大消息数</label><input id="cfg_context_max_messages" type="number" min="1"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_ai_detection" type="checkbox"> 启用 AI 检测</label></div>
-              <div class="cfg-item"><label>AI 检测最短长度</label><input id="cfg_ai_min_length" type="number" min="1"></div>
-            </div>
-          </div>
-
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>OOPZ 与音乐</h3>
-                <p>默认频道、代理和网易云拉歌相关配置。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item"><label>默认区域 ID</label><input id="cfg_oopz_default_area" type="text"></div>
-              <div class="cfg-item"><label>默认频道 ID</label><input id="cfg_oopz_default_channel" type="text"></div>
-              <div class="cfg-item span-2"><label>OOPZ 代理</label><input id="cfg_oopz_proxy" type="text"></div>
-              <div class="cfg-item check-item span-2"><label><input id="cfg_oopz_announcement" type="checkbox"> 发送公告样式消息</label></div>
-              <div class="cfg-item span-2"><label>网易云 API 地址</label><input id="cfg_netease_base_url" type="text"></div>
-              <div class="cfg-item"><label>网易云音频超时（秒）</label><input id="cfg_netease_timeout" type="number" min="5"></div>
-              <div class="cfg-item"><label>网易云音频重试次数</label><input id="cfg_netease_retries" type="number" min="0"></div>
-              <div class="cfg-item"><label>网易云音质（standard/exhigh）</label><input id="cfg_netease_quality" type="text"></div>
-              <div class="cfg-item span-2"><label>网易云 Cookie</label><input id="cfg_netease_cookie" type="password"></div>
-            </div>
-          </div>
-
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>Redis 与缓存</h3>
-                <p>连接信息和响应解码开关。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item"><label>Redis Host</label><input id="cfg_redis_host" type="text"></div>
-              <div class="cfg-item"><label>Redis Port</label><input id="cfg_redis_port" type="number" min="1"></div>
-              <div class="cfg-item"><label>Redis DB</label><input id="cfg_redis_db" type="number" min="0"></div>
-              <div class="cfg-item check-item"><label><input id="cfg_redis_decode" type="checkbox"> Redis decode_responses</label></div>
-              <div class="cfg-item span-2"><label>Redis 密码</label><input id="cfg_redis_password" type="password"></div>
-            </div>
-          </div>
-
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>豆包聊天</h3>
-                <p>聊天模型、令牌限制和提示词。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item check-item"><label><input id="cfg_doubao_enabled" type="checkbox"> 启用豆包聊天</label></div>
-              <div class="cfg-item"><label>豆包聊天模型</label><input id="cfg_doubao_model" type="text"></div>
-              <div class="cfg-item span-2"><label>豆包聊天 Base URL</label><input id="cfg_doubao_base_url" type="text"></div>
-              <div class="cfg-item"><label>豆包 max_tokens</label><input id="cfg_doubao_max_tokens" type="number" min="1"></div>
-              <div class="cfg-item"><label>豆包 temperature</label><input id="cfg_doubao_temperature" type="number" step="0.1" min="0" max="2"></div>
-              <div class="cfg-item span-2"><label>豆包系统提示词</label><input id="cfg_doubao_system_prompt" type="text"></div>
-              <div class="cfg-item span-2"><label>豆包 API Key</label><div class="secret-wrap"><input id="cfg_doubao_api_key" type="password"><button class="btn secret-toggle" type="button" onclick="toggleSecret('cfg_doubao_api_key', this)">显示</button></div></div>
-            </div>
-          </div>
-
-          <div class="card config-section">
-            <div class="config-section-head">
-              <div>
-                <h3>豆包文生图</h3>
-                <p>图像生成模型、尺寸和水印控制。</p>
-              </div>
-            </div>
-            <div class="cfg-grid cfg-grid-2">
-              <div class="cfg-item check-item"><label><input id="cfg_doubao_img_enabled" type="checkbox"> 启用豆包文生图</label></div>
-              <div class="cfg-item check-item"><label><input id="cfg_doubao_img_watermark" type="checkbox"> 图片水印</label></div>
-              <div class="cfg-item span-2"><label>文生图 Base URL</label><input id="cfg_doubao_img_base_url" type="text"></div>
-              <div class="cfg-item"><label>文生图模型</label><input id="cfg_doubao_img_model" type="text"></div>
-              <div class="cfg-item"><label>文生图尺寸</label><input id="cfg_doubao_img_size" type="text"></div>
-              <div class="cfg-item span-2"><label>文生图 API Key</label><div class="secret-wrap"><input id="cfg_doubao_img_api_key" type="password"><button class="btn secret-toggle" type="button" onclick="toggleSecret('cfg_doubao_img_api_key', this)">显示</button></div></div>
-            </div>
-          </div>
+        <div class="topbar-actions">
+          <span id="topStatus" class="status-text is-warning">等待登录</span>
+          <button class="btn btn-ghost" type="button" onclick="loadConfig().catch(() => {})">刷新配置</button>
+          <button class="btn btn-primary" type="button" onclick="saveConfig(true)">保存并持久化</button>
+          <button class="btn" type="button" onclick="logout()">退出登录</button>
         </div>
       </div>
+      <div class="topbar-nav-row">
+        <nav id="topNav" class="top-nav" aria-label="后台导航"></nav>
+      </div>
+    </header>
+
+    <div class="mobile-nav-shell">
+      <div class="action-row" style="margin-bottom: 10px;">
+        <span id="mobileStatus" class="status-text is-warning">等待登录</span>
+      </div>
+      <nav id="mobileNav" class="mobile-nav" aria-label="移动端后台导航"></nav>
     </div>
+
+    <main class="shell-main">
+      <section id="loginCard" class="auth-stage">
+        <article class="auth-card">
+          <h3 class="auth-card__title">登录配置中心</h3>
+          <p class="auth-card__copy">登录后调整后台配置。</p>
+          <div class="stack" style="margin-top: 24px;">
+            <input id="pwd" type="password" placeholder="请输入后台密码" />
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="login()">进入配置中心</button>
+            </div>
+            <div id="loginMsg" class="msg"></div>
+          </div>
+        </article>
+      </section>
+
+      <section id="panel" class="hidden config-layout">
+        <div class="surface-card">
+          <section id="section-access" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Access & Security</p>
+                <h3 class="section-title">访问与安全</h3>
+                <p class="section-copy">播放器访问地址、会话时长、链接释放和 Cookie 安全策略。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--wide">
+                <label for="cfg_web_url">播放器 URL</label>
+                <input id="cfg_web_url" type="text" placeholder="http://127.0.0.1:8080" />
+              </div>
+              <div class="field">
+                <label for="cfg_web_token_ttl">播放器 Token TTL（秒）</label>
+                <input id="cfg_web_token_ttl" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_web_cookie_age">播放器 Cookie MaxAge（秒）</label>
+                <input id="cfg_web_cookie_age" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_admin_session_ttl">后台会话 TTL（秒）</label>
+                <input id="cfg_admin_session_ttl" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_link_idle">空闲释放链接（秒）</label>
+                <input id="cfg_link_idle" type="number" min="0" />
+              </div>
+              <div class="field field--wide">
+                <label for="cfg_admin_password">后台新密码</label>
+                <div class="secret-input">
+                  <input id="cfg_admin_password" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_admin_password', this)">显示</button>
+                </div>
+              </div>
+              <div class="field field--check">
+                <label><input id="cfg_cookie_secure" type="checkbox" /> 播放器 Cookie Secure</label>
+              </div>
+              <div class="field field--check">
+                <label><input id="cfg_admin_cookie_secure" type="checkbox" /> 后台 Cookie Secure</label>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-behavior" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Bot Behaviors</p>
+                <h3 class="section-title">机器人行为</h3>
+                <p class="section-copy">自动撤回、进群通知、聊天与脏话检测相关参数。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_auto_recall_enabled" type="checkbox" /> 启用自动撤回</label></div>
+              <div class="field"><label for="cfg_auto_recall_delay">自动撤回延迟（秒）</label><input id="cfg_auto_recall_delay" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_area_notify_enabled" type="checkbox" /> 启用区域加入通知</label></div>
+              <div class="field"><label for="cfg_area_poll">区域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2" /></div>
+              <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
+              <div class="field field--check"><label><input id="cfg_profanity_enabled" type="checkbox" /> 启用脏话检测</label></div>
+              <div class="field"><label for="cfg_mute_duration">禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_warn_before_mute" type="checkbox" /> 先警告后禁言</label></div>
+              <div class="field field--check"><label><input id="cfg_skip_admins" type="checkbox" /> 跳过管理员检测</label></div>
+              <div class="field field--check"><label><input id="cfg_context_detection" type="checkbox" /> 启用上下文检测</label></div>
+              <div class="field"><label for="cfg_context_window">上下文窗口（秒）</label><input id="cfg_context_window" type="number" min="5" /></div>
+              <div class="field"><label for="cfg_context_max_messages">上下文最大消息数</label><input id="cfg_context_max_messages" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_ai_detection" type="checkbox" /> 启用 AI 检测</label></div>
+              <div class="field"><label for="cfg_ai_min_length">AI 检测最短长度</label><input id="cfg_ai_min_length" type="number" min="1" /></div>
+            </div>
+          </section>
+
+          <section id="section-oopz" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">OOPZ & Music</p>
+                <h3 class="section-title">OOPZ 与音乐</h3>
+                <p class="section-copy">默认区域、频道、代理和网易云相关配置。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field"><label for="cfg_oopz_default_area">默认区域 ID</label><input id="cfg_oopz_default_area" type="text" /></div>
+              <div class="field"><label for="cfg_oopz_default_channel">默认频道 ID</label><input id="cfg_oopz_default_channel" type="text" /></div>
+              <div class="field field--wide"><label for="cfg_oopz_proxy">OOPZ 代理</label><input id="cfg_oopz_proxy" type="text" placeholder="direct / http://127.0.0.1:7890" /></div>
+              <div class="field field--wide field--check"><label><input id="cfg_oopz_announcement" type="checkbox" /> 使用公告样式消息</label></div>
+              <div class="field field--wide"><label for="cfg_netease_base_url">网易云 API 地址</label><input id="cfg_netease_base_url" type="text" placeholder="http://127.0.0.1:3000" /></div>
+              <div class="field"><label for="cfg_netease_timeout">网易云音频超时（秒）</label><input id="cfg_netease_timeout" type="number" min="5" /></div>
+              <div class="field"><label for="cfg_netease_retries">网易云音频重试次数</label><input id="cfg_netease_retries" type="number" min="0" /></div>
+              <div class="field"><label for="cfg_netease_quality">网易云音质</label><input id="cfg_netease_quality" type="text" placeholder="standard / exhigh" /></div>
+              <div class="field field--wide">
+                <label for="cfg_netease_cookie">网易云 Cookie</label>
+                <div class="secret-input">
+                  <input id="cfg_netease_cookie" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_netease_cookie', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-redis" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Redis</p>
+                <h3 class="section-title">缓存与状态</h3>
+                <p class="section-copy">Redis 连接参数、数据库索引与密码。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field"><label for="cfg_redis_host">Redis Host</label><input id="cfg_redis_host" type="text" /></div>
+              <div class="field"><label for="cfg_redis_port">Redis Port</label><input id="cfg_redis_port" type="number" min="1" /></div>
+              <div class="field"><label for="cfg_redis_db">Redis DB</label><input id="cfg_redis_db" type="number" min="0" /></div>
+              <div class="field field--check"><label><input id="cfg_redis_decode" type="checkbox" /> decode_responses</label></div>
+              <div class="field field--wide">
+                <label for="cfg_redis_password">Redis 密码</label>
+                <div class="secret-input">
+                  <input id="cfg_redis_password" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_redis_password', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-doubao-chat" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Doubao Chat</p>
+                <h3 class="section-title">豆包聊天</h3>
+                <p class="section-copy">聊天模型、提示词和密钥。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_doubao_enabled" type="checkbox" /> 启用豆包聊天</label></div>
+              <div class="field"><label for="cfg_doubao_model">模型</label><input id="cfg_doubao_model" type="text" /></div>
+              <div class="field field--wide"><label for="cfg_doubao_base_url">Base URL</label><input id="cfg_doubao_base_url" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_max_tokens">max_tokens</label><input id="cfg_doubao_max_tokens" type="number" min="1" /></div>
+              <div class="field"><label for="cfg_doubao_temperature">temperature</label><input id="cfg_doubao_temperature" type="number" min="0" max="2" step="0.1" /></div>
+              <div class="field field--wide"><label for="cfg_doubao_system_prompt">系统提示词</label><input id="cfg_doubao_system_prompt" type="text" /></div>
+              <div class="field field--wide">
+                <label for="cfg_doubao_api_key">API Key</label>
+                <div class="secret-input">
+                  <input id="cfg_doubao_api_key" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_api_key', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-doubao-image" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Doubao Image</p>
+                <h3 class="section-title">豆包文生图</h3>
+                <p class="section-copy">图像模型、尺寸、水印和密钥。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_doubao_img_enabled" type="checkbox" /> 启用豆包文生图</label></div>
+              <div class="field field--check"><label><input id="cfg_doubao_img_watermark" type="checkbox" /> 图片水印</label></div>
+              <div class="field field--wide"><label for="cfg_doubao_img_base_url">Base URL</label><input id="cfg_doubao_img_base_url" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_img_model">模型</label><input id="cfg_doubao_img_model" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_img_size">尺寸</label><input id="cfg_doubao_img_size" type="text" placeholder="1920x1920" /></div>
+              <div class="field field--wide">
+                <label for="cfg_doubao_img_api_key">API Key</label>
+                <div class="secret-input">
+                  <input id="cfg_doubao_img_api_key" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_img_api_key', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="sticky-rail">
+          <div class="rail-block">
+            <div id="railState" class="micro-status is-warning">等待操作</div>
+            <h3 class="rail-block__title">保存轨道</h3>
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="saveConfig(true)">保存并持久化</button>
+              <button class="btn btn-ghost" type="button" onclick="saveConfig(false)">仅当前进程生效</button>
+              <button class="btn btn-ghost" type="button" onclick="loadConfig()">重新加载</button>
+              <button class="btn btn-danger" type="button" onclick="resetOverrides()">清除持久化覆盖</button>
+            </div>
+            <div id="msg" class="msg"></div>
+          </div>
+
+          <div class="rail-block">
+            <h3 class="rail-block__title">章节索引</h3>
+            <div class="index-list">
+              <a class="index-link" href="#section-access">访问与安全</a>
+              <a class="index-link" href="#section-behavior">机器人行为</a>
+              <a class="index-link" href="#section-oopz">OOPZ 与音乐</a>
+              <a class="index-link" href="#section-redis">缓存与状态</a>
+              <a class="index-link" href="#section-doubao-chat">豆包聊天</a>
+              <a class="index-link" href="#section-doubao-image">豆包文生图</a>
+            </div>
+          </div>
+        </aside>
+      </section>
+    </main>
   </div>
+
   <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="/admin-assets/admin-shell.js"></script>
   <script>
-    async function req(url, options={}) {const r = await fetch(url, {credentials:"include", headers:{"Content-Type":"application/json"}, ...options});const d = await r.json().catch(()=>({}));if (!r.ok || d.ok===false) throw new Error(d.error || ("HTTP "+r.status));return d;}
-    function setMsg(t,bad=false){const el=document.getElementById("msg");el.textContent=t;el.style.color=bad?"var(--danger)":"var(--accent)";}
-    function setVal(id,v){const el=document.getElementById(id);if(!el)return; if(el.type==="checkbox") el.checked=!!v; else el.value=v??"";}
-    function setSecretState(id, configured){
-      const el = document.getElementById(id);
-      if(!el) return;
-      el.value = "";
-      el.placeholder = configured ? "Configured; leave blank to keep" : "Not configured";
-    }
-    function setSecretValue(id, value, configured){
-      const el = document.getElementById(id);
-      if(!el) return;
-      el.type = "password";
-      el.value = value || "";
-      el.placeholder = configured && !value ? "Configured; leave blank to keep" : "";
-      const btn = el.parentElement?.querySelector?.(".secret-toggle");
-      if (btn) btn.textContent = "显示";
-    }
-    function getInt(id){const v=Number(document.getElementById(id).value);return Number.isFinite(v)?Math.trunc(v):0;}
-    function getFloat(id){const v=Number(document.getElementById(id).value);return Number.isFinite(v)?v:0;}
-    function val(id){return (document.getElementById(id).value||"").trim();}
-    function chk(id){return !!document.getElementById(id).checked;}
-
-    async function check(){
-      try{await req("/admin/api/me");document.getElementById("loginCard").classList.add("hidden");document.getElementById("panel").classList.remove("hidden");await loadConfig();}
-      catch{document.getElementById("loginCard").classList.remove("hidden");document.getElementById("panel").classList.add("hidden");}
-    }
-    async function login(){
-      try{await req("/admin/api/login",{method:"POST",body:JSON.stringify({password:document.getElementById("pwd").value||""})});await check();}
-      catch(e){const el=document.getElementById("loginMsg");el.textContent=e.message;el.style.color="var(--danger)";}
+    function setVal(id, value) {
+      const element = AdminShell.byId(id);
+      if (!element) {
+        return;
+      }
+      if (element.type === "checkbox") {
+        element.checked = !!value;
+      } else {
+        element.value = value ?? "";
+      }
     }
 
-    async function loadConfig(){
-      const d=await req("/admin/api/config"); const c=d.config||{};
-      setVal("cfg_web_url", c.web_player?.url||""); setVal("cfg_web_token_ttl", c.web_player?.token_ttl_seconds||0); setVal("cfg_web_cookie_age", c.web_player?.cookie_max_age_seconds||0); setVal("cfg_link_idle", c.web_player?.link_idle_release_seconds||0);
-      setVal("cfg_cookie_secure", c.web_player?.cookie_secure); setVal("cfg_admin_session_ttl", c.web_player?.admin_session_ttl_seconds||0); setVal("cfg_admin_cookie_secure", c.web_player?.admin_cookie_secure);
-      setVal("cfg_auto_recall_enabled", c.auto_recall?.enabled); setVal("cfg_auto_recall_delay", c.auto_recall?.delay||30);
-      setVal("cfg_area_notify_enabled", c.area_join_notify?.enabled); setVal("cfg_area_poll", c.area_join_notify?.poll_interval_seconds||2);
-      setVal("cfg_chat_enabled", c.chat?.enabled);
-      setVal("cfg_profanity_enabled", c.profanity?.enabled); setVal("cfg_mute_duration", c.profanity?.mute_duration||5); setVal("cfg_warn_before_mute", c.profanity?.warn_before_mute);
-      setVal("cfg_skip_admins", c.profanity?.skip_admins); setVal("cfg_context_detection", c.profanity?.context_detection); setVal("cfg_context_window", c.profanity?.context_window||30); setVal("cfg_context_max_messages", c.profanity?.context_max_messages||10);
-      setVal("cfg_ai_detection", c.profanity?.ai_detection); setVal("cfg_ai_min_length", c.profanity?.ai_min_length||2);
-      setVal("cfg_oopz_default_area", c.oopz?.default_area||""); setVal("cfg_oopz_default_channel", c.oopz?.default_channel||""); setVal("cfg_oopz_proxy", c.oopz?.proxy||""); setVal("cfg_oopz_announcement", c.oopz?.use_announcement_style);
-      setVal("cfg_netease_base_url", c.netease?.base_url||""); setVal("cfg_netease_timeout", c.netease?.audio_download_timeout||120); setVal("cfg_netease_retries", c.netease?.audio_download_retries||2); setVal("cfg_netease_quality", c.netease?.audio_quality||"standard"); setSecretValue("cfg_netease_cookie", c.netease?.cookie||"", c.netease?.cookie_configured);
-      setVal("cfg_redis_host", c.redis?.host||""); setVal("cfg_redis_port", c.redis?.port||6379); setVal("cfg_redis_db", c.redis?.db||0); setVal("cfg_redis_decode", c.redis?.decode_responses); setSecretState("cfg_redis_password", c.redis?.password_configured);
-      setVal("cfg_doubao_enabled", c.doubao_chat?.enabled); setVal("cfg_doubao_base_url", c.doubao_chat?.base_url||""); setVal("cfg_doubao_model", c.doubao_chat?.model||""); setVal("cfg_doubao_max_tokens", c.doubao_chat?.max_tokens||256); setVal("cfg_doubao_temperature", c.doubao_chat?.temperature??0.7); setVal("cfg_doubao_system_prompt", c.doubao_chat?.system_prompt||""); setSecretValue("cfg_doubao_api_key", c.doubao_chat?.api_key||"", c.doubao_chat?.api_key_configured);
-      setVal("cfg_doubao_img_enabled", c.doubao_image?.enabled); setVal("cfg_doubao_img_base_url", c.doubao_image?.base_url||""); setVal("cfg_doubao_img_model", c.doubao_image?.model||""); setVal("cfg_doubao_img_size", c.doubao_image?.size||""); setVal("cfg_doubao_img_watermark", c.doubao_image?.watermark); setSecretValue("cfg_doubao_img_api_key", c.doubao_image?.api_key||"", c.doubao_image?.api_key_configured);
-      setSecretState("cfg_admin_password", c.web_player?.admin_password_configured);
+    function getInt(id) {
+      const value = Number(AdminShell.byId(id).value);
+      return Number.isFinite(value) ? Math.trunc(value) : 0;
     }
 
-    function build(){
-      const u = {
-        web_player:{url:val("cfg_web_url"),token_ttl_seconds:getInt("cfg_web_token_ttl"),cookie_max_age_seconds:getInt("cfg_web_cookie_age"),link_idle_release_seconds:getInt("cfg_link_idle"),cookie_secure:chk("cfg_cookie_secure"),admin_session_ttl_seconds:getInt("cfg_admin_session_ttl"),admin_cookie_secure:chk("cfg_admin_cookie_secure")},
-        auto_recall:{enabled:chk("cfg_auto_recall_enabled"),delay:getInt("cfg_auto_recall_delay")},
-        area_join_notify:{enabled:chk("cfg_area_notify_enabled"),poll_interval_seconds:getInt("cfg_area_poll")},
-        chat:{enabled:chk("cfg_chat_enabled")},
-        profanity:{enabled:chk("cfg_profanity_enabled"),mute_duration:getInt("cfg_mute_duration"),warn_before_mute:chk("cfg_warn_before_mute"),skip_admins:chk("cfg_skip_admins"),context_detection:chk("cfg_context_detection"),context_window:getInt("cfg_context_window"),context_max_messages:getInt("cfg_context_max_messages"),ai_detection:chk("cfg_ai_detection"),ai_min_length:getInt("cfg_ai_min_length")},
-        oopz:{default_area:val("cfg_oopz_default_area"),default_channel:val("cfg_oopz_default_channel"),proxy:val("cfg_oopz_proxy"),use_announcement_style:chk("cfg_oopz_announcement")},
-        netease:{base_url:val("cfg_netease_base_url"),audio_download_timeout:getInt("cfg_netease_timeout"),audio_download_retries:getInt("cfg_netease_retries"),audio_quality:val("cfg_netease_quality")||"standard"},
-        redis:{host:val("cfg_redis_host"),port:getInt("cfg_redis_port"),db:getInt("cfg_redis_db"),decode_responses:chk("cfg_redis_decode")},
-        doubao_chat:{enabled:chk("cfg_doubao_enabled"),base_url:val("cfg_doubao_base_url"),model:val("cfg_doubao_model"),max_tokens:getInt("cfg_doubao_max_tokens"),temperature:getFloat("cfg_doubao_temperature"),system_prompt:val("cfg_doubao_system_prompt")},
-        doubao_image:{enabled:chk("cfg_doubao_img_enabled"),base_url:val("cfg_doubao_img_base_url"),model:val("cfg_doubao_img_model"),size:val("cfg_doubao_img_size"),watermark:chk("cfg_doubao_img_watermark")},
+    function getFloat(id) {
+      const value = Number(AdminShell.byId(id).value);
+      return Number.isFinite(value) ? value : 0;
+    }
+
+    function val(id) {
+      return (AdminShell.byId(id).value || "").trim();
+    }
+
+    function chk(id) {
+      return !!AdminShell.byId(id).checked;
+    }
+
+    function setPageState(text, variant) {
+      AdminShell.setStatus(text, variant, "topStatus");
+      AdminShell.setStatus(text, variant, "mobileStatus");
+      AdminShell.setStatus(text, variant, "railState");
+    }
+
+    function setSecretState(id, configured) {
+      const element = AdminShell.byId(id);
+      if (!element) {
+        return;
+      }
+      element.type = "password";
+      element.value = "";
+      element.placeholder = configured ? "已配置，留空表示不修改" : "未配置";
+      const button = element.parentElement && element.parentElement.querySelector("button");
+      if (button) {
+        button.textContent = "显示";
+      }
+    }
+
+    function setSecretValue(id, value, configured) {
+      const element = AdminShell.byId(id);
+      if (!element) {
+        return;
+      }
+      element.type = "password";
+      element.value = value || "";
+      element.placeholder = configured && !value ? "已配置，留空表示不修改" : "";
+      const button = element.parentElement && element.parentElement.querySelector("button");
+      if (button) {
+        button.textContent = "显示";
+      }
+    }
+
+    function toggleSecret(id, button) {
+      const element = AdminShell.byId(id);
+      if (!element) {
+        return;
+      }
+      const show = element.type === "password";
+      element.type = show ? "text" : "password";
+      if (button) {
+        button.textContent = show ? "隐藏" : "显示";
+      }
+    }
+
+    async function check() {
+      try {
+        await AdminShell.req("/admin/api/me");
+        AdminShell.setAuthState({
+          loggedIn: true,
+          loggedInText: "已登录配置页",
+          statusTargets: ["topStatus", "mobileStatus"],
+        });
+        await loadConfig();
+      } catch (_) {
+        AdminShell.setAuthState({
+          loggedIn: false,
+          loggedOutText: "等待登录",
+          statusTargets: ["topStatus", "mobileStatus"],
+        });
+        AdminShell.showMessage("loginMsg", "");
+        setPageState("等待操作", "warning");
+      }
+    }
+
+    async function login() {
+      try {
+        await AdminShell.req("/admin/api/login", {
+          method: "POST",
+          body: JSON.stringify({ password: AdminShell.byId("pwd").value || "" }),
+        });
+        AdminShell.showMessage("loginMsg", "登录成功");
+        await check();
+      } catch (error) {
+        AdminShell.showMessage("loginMsg", error.message, true);
+        setPageState("登录失败", "error");
+      }
+    }
+
+    async function logout() {
+      try {
+        await AdminShell.req("/admin/api/logout", { method: "POST", body: "{}" });
+      } catch (_) {
+      }
+      await check();
+    }
+
+    async function loadConfig() {
+      const data = await AdminShell.req("/admin/api/config");
+      const config = data.config || {};
+
+      setVal("cfg_web_url", config.web_player?.url || "");
+      setVal("cfg_web_token_ttl", config.web_player?.token_ttl_seconds || 0);
+      setVal("cfg_web_cookie_age", config.web_player?.cookie_max_age_seconds || 0);
+      setVal("cfg_link_idle", config.web_player?.link_idle_release_seconds || 0);
+      setVal("cfg_cookie_secure", config.web_player?.cookie_secure);
+      setVal("cfg_admin_session_ttl", config.web_player?.admin_session_ttl_seconds || 0);
+      setVal("cfg_admin_cookie_secure", config.web_player?.admin_cookie_secure);
+
+      setVal("cfg_auto_recall_enabled", config.auto_recall?.enabled);
+      setVal("cfg_auto_recall_delay", config.auto_recall?.delay || 30);
+      setVal("cfg_area_notify_enabled", config.area_join_notify?.enabled);
+      setVal("cfg_area_poll", config.area_join_notify?.poll_interval_seconds || 2);
+      setVal("cfg_chat_enabled", config.chat?.enabled);
+      setVal("cfg_profanity_enabled", config.profanity?.enabled);
+      setVal("cfg_mute_duration", config.profanity?.mute_duration || 5);
+      setVal("cfg_warn_before_mute", config.profanity?.warn_before_mute);
+      setVal("cfg_skip_admins", config.profanity?.skip_admins);
+      setVal("cfg_context_detection", config.profanity?.context_detection);
+      setVal("cfg_context_window", config.profanity?.context_window || 30);
+      setVal("cfg_context_max_messages", config.profanity?.context_max_messages || 10);
+      setVal("cfg_ai_detection", config.profanity?.ai_detection);
+      setVal("cfg_ai_min_length", config.profanity?.ai_min_length || 2);
+
+      setVal("cfg_oopz_default_area", config.oopz?.default_area || "");
+      setVal("cfg_oopz_default_channel", config.oopz?.default_channel || "");
+      setVal("cfg_oopz_proxy", config.oopz?.proxy || "");
+      setVal("cfg_oopz_announcement", config.oopz?.use_announcement_style);
+
+      setVal("cfg_netease_base_url", config.netease?.base_url || "");
+      setVal("cfg_netease_timeout", config.netease?.audio_download_timeout || 120);
+      setVal("cfg_netease_retries", config.netease?.audio_download_retries || 2);
+      setVal("cfg_netease_quality", config.netease?.audio_quality || "standard");
+
+      setVal("cfg_redis_host", config.redis?.host || "");
+      setVal("cfg_redis_port", config.redis?.port || 6379);
+      setVal("cfg_redis_db", config.redis?.db || 0);
+      setVal("cfg_redis_decode", config.redis?.decode_responses);
+
+      setVal("cfg_doubao_enabled", config.doubao_chat?.enabled);
+      setVal("cfg_doubao_base_url", config.doubao_chat?.base_url || "");
+      setVal("cfg_doubao_model", config.doubao_chat?.model || "");
+      setVal("cfg_doubao_max_tokens", config.doubao_chat?.max_tokens || 256);
+      setVal("cfg_doubao_temperature", config.doubao_chat?.temperature ?? 0.7);
+      setVal("cfg_doubao_system_prompt", config.doubao_chat?.system_prompt || "");
+
+      setVal("cfg_doubao_img_enabled", config.doubao_image?.enabled);
+      setVal("cfg_doubao_img_base_url", config.doubao_image?.base_url || "");
+      setVal("cfg_doubao_img_model", config.doubao_image?.model || "");
+      setVal("cfg_doubao_img_size", config.doubao_image?.size || "");
+      setVal("cfg_doubao_img_watermark", config.doubao_image?.watermark);
+
+      setSecretState("cfg_admin_password", config.web_player?.admin_password_configured);
+      setSecretValue("cfg_netease_cookie", config.netease?.cookie || "", config.netease?.cookie_configured);
+      setSecretState("cfg_redis_password", config.redis?.password_configured);
+      setSecretValue("cfg_doubao_api_key", config.doubao_chat?.api_key || "", config.doubao_chat?.api_key_configured);
+      setSecretValue("cfg_doubao_img_api_key", config.doubao_image?.api_key || "", config.doubao_image?.api_key_configured);
+
+      setPageState("配置已同步", "success");
+    }
+
+    function build() {
+      const updates = {
+        web_player: {
+          url: val("cfg_web_url"),
+          token_ttl_seconds: getInt("cfg_web_token_ttl"),
+          cookie_max_age_seconds: getInt("cfg_web_cookie_age"),
+          link_idle_release_seconds: getInt("cfg_link_idle"),
+          cookie_secure: chk("cfg_cookie_secure"),
+          admin_session_ttl_seconds: getInt("cfg_admin_session_ttl"),
+          admin_cookie_secure: chk("cfg_admin_cookie_secure"),
+        },
+        auto_recall: {
+          enabled: chk("cfg_auto_recall_enabled"),
+          delay: getInt("cfg_auto_recall_delay"),
+        },
+        area_join_notify: {
+          enabled: chk("cfg_area_notify_enabled"),
+          poll_interval_seconds: getInt("cfg_area_poll"),
+        },
+        chat: {
+          enabled: chk("cfg_chat_enabled"),
+        },
+        profanity: {
+          enabled: chk("cfg_profanity_enabled"),
+          mute_duration: getInt("cfg_mute_duration"),
+          warn_before_mute: chk("cfg_warn_before_mute"),
+          skip_admins: chk("cfg_skip_admins"),
+          context_detection: chk("cfg_context_detection"),
+          context_window: getInt("cfg_context_window"),
+          context_max_messages: getInt("cfg_context_max_messages"),
+          ai_detection: chk("cfg_ai_detection"),
+          ai_min_length: getInt("cfg_ai_min_length"),
+        },
+        oopz: {
+          default_area: val("cfg_oopz_default_area"),
+          default_channel: val("cfg_oopz_default_channel"),
+          proxy: val("cfg_oopz_proxy"),
+          use_announcement_style: chk("cfg_oopz_announcement"),
+        },
+        netease: {
+          base_url: val("cfg_netease_base_url"),
+          audio_download_timeout: getInt("cfg_netease_timeout"),
+          audio_download_retries: getInt("cfg_netease_retries"),
+          audio_quality: val("cfg_netease_quality") || "standard",
+        },
+        redis: {
+          host: val("cfg_redis_host"),
+          port: getInt("cfg_redis_port"),
+          db: getInt("cfg_redis_db"),
+          decode_responses: chk("cfg_redis_decode"),
+        },
+        doubao_chat: {
+          enabled: chk("cfg_doubao_enabled"),
+          base_url: val("cfg_doubao_base_url"),
+          model: val("cfg_doubao_model"),
+          max_tokens: getInt("cfg_doubao_max_tokens"),
+          temperature: getFloat("cfg_doubao_temperature"),
+          system_prompt: val("cfg_doubao_system_prompt"),
+        },
+        doubao_image: {
+          enabled: chk("cfg_doubao_img_enabled"),
+          base_url: val("cfg_doubao_img_base_url"),
+          model: val("cfg_doubao_img_model"),
+          size: val("cfg_doubao_img_size"),
+          watermark: chk("cfg_doubao_img_watermark"),
+        },
       };
-      u.web_player.admin_password = val("cfg_admin_password");
-      u.netease.cookie = val("cfg_netease_cookie");
-      u.redis.password = val("cfg_redis_password");
-      u.doubao_chat.api_key = val("cfg_doubao_api_key");
-      u.doubao_image.api_key = val("cfg_doubao_img_api_key");
-      return u;
-    }
 
-    function toggleSecret(id, btn){const el = document.getElementById(id);if (!el) return;const isText = el.type === "text";el.type = isText ? "password" : "text";if (btn) btn.textContent = isText ? "显示" : "隐藏";}
-    async function saveConfig(persist){try{const d = await req("/admin/api/config",{method:"POST",body:JSON.stringify({updates:build(),persist})});if (Array.isArray(d.errors) && d.errors.length) setMsg("部分失败: "+d.errors.join(" | "), true); else setMsg(persist?"配置已保存并持久化":"配置已更新（仅本次进程）");await loadConfig();}catch(e){setMsg(e.message,true);}}
-    async function resetOverrides(){try{await req("/admin/api/config/reset",{method:"POST",body:"{}"});setMsg("已清除持久化覆盖");}catch(e){setMsg(e.message,true);}}
-        function applyTheme(mode){
-      const root = document.documentElement;
-      root.removeAttribute("data-theme");
-      if (mode === "light" || mode === "dark") root.setAttribute("data-theme", mode);
-    }
-    function setTheme(mode){
-      localStorage.setItem("admin_theme", mode);
-      applyTheme(mode);
-    }
-    function initTheme(){
-      const mode = localStorage.getItem("admin_theme") || "auto";
-      const sel = document.getElementById("themeSelect");
-      if (sel) sel.value = mode;
-      applyTheme(mode);
-    }
-    function initMotion(){
-      if (!window.gsap || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
-      const win = document.querySelector('.window');
-      const cards = document.querySelectorAll('.card');
-      const dock = document.querySelector('.dock-nav');
-      const title = document.querySelector('.titlebar');
-      gsap.set([win, title, cards, dock], { willChange: 'transform, opacity' });
-      gsap.timeline({ defaults: { ease: 'expo.out' } })
-        .from(win, { y: 26, opacity: 0, scale: 0.988, duration: 1.05 })
-        .from(title, { y: -18, opacity: 0, duration: 0.62 }, '-=0.72')
-        .from(cards, { y: 20, opacity: 0, duration: 0.64, stagger: 0.08 }, '-=0.48')
-        .from(dock, { y: 26, opacity: 0, duration: 0.58 }, '-=0.52');
+      const adminPassword = val("cfg_admin_password");
+      const neteaseCookie = val("cfg_netease_cookie");
+      const redisPassword = val("cfg_redis_password");
+      const doubaoApiKey = val("cfg_doubao_api_key");
+      const doubaoImageApiKey = val("cfg_doubao_img_api_key");
 
-      if (win) {
-        const rxTo = gsap.quickTo(win, 'rotateX', { duration: 0.55, ease: 'power3.out' });
-        const ryTo = gsap.quickTo(win, 'rotateY', { duration: 0.55, ease: 'power3.out' });
-        window.addEventListener('pointermove', (e) => {
-          const px = e.clientX / window.innerWidth - 0.5;
-          const py = e.clientY / window.innerHeight - 0.5;
-          rxTo(py * -2.4);
-          ryTo(px * 2.8);
-        }, { passive: true });
-        window.addEventListener('pointerleave', () => { rxTo(0); ryTo(0); });
+      if (adminPassword) {
+        updates.web_player.admin_password = adminPassword;
+      }
+      if (neteaseCookie) {
+        updates.netease.cookie = neteaseCookie;
+      }
+      if (redisPassword) {
+        updates.redis.password = redisPassword;
+      }
+      if (doubaoApiKey) {
+        updates.doubao_chat.api_key = doubaoApiKey;
+      }
+      if (doubaoImageApiKey) {
+        updates.doubao_image.api_key = doubaoImageApiKey;
       }
 
-      gsap.utils.toArray('.btn, .dock-link').forEach((el) => {
-        el.addEventListener('mouseenter', () => gsap.to(el, { y: -2, duration: 0.22, ease: 'power2.out' }));
-        el.addEventListener('mouseleave', () => gsap.to(el, { y: 0, duration: 0.28, ease: 'power2.out' }));
-      });
+      return updates;
     }
-    initTheme();
-    initMotion();
+
+    async function saveConfig(persist) {
+      try {
+        const data = await AdminShell.req("/admin/api/config", {
+          method: "POST",
+          body: JSON.stringify({ updates: build(), persist }),
+        });
+        if (Array.isArray(data.errors) && data.errors.length > 0) {
+          AdminShell.showMessage("msg", "部分失败：" + data.errors.join(" | "), true);
+          setPageState("配置保存有错误", "error");
+        } else {
+          AdminShell.showMessage("msg", persist ? "配置已保存并持久化" : "配置已更新，仅当前进程生效");
+          setPageState("配置已保存", "success");
+        }
+        await loadConfig();
+      } catch (error) {
+        AdminShell.showMessage("msg", error.message, true);
+        setPageState("配置保存失败", "error");
+      }
+    }
+
+    async function resetOverrides() {
+      try {
+        await AdminShell.req("/admin/api/config/reset", { method: "POST", body: "{}" });
+        AdminShell.showMessage("msg", "已清除持久化覆盖，重启后回退到 config.py");
+        setPageState("覆盖已清除", "warning");
+        await loadConfig();
+      } catch (error) {
+        AdminShell.showMessage("msg", error.message, true);
+      }
+    }
+
+    AdminShell.init({ page: "config", passwordHandler: login });
     check();
   </script>
-  <nav id="dockNav" class="dock-nav" aria-label="后台导航"><div class="row">
-    <a class="dock-link i-home" href="/admin" aria-label="首页"><span class="ico">概览</span><span class="tip">概览</span></a>
-    <a class="dock-link i-music" href="/admin/music" aria-label="音乐管理"><span class="ico">音乐</span><span class="tip">音乐</span></a>
-    <a class="dock-link i-config active" href="/admin/config" aria-label="配置中心"><span class="ico">配置</span><span class="tip">配置</span></a>
-    <a class="dock-link i-stats" href="/admin/stats" aria-label="统计页"><span class="ico">统计</span><span class="tip">统计</span></a>
-    <a class="dock-link i-system" href="/admin/system" aria-label="系统页"><span class="ico">系统</span><span class="tip">系统</span></a>
-  </div></nav>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
