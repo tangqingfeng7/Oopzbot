@@ -1,0 +1,199 @@
+      <section id="panel" class="hidden config-layout">
+        <div class="surface-card">
+          <section id="section-access" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Access & Security</p>
+                <h3 class="section-title">访问与安全</h3>
+                <p class="section-copy">播放器访问地址、会话时长、链接释放和 Cookie 安全策略。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--wide">
+                <label for="cfg_web_url">播放器 URL</label>
+                <input id="cfg_web_url" type="text" placeholder="http://127.0.0.1:8080" />
+              </div>
+              <div class="field">
+                <label for="cfg_web_token_ttl">播放器 Token TTL（秒）</label>
+                <input id="cfg_web_token_ttl" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_web_cookie_age">播放器 Cookie MaxAge（秒）</label>
+                <input id="cfg_web_cookie_age" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_admin_session_ttl">后台会话 TTL（秒）</label>
+                <input id="cfg_admin_session_ttl" type="number" min="0" />
+              </div>
+              <div class="field">
+                <label for="cfg_link_idle">空闲释放链接（秒）</label>
+                <input id="cfg_link_idle" type="number" min="0" />
+              </div>
+              <div class="field field--wide">
+                <label for="cfg_admin_password">后台新密码</label>
+                <div class="secret-input">
+                  <input id="cfg_admin_password" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_admin_password', this)">显示</button>
+                </div>
+              </div>
+              <div class="field field--check">
+                <label><input id="cfg_cookie_secure" type="checkbox" /> 播放器 Cookie Secure</label>
+              </div>
+              <div class="field field--check">
+                <label><input id="cfg_admin_cookie_secure" type="checkbox" /> 后台 Cookie Secure</label>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-behavior" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Bot Behaviors</p>
+                <h3 class="section-title">机器人行为</h3>
+                <p class="section-copy">自动撤回、进群通知、聊天与脏话检测相关参数。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_auto_recall_enabled" type="checkbox" /> 启用自动撤回</label></div>
+              <div class="field"><label for="cfg_auto_recall_delay">自动撤回延迟（秒）</label><input id="cfg_auto_recall_delay" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_area_notify_enabled" type="checkbox" /> 启用区域加入通知</label></div>
+              <div class="field"><label for="cfg_area_poll">区域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2" /></div>
+              <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
+              <div class="field field--check"><label><input id="cfg_profanity_enabled" type="checkbox" /> 启用脏话检测</label></div>
+              <div class="field"><label for="cfg_mute_duration">禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_warn_before_mute" type="checkbox" /> 先警告后禁言</label></div>
+              <div class="field field--check"><label><input id="cfg_skip_admins" type="checkbox" /> 跳过管理员检测</label></div>
+              <div class="field field--check"><label><input id="cfg_context_detection" type="checkbox" /> 启用上下文检测</label></div>
+              <div class="field"><label for="cfg_context_window">上下文窗口（秒）</label><input id="cfg_context_window" type="number" min="5" /></div>
+              <div class="field"><label for="cfg_context_max_messages">上下文最大消息数</label><input id="cfg_context_max_messages" type="number" min="1" /></div>
+              <div class="field field--check"><label><input id="cfg_ai_detection" type="checkbox" /> 启用 AI 检测</label></div>
+              <div class="field"><label for="cfg_ai_min_length">AI 检测最短长度</label><input id="cfg_ai_min_length" type="number" min="1" /></div>
+            </div>
+          </section>
+
+          <section id="section-oopz" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">OOPZ & Music</p>
+                <h3 class="section-title">OOPZ 与音乐</h3>
+                <p class="section-copy">默认区域、频道、代理和网易云相关配置。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field"><label for="cfg_oopz_default_area">默认区域 ID</label><input id="cfg_oopz_default_area" type="text" /></div>
+              <div class="field"><label for="cfg_oopz_default_channel">默认频道 ID</label><input id="cfg_oopz_default_channel" type="text" /></div>
+              <div class="field field--wide"><label for="cfg_oopz_proxy">OOPZ 代理</label><input id="cfg_oopz_proxy" type="text" placeholder="direct / http://127.0.0.1:7890" /></div>
+              <div class="field field--wide field--check"><label><input id="cfg_oopz_announcement" type="checkbox" /> 使用公告样式消息</label></div>
+              <div class="field field--wide"><label for="cfg_netease_base_url">网易云 API 地址</label><input id="cfg_netease_base_url" type="text" placeholder="http://127.0.0.1:3000" /></div>
+              <div class="field"><label for="cfg_netease_timeout">网易云音频超时（秒）</label><input id="cfg_netease_timeout" type="number" min="5" /></div>
+              <div class="field"><label for="cfg_netease_retries">网易云音频重试次数</label><input id="cfg_netease_retries" type="number" min="0" /></div>
+              <div class="field"><label for="cfg_netease_quality">网易云音质</label><input id="cfg_netease_quality" type="text" placeholder="standard / exhigh" /></div>
+              <div class="field field--wide">
+                <label for="cfg_netease_cookie">网易云 Cookie</label>
+                <div class="secret-input">
+                  <input id="cfg_netease_cookie" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_netease_cookie', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-redis" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Redis</p>
+                <h3 class="section-title">缓存与状态</h3>
+                <p class="section-copy">Redis 连接参数、数据库索引与密码。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field"><label for="cfg_redis_host">Redis Host</label><input id="cfg_redis_host" type="text" /></div>
+              <div class="field"><label for="cfg_redis_port">Redis Port</label><input id="cfg_redis_port" type="number" min="1" /></div>
+              <div class="field"><label for="cfg_redis_db">Redis DB</label><input id="cfg_redis_db" type="number" min="0" /></div>
+              <div class="field field--check"><label><input id="cfg_redis_decode" type="checkbox" /> decode_responses</label></div>
+              <div class="field field--wide">
+                <label for="cfg_redis_password">Redis 密码</label>
+                <div class="secret-input">
+                  <input id="cfg_redis_password" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_redis_password', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-doubao-chat" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Doubao Chat</p>
+                <h3 class="section-title">豆包聊天</h3>
+                <p class="section-copy">聊天模型、提示词和密钥。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_doubao_enabled" type="checkbox" /> 启用豆包聊天</label></div>
+              <div class="field"><label for="cfg_doubao_model">模型</label><input id="cfg_doubao_model" type="text" /></div>
+              <div class="field field--wide"><label for="cfg_doubao_base_url">Base URL</label><input id="cfg_doubao_base_url" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_max_tokens">max_tokens</label><input id="cfg_doubao_max_tokens" type="number" min="1" /></div>
+              <div class="field"><label for="cfg_doubao_temperature">temperature</label><input id="cfg_doubao_temperature" type="number" min="0" max="2" step="0.1" /></div>
+              <div class="field field--wide"><label for="cfg_doubao_system_prompt">系统提示词</label><input id="cfg_doubao_system_prompt" type="text" /></div>
+              <div class="field field--wide">
+                <label for="cfg_doubao_api_key">API Key</label>
+                <div class="secret-input">
+                  <input id="cfg_doubao_api_key" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_api_key', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+
+          <section id="section-doubao-image" class="field-section">
+            <div class="section-head">
+              <div>
+                <p class="section-eyebrow">Doubao Image</p>
+                <h3 class="section-title">豆包文生图</h3>
+                <p class="section-copy">图像模型、尺寸、水印和密钥。</p>
+              </div>
+            </div>
+            <div class="field-grid">
+              <div class="field field--check"><label><input id="cfg_doubao_img_enabled" type="checkbox" /> 启用豆包文生图</label></div>
+              <div class="field field--check"><label><input id="cfg_doubao_img_watermark" type="checkbox" /> 图片水印</label></div>
+              <div class="field field--wide"><label for="cfg_doubao_img_base_url">Base URL</label><input id="cfg_doubao_img_base_url" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_img_model">模型</label><input id="cfg_doubao_img_model" type="text" /></div>
+              <div class="field"><label for="cfg_doubao_img_size">尺寸</label><input id="cfg_doubao_img_size" type="text" placeholder="1920x1920" /></div>
+              <div class="field field--wide">
+                <label for="cfg_doubao_img_api_key">API Key</label>
+                <div class="secret-input">
+                  <input id="cfg_doubao_img_api_key" type="password" placeholder="留空表示不修改" />
+                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_img_api_key', this)">显示</button>
+                </div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <aside class="sticky-rail">
+          <div class="rail-block">
+            <div id="railState" class="micro-status is-warning">等待操作</div>
+            <h3 class="rail-block__title">保存轨道</h3>
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="saveConfig(true)">保存并持久化</button>
+              <button class="btn btn-ghost" type="button" onclick="saveConfig(false)">仅当前进程生效</button>
+              <button class="btn btn-ghost" type="button" onclick="loadConfig()">重新加载</button>
+              <button class="btn btn-danger" type="button" onclick="resetOverrides()">清除持久化覆盖</button>
+            </div>
+            <div id="msg" class="msg"></div>
+          </div>
+
+          <div class="rail-block">
+            <h3 class="rail-block__title">章节索引</h3>
+            <div class="index-list">
+              <a class="index-link" href="#section-access">访问与安全</a>
+              <a class="index-link" href="#section-behavior">机器人行为</a>
+              <a class="index-link" href="#section-oopz">OOPZ 与音乐</a>
+              <a class="index-link" href="#section-redis">缓存与状态</a>
+              <a class="index-link" href="#section-doubao-chat">豆包聊天</a>
+              <a class="index-link" href="#section-doubao-image">豆包文生图</a>
+            </div>
+          </div>
+        </aside>
+      </section>

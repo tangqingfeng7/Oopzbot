@@ -1,0 +1,33 @@
+      <section id="panel" class="hidden dashboard-grid">
+        <div class="dashboard-grid__main">
+          <article class="surface-card">
+            <div class="action-row">
+              <span id="overviewLiveHint" class="micro-status is-warning">等待连接</span>
+              <button class="btn btn-primary" type="button" onclick="loadOverview().catch(() => {})">同步</button>
+              <button class="btn btn-ghost" type="button" onclick="startOverviewStream()">恢复实时流</button>
+              <button class="btn btn-ghost" type="button" onclick="stopOverviewStream()">暂停实时流</button>
+            </div>
+          </article>
+
+          <section class="metrics-grid">
+            <article class="metric-card metric-card--featured">
+              <div class="metric-card__label">累计播放</div>
+              <div id="sTotal" class="metric-card__value">0</div>
+            </article>
+            <div class="metric-stack">
+              <article class="summary-card">
+                <div class="summary-card__label">Redis</div>
+                <div id="sRedis" class="summary-card__value">-</div>
+              </article>
+              <article class="summary-card">
+                <div class="summary-card__label">运行时长（秒）</div>
+                <div id="sUp" class="summary-card__value">0</div>
+              </article>
+              <article class="summary-card">
+                <div class="summary-card__label">队列长度</div>
+                <div id="sQueue" class="summary-card__value">0</div>
+              </article>
+            </div>
+          </section>
+        </div>
+      </section>

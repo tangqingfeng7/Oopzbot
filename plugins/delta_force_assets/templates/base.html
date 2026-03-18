@@ -1,0 +1,79 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <title>$title</title>
+  <style>
+    :root{
+      --bg:$theme_bg;
+      --text:$theme_text;
+      --poster-w:$theme_poster_w;
+      --poster-p:$theme_poster_p;
+      --shell-bg:$theme_shell_bg;
+      --shell-border:$theme_shell_border;
+      --shell-radius:$theme_shell_radius;
+      --shell-padding:$theme_shell_padding;
+      --shell-shadow:$theme_shell_shadow;
+      --hero-mb:$theme_hero_mb;
+      --avatar-size:$theme_avatar_size;
+      --avatar-radius:$theme_avatar_radius;
+      --avatar-bg:$theme_avatar_bg;
+      --avatar-border:$theme_avatar_border;
+      --title-size:$theme_title_size;
+      --title-spacing:$theme_title_spacing;
+      --subtitle-size:$theme_subtitle_size;
+      --subtitle-color:$theme_subtitle_color;
+      --name-size:$theme_name_size;
+      --name-color:$theme_name_color;
+      --label-color:$theme_label_color;
+      --panel-mt:$theme_panel_mt;
+      --panel-p:$theme_panel_p;
+      --panel-radius:$theme_panel_radius;
+      --row-gap:$theme_row_gap;
+      --row-p:$theme_row_p;
+      --row-border:$theme_row_border;
+      --value-weight:$theme_value_weight;
+      --value-align:$theme_value_align;
+      --empty-p:$theme_empty_p;
+      --record-border:$theme_record_border;
+      --record-meta-color:$theme_record_meta_color;
+      --record-metrics-color:$theme_record_metrics_color
+    }
+    body{margin:0;background:var(--bg);font-family:"Segoe UI","Microsoft YaHei",sans-serif;color:var(--text)}
+    #poster{width:var(--poster-w);padding:var(--poster-p);box-sizing:border-box}
+    .shell{background:var(--shell-bg);border:var(--shell-border);border-radius:var(--shell-radius);padding:var(--shell-padding);box-shadow:var(--shell-shadow)}
+    .hero{display:flex;gap:20px;align-items:center;margin-bottom:var(--hero-mb)}
+    .avatar{width:var(--avatar-size);height:var(--avatar-size);border-radius:var(--avatar-radius);object-fit:cover;background:var(--avatar-bg);border:var(--avatar-border)}
+    .title{font-size:var(--title-size);font-weight:700;letter-spacing:var(--title-spacing)}
+    .subtitle{font-size:var(--subtitle-size);color:var(--subtitle-color);margin-top:8px}
+    .name{font-size:var(--name-size);color:var(--name-color);margin-top:10px}
+    .panel{margin-top:var(--panel-mt);padding:var(--panel-p);border-radius:var(--panel-radius);background:rgba(255,255,255,.05)}
+    .panel h3{margin:0 0 12px;font-size:20px}
+    .row{display:flex;justify-content:space-between;gap:var(--row-gap);padding:var(--row-p);border-bottom:var(--row-border)}
+    .row:last-child{border-bottom:none}
+    .label{color:var(--label-color)}
+    .value{font-weight:var(--value-weight);text-align:var(--value-align)}
+    .empty{padding:var(--empty-p);color:var(--label-color)}
+    .record{padding:14px 0;border-bottom:var(--record-border)}
+    .record:last-child{border-bottom:none}
+    .record-title{font-size:18px;font-weight:700}
+    .record-meta{margin-top:6px;color:var(--record-meta-color)}
+    .record-metrics{margin-top:8px;color:var(--record-metrics-color)}
+  </style>
+</head>
+<body>
+  <div id="poster">
+    <div class="shell">
+      <div class="hero">
+        <img class="avatar" src="$hero_image" alt="">
+        <div>
+          <div class="title">$title</div>
+          <div class="subtitle">$subtitle</div>
+          <div class="name">$hero_name</div>
+        </div>
+      </div>
+      $body_html
+    </div>
+  </div>
+</body>
+</html>

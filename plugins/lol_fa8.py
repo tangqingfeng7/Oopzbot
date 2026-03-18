@@ -5,6 +5,7 @@ from plugin_base import (
     PluginConfigSpec,
     PluginMetadata,
 )
+from ._lol_common import extract_keyword_from_mention
 
 
 class LolFa8Plugin(BotModule):
@@ -63,10 +64,7 @@ class LolFa8Plugin(BotModule):
         return self._handler
 
     def _keyword(self, text: str) -> str:
-        for p in self.command_capabilities.mention_prefixes:
-            if text.startswith(p):
-                return text[len(p):].strip()
-        return text.strip()
+        return extract_keyword_from_mention(text, self.command_capabilities.mention_prefixes)
 
     def handle_mention(self, text, channel, area, user, handler):
         keyword = self._keyword(text)

@@ -6,6 +6,9 @@ from logger_config import get_logger
 
 logger = get_logger("Chat")
 
+_AI_TIMEOUT = 15
+_IMAGE_TIMEOUT = 60
+
 
 class ChatHandler:
     """关键词匹配 + AI 聊天回复"""
@@ -79,7 +82,7 @@ class ChatHandler:
                     "max_tokens": self._max_tokens,
                     "temperature": self._temperature,
                 },
-                timeout=15,
+                timeout=_AI_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()
@@ -116,7 +119,7 @@ class ChatHandler:
                     "watermark": self._img_watermark,
                     "response_format": "url",
                 },
-                timeout=60,
+                timeout=_IMAGE_TIMEOUT,
             )
             resp.raise_for_status()
             data = resp.json()

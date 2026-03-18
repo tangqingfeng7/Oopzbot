@@ -1,0 +1,63 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="statsState" class="micro-status is-warning">等待同步</span>
+            <button class="btn btn-primary" type="button" onclick="loadTop().catch(() => {})">刷新排行</button>
+            <button class="btn btn-danger" type="button" onclick="clearHistory()">清空历史</button>
+          </div>
+        </article>
+
+        <section class="summary-grid">
+          <article class="summary-card">
+            <div id="topTotalValue" class="summary-card__value">0</div>
+          </article>
+          <article class="summary-card">
+            <div id="topPageValue" class="summary-card__value">1 / 1</div>
+          </article>
+          <article class="summary-card">
+            <div id="leaderCountValue" class="summary-card__value">0</div>
+          </article>
+        </section>
+
+        <article class="table-card">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">播放排行</h3>
+            </div>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>歌曲</th>
+                  <th>歌手</th>
+                  <th>播放次数</th>
+                  <th>最后播放时间</th>
+                </tr>
+              </thead>
+              <tbody id="topRows">
+                <tr>
+                  <td colspan="4" class="empty-state">暂无统计数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="action-row" style="margin-top: 14px;">
+            <button class="btn btn-sm btn-ghost" type="button" onclick="changeTop(-1)">上一页</button>
+            <button class="btn btn-sm btn-ghost" type="button" onclick="changeTop(1)">下一页</button>
+            <span id="topInfo" class="mono"></span>
+          </div>
+        </article>
+
+        <article class="table-card danger-block">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">历史清理</h3>
+            </div>
+          </div>
+          <div class="action-row">
+            <button class="btn btn-danger" type="button" onclick="clearHistory()">清空播放历史</button>
+          </div>
+          <div id="msg" class="msg"></div>
+        </article>
+      </section>

@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>$page_title</title>
+  <link rel="icon" type="image/png" href="https://raw.githubusercontent.com/lige47/QuanX-icon-rule/main/icon/03CNSoft/apple.png" />
+  <link rel="stylesheet" href="/admin-assets/admin-shell.css" />
+</head>
+<body data-admin-page="$page_id">
+  <div class="shell-app">
+    <header class="shell-topbar">
+      <div class="topbar-main">
+        <div class="brand-lockup">
+          <p class="brand-lockup__eyebrow">Oopz Bot Admin</p>
+          <h1 class="brand-lockup__title">$brand_title</h1>
+          <p class="brand-lockup__copy">$brand_copy</p>
+        </div>
+        <div class="topbar-actions">
+          <span id="topStatus" class="status-text is-warning">等待登录</span>
+          $topbar_actions
+          <button class="btn" type="button" onclick="logout()">退出登录</button>
+        </div>
+      </div>
+      <div class="topbar-nav-row">
+        <nav id="topNav" class="top-nav" aria-label="后台导航"></nav>
+      </div>
+    </header>
+
+    <div class="mobile-nav-shell">
+      <div class="action-row" style="margin-bottom: 10px;">
+        <span id="mobileStatus" class="status-text is-warning">等待登录</span>
+      </div>
+      <nav id="mobileNav" class="mobile-nav" aria-label="移动端后台导航"></nav>
+    </div>
+
+    <main class="shell-main">
+      <section id="loginCard" class="auth-stage">
+        <article class="auth-card">
+          <h3 class="auth-card__title">$login_title</h3>
+          <p class="auth-card__copy">$login_copy</p>
+          <div class="stack" style="margin-top: 24px;">
+            <input id="pwd" type="password" placeholder="请输入后台密码" />
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="login()">$login_button</button>
+            </div>
+            <div id="loginMsg" class="msg"></div>
+          </div>
+        </article>
+      </section>
+
+$page_content
+    </main>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/gsap@3.12.5/dist/gsap.min.js"></script>
+  <script src="/admin-assets/admin-shell.js"></script>
+  <script>
+$page_script
+  </script>
+</body>
+</html>

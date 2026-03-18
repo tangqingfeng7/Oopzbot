@@ -12,6 +12,9 @@ from logger_config import get_logger
 
 logger = get_logger("Voice")
 
+_PLAY_POLL_INTERVAL = 2
+_INIT_TIMEOUT_DEFAULT = 60
+
 _HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agora_player.html")
 _PLAYWRIGHT_DOCKER_ARGS = [
     "--disable-web-security",
@@ -32,7 +35,7 @@ class VoiceClient:
     所有浏览器操作均通过任务队列派发到 Playwright 线程执行。
     """
 
-    def __init__(self, app_id: str, oopz_uid: str = "", init_timeout: float = 60):
+    def __init__(self, app_id: str, oopz_uid: str = "", init_timeout: float = _INIT_TIMEOUT_DEFAULT):
         self._app_id = app_id
         self._oopz_uid = oopz_uid
         self._agora_uid = str(random.randint(100_000_000, 999_999_999))
@@ -511,7 +514,7 @@ class VoiceClient:
                     if state == "finished":
                         logger.info("Agora 推流播放完成")
                         break
-                    time.sleep(2)
+                    time.sleep(_PLAY_POLL_INTERVAL)
             else:
                 err = result.get("error", "未知") if result else "无响应"
                 logger.warning(f"Agora 推流启动失败: {err}")
