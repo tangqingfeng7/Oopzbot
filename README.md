@@ -121,7 +121,6 @@ Docker 环境下可通过环境变量覆盖部分配置，无需修改 `config.p
 - [配置说明](docs/configuration.md)
 - [命令说明](docs/commands.md)
 - [系统架构](docs/architecture.md)
-- [架构演进](docs/architecture-evolution.md)
 - [插件开发工作流](docs/plugin-development.md)
 - [凭据获取工具](docs/credential-tool.md)
 - [Web 播放器](docs/web-player.md)

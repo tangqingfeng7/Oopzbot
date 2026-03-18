@@ -34,27 +34,31 @@ netease    queue_manager
   ▼
 NeteaseCloud API (:3000)
 
-                ┌──────────────┐
-                │  oopz_sender │  RSA 签名 · 消息发送 · 文件上传
-                └──────┬───────┘
-                       │
-                  ┌────┴────┐
-                  ▼         ▼
-             Oopz API   Oopz CDN
-                            │
-                       database (SQLite)
+         ┌─────────────────────────────────┐
+         │          oopz_sender            │
+         │  OopzSender(UploadMixin,        │
+         │             OopzApiMixin)       │
+         │  RSA 签名 · 消息发送 · 上传 · API │
+         └──────────────┬──────────────────┘
+                        │
+                   ┌────┴────┐
+                   ▼         ▼
+              Oopz API   Oopz CDN
+                             │
+                        database (SQLite)
 
-  ┌──────────────┐     Redis      ┌──────────────┐
-  │  web_player  │◄──────────────►│    music     │
-  │  (FastAPI)   │  web_commands  │              │
-  │  :8080       │  play_state    │ voice_client │
-  └──────┬───────┘  volume        └──────┬───────┘
-         │                               │
-    浏览器 (Web UI)                Agora RTC (语音频道)
-         │                               │
-    player.html                  agora_player.html
-    搜索/点歌/控制               浏览器自动化（Playwright/Selenium）
-    暂停/进度/音量               音频推流/暂停/跳转/音量
+  ┌──────────────────────┐   Redis    ┌──────────────────────┐
+  │    web_player        │◄─────────►│  music               │
+  │  ├ web_player_admin  │ web_cmd   │  └ music_playback    │
+  │  └ web_player_config │ play_st   │                      │
+  │    (FastAPI :8080)   │ volume    │  voice_client        │
+  └──────────┬───────────┘           └──────────┬───────────┘
+             │                                  │
+        浏览器 (Web UI)                   Agora RTC (语音频道)
+             │                                  │
+        player.html                    agora_player.html
+        搜索/点歌/控制                 浏览器自动化（Playwright/Selenium）
+        暂停/进度/音量                 音频推流/暂停/跳转/音量
 ```
 
 ## 技术栈
@@ -83,25 +87,38 @@ NeteaseCloud API (:3000)
 │
 ├── src/                         # 核心源码模块
 │   ├── oopz_client.py           # WebSocket 客户端（心跳、重连、事件分发）
-│   ├── oopz_sender.py           # 消息发送（RSA 签名、文件上传、用户管理，默认公告样式）
+│   ├── oopz_sender.py           # 消息发送核心（RSA 签名、HTTP 请求、继承 UploadMixin + OopzApiMixin）
+│   ├── oopz_upload.py           # UploadMixin：文件/图片/音频上传
+│   ├── oopz_api.py              # OopzApiMixin：Oopz 平台 API 交互（成员/频道/角色/禁言等）
 │   ├── area_join_notifier.py    # 域成员加入/退出通知（轮询域成员 API 检测加入 + WebSocket 退出事件）
 │   ├── command_handler.py       # 命令路由（@bot 指令 + / 命令 + 权限校验 + 脏话自动禁言）
-│   ├── music.py                 # 音乐核心（搜索、队列、播放、封面缓存、自动切歌、Web 控制）
+│   ├── music.py                 # 音乐核心（搜索、队列、封面缓存、Web 控制，继承 PlaybackMixin）
+│   ├── music_playback.py        # PlaybackMixin：播放执行、推流、IP 检测、Web 播放器链接
 │   ├── music_web_control.py     # Web 控制命令消费与分发
 │   ├── netease.py               # 网易云音乐 API 封装（搜索、歌词、翻译歌词）
 │   ├── queue_manager.py         # Redis 播放队列管理
-│   ├── web_player.py            # Web 播放器 FastAPI 服务（状态/歌词/队列/搜索/控制 API）
+│   ├── web_player.py            # Web 播放器 FastAPI 主应用（播放器 API 路由、共享状态）
+│   ├── web_player_admin.py      # Admin 后台路由（/admin + /admin/api，使用 APIRouter）
+│   ├── web_player_config.py     # Web 播放器 / Admin 配置常量、分组定义、运行时覆盖管理
 │   ├── web_link_token.py        # Web 播放器随机访问链接/令牌管理
 │   ├── player.html              # Web 播放器前端（歌词同步、播放控制、搜索点歌）
 │   ├── agora_player.html        # Agora RTC 浏览器端（推流/暂停/跳转/音量控制）
 │   ├── voice_client.py          # Agora 语音客户端（Playwright/Selenium 浏览器控制）
 │   ├── chat.py                  # AI 聊天 + 图片生成 + 关键词回复 + AI 脏话审核
-│   ├── database.py              # SQLite 数据层（图片缓存、歌曲缓存、播放历史、统计）
+│   ├── database.py              # SQLite 数据层（图片缓存、歌曲缓存、播放历史、统计、db_connection 上下文管理器）
 │   ├── name_resolver.py         # ID → 名称解析（用户/频道/区域，自动发现 + 持久化）
 │   ├── plugin_loader.py         # 插件发现/加载/卸载
 │   ├── plugin_registry.py       # 插件注册表与命令能力汇总
 │   ├── plugin_base.py           # 插件基类
-│   └── logger_config.py         # 日志配置（轮转文件 + 控制台，UTF-8）
+│   ├── logger_config.py         # 日志配置（轮转文件 + 控制台，UTF-8）
+│   └── admin_assets/            # Admin 后台前端资源
+│       ├── admin-shell-template.html  # Admin 页面公共 Shell 模板
+│       └── pages/               # 各页面内容片段 + 脚本
+│           ├── dashboard_content.html / dashboard_script.js
+│           ├── music_content.html     / music_script.js
+│           ├── config_content.html    / config_script.js
+│           ├── stats_content.html     / stats_script.js
+│           └── system_content.html    / system_script.js
 │
 ├── plugins/                     # 插件目录
 │   ├── delta_force.py           # 三角洲插件入口
@@ -109,15 +126,18 @@ NeteaseCloud API (:3000)
 │   ├── _delta_force_assets.py   # 三角洲静态资源辅助
 │   ├── _delta_force_login.py    # 三角洲登录流程
 │   ├── _delta_force_store.py    # 三角洲本地状态存储
-│   ├── _delta_force_render.py   # 三角洲海报渲染
+│   ├── _delta_force_render.py   # 三角洲海报渲染（单 base.html + CSS 变量主题映射）
 │   ├── _delta_force_formatters.py # 三角洲文案格式化
 │   ├── _delta_force_daily_push.py # 三角洲每日密码推送
 │   ├── _delta_force_place_push.py # 三角洲特勤处推送
+│   ├── _lol_common.py           # LOL 插件公共逻辑（关键词提取）
 │   ├── lol_ban.py               # LOL 封号查询插件入口
 │   ├── lol_fa8.py               # LOL 战绩查询插件入口
 │   ├── _lol_query_service.py    # 封号查询实现（插件私有）
 │   ├── _lol_fa8_service.py      # 战绩查询实现（插件私有）
-│   ├── delta_force_assets/      # 三角洲静态资源与模板
+│   ├── champion_names.json      # 英雄名英→中映射数据
+│   ├── delta_force_assets/      # 三角洲静态资源
+│   │   └── templates/base.html  # 三角洲海报统一模板（CSS 变量主题）
 │   └── README.md                # 插件说明
 │
 ├── tools/                       # 独立工具
@@ -126,11 +146,45 @@ NeteaseCloud API (:3000)
 │
 ├── data/                        # 运行时数据（自动生成）
 │   ├── names.json               # ID → 名称缓存
+│   ├── admin_runtime_config.json # Admin 运行时配置覆盖
 │   └── oopz_cache.db            # SQLite 数据库文件
 │
 ├── docs/                        # 文档目录
 └── logs/                        # 日志文件
 ```
+
+## 模块拆分设计
+
+### OopzSender 模块拆分
+
+`oopz_sender.py` 通过 Mixin 模式拆分为三个模块：
+
+| 模块 | 职责 |
+|------|------|
+| `oopz_sender.py` | 核心发送器，RSA 签名、HTTP 请求基础设施（`_request` 统一方法）、消息发送 |
+| `oopz_upload.py` | `UploadMixin`：文件上传、图片上传、音频上传、图片信息获取 |
+| `oopz_api.py` | `OopzApiMixin`：所有 Oopz 平台 API 交互（成员管理、频道操作、角色分配等） |
+
+`OopzSender` 继承 `UploadMixin` 和 `OopzApiMixin`，外部调用方式不变。
+
+### Music 模块拆分
+
+| 模块 | 职责 |
+|------|------|
+| `music.py` | 音乐核心调度：搜索、队列管理、封面缓存、Web 控制消费 |
+| `music_playback.py` | `PlaybackMixin`：播放执行（推流/自动切歌/预加载）、IP 检测、Web 播放器链接生成 |
+
+`MusicHandler` 继承 `PlaybackMixin`。
+
+### Web Player 模块拆分
+
+| 模块 | 职责 |
+|------|------|
+| `web_player.py` | FastAPI 主应用实例、播放器 API 路由、共享状态（Redis/Netease 客户端） |
+| `web_player_admin.py` | Admin 后台所有路由（`APIRouter`），包括登录、概览、统计、配置、队列管理等 |
+| `web_player_config.py` | 配置常量（`WEB_PLAYER_CONFIG` 引用）、分组定义、基线值、运行时覆盖读写 |
+
+`web_player.py` 通过 `app.include_router(admin_router)` 挂载 Admin 路由。
 
 ## 数据库表结构
 
@@ -145,19 +199,21 @@ NeteaseCloud API (:3000)
 
 ### 架构总览
 
-Web 播放器通过 FastAPI 提供 HTTP API，前端 `player.html` 通过轮询获取状态、歌词、队列，通过 POST 请求发送控制命令。
+Web 播放器通过 FastAPI 提供 HTTP API，前端 `player.html` 通过轮询获取状态、歌词、队列，通过 POST 请求发送控制命令。Admin 后台路由由 `web_player_admin.py` 通过 `APIRouter` 提供，配置管理由 `web_player_config.py` 集中处理。
 
 ```
-浏览器 (player.html)
+浏览器 (player.html / admin 页面)
   │  轮询 GET /api/status, /api/queue, /api/lyric
   │  控制 POST /api/control, /api/queue/action
   │  搜索 GET /api/search → POST /api/add
+  │  管理 /admin/api/* (登录/概览/统计/配置/队列)
   ▼
-web_player.py (FastAPI :8080)
+web_player.py ──► web_player_admin.py (APIRouter)
+(FastAPI :8080)    └── web_player_config.py (配置管理)
   │  读取 Redis: music:current, music:queue, music:play_state, music:volume
   │  写入 Redis: music:web_commands (RPUSH)
   ▼
-music.py (BLPOP 独立线程，实时消费命令)
+music.py + music_playback.py (BLPOP 独立线程，实时消费命令)
   │  调用 voice_client 方法
   ▼
 voice_client.py → agora_player.html (Playwright 无头浏览器)
