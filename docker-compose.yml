@@ -35,9 +35,7 @@ services:
       - ./logs:/app/logs
 
   netease-api:
-    build:
-      context: ./NeteaseAPI_tmp
-      dockerfile: Dockerfile
+    image: moefurina/ncm-api:latest
     restart: unless-stopped
     environment:
       TZ: Asia/Shanghai
@@ -52,8 +50,6 @@ services:
       - "3000"
     ports:
       - "3000:3000"
-    volumes:
-      - ./NeteaseAPI_tmp/data:/app/data
 
 volumes:
   redis-data:

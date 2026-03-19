@@ -1,0 +1,63 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="activityState" class="micro-status is-warning">等待同步</span>
+            <button class="btn btn-primary" type="button" onclick="loadActivity().catch(() => {})">刷新统计</button>
+          </div>
+        </article>
+
+        <section class="summary-grid">
+          <article class="summary-card">
+            <div class="summary-card__label">今日消息</div>
+            <div id="todayMsgValue" class="summary-card__value">0</div>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__label">本周消息</div>
+            <div id="weekMsgValue" class="summary-card__value">0</div>
+          </article>
+          <article class="summary-card">
+            <div class="summary-card__label">今日活跃用户</div>
+            <div id="activeUsersValue" class="summary-card__value">0</div>
+          </article>
+        </section>
+
+        <article class="surface-card">
+          <div class="section-head">
+            <h3 class="section-title">消息趋势（近 14 天）</h3>
+          </div>
+          <div style="position: relative; height: 280px; margin-top: 12px;">
+            <canvas id="dailyChart"></canvas>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-head">
+            <h3 class="section-title">活跃排行 Top 10</h3>
+          </div>
+          <div style="position: relative; height: 280px; margin-top: 12px;">
+            <canvas id="rankingChart"></canvas>
+          </div>
+        </article>
+
+        <article class="table-card">
+          <div class="section-head">
+            <h3 class="section-title">排行详情</h3>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>排名</th>
+                  <th>用户</th>
+                  <th>消息数</th>
+                </tr>
+              </thead>
+              <tbody id="rankingRows">
+                <tr>
+                  <td colspan="3" class="empty-state">暂无数据</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>

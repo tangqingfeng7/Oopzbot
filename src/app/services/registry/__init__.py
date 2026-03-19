@@ -5,6 +5,7 @@ from .command_service_registry import (
     PluginServices,
     RoutingServices,
     SafetyServices,
+    SchedulerServices,
     build_command_service_registry,
 )
 
@@ -15,5 +16,6 @@ __all__ = [
     "PluginServices",
     "RoutingServices",
     "SafetyServices",
+    "SchedulerServices",
     "build_command_service_registry",
 ]

@@ -58,18 +58,14 @@ Bot 启动时会自动连接 Redis、启动网易云 API（若已配置 `auto_st
 
 ### Docker 部署
 
-项目提供 `docker-compose.yml`，一键启动 Redis、Bot、网易云 API 三个服务：
+项目提供 `docker-compose.yml`，一键启动 Redis、Bot、网易云 API 三个服务，无需手动安装任何依赖：
 
 ```bash
-# 1. 准备配置文件
+# 准备配置文件（编辑 config.py 填写必要配置）
 copy config.example.py config.py
 copy private_key.example.py private_key.py
-# 编辑 config.py 填写必要配置
 
-# 2. 克隆网易云 API
-git clone https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git NeteaseAPI_tmp
-
-# 3. 启动
+# 启动所有服务
 docker-compose up -d
 ```
 

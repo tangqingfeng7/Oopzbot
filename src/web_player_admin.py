@@ -16,8 +16,9 @@ from typing import Optional
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 
-from database import DB_PATH, SongCache, Statistics, db_connection
+from database import DB_PATH, MessageStatsDB, ReminderDB, ScheduledMessageDB, SongCache, Statistics, db_connection
 from logger_config import get_logger
+from name_resolver import get_resolver
 from queue_manager import get_redis_client
 from web_link_token import clear_token, ensure_token, get_token, set_token
 
@@ -130,6 +131,26 @@ _ADMIN_PAGES: dict[str, dict[str, str]] = {
         "login_copy": "登录后查看链接、系统信息和日志。",
         "login_button": "进入系统页",
     },
+    "activity": {
+        "page_title": "活跃统计",
+        "page_id": "activity",
+        "brand_title": "活跃统计",
+        "brand_copy": "频道消息趋势与用户活跃排行一览。",
+        "topbar_actions": '<button class="btn btn-ghost" type="button" onclick="loadActivity().catch(() => {})">刷新统计</button>',
+        "login_title": "登录活跃统计",
+        "login_copy": "登录后查看消息趋势与活跃排行。",
+        "login_button": "进入活跃统计",
+    },
+    "scheduler": {
+        "page_title": "定时任务",
+        "page_id": "scheduler",
+        "brand_title": "定时任务",
+        "brand_copy": "管理定时消息与用户提醒。",
+        "topbar_actions": '<button class="btn btn-ghost" type="button" onclick="loadScheduler().catch(() => {})">刷新列表</button>',
+        "login_title": "登录定时任务",
+        "login_copy": "登录后管理定时消息与查看提醒。",
+        "login_button": "进入定时任务",
+    },
 }
 
 
@@ -205,6 +226,8 @@ def _overview_payload() -> dict:
         "playing": playing,
         "statistics_today": today,
         "statistics_summary": summary,
+        "today_messages": MessageStatsDB.get_today_total(),
+        "active_users_today": MessageStatsDB.get_active_users_today(),
     }
 
 
@@ -334,6 +357,16 @@ def admin_stats_page():
 @admin_router.get("/admin/system", response_class=HTMLResponse)
 def admin_system_page():
     return _render_admin_page("system")
+
+
+@admin_router.get("/admin/activity", response_class=HTMLResponse)
+def admin_activity_page():
+    return _render_admin_page("activity")
+
+
+@admin_router.get("/admin/scheduler", response_class=HTMLResponse)
+def admin_scheduler_page():
+    return _render_admin_page("scheduler")
 
 
 # ---------------------------------------------------------------------------
@@ -679,3 +712,108 @@ def admin_system():
     except Exception as e:
         data["db_tables"] = {"error": str(e)}
     return JSONResponse(data)
+
+
+# ---------------------------------------------------------------------------
+# 定时消息 CRUD API
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/scheduled-messages")
+def admin_scheduled_messages_list():
+    return JSONResponse({"ok": True, "items": ScheduledMessageDB.get_all()})
+
+
+@admin_router.post("/admin/api/scheduled-messages")
+async def admin_scheduled_messages_create(request: Request):
+    body = await request.json()
+    name = str(body.get("name") or "").strip()
+    hour = int(body.get("cron_hour", 0))
+    minute = int(body.get("cron_minute", 0))
+    weekdays = str(body.get("weekdays", "0,1,2,3,4,5,6"))
+    channel_id = str(body.get("channel_id") or "").strip()
+    area_id = str(body.get("area_id") or "").strip()
+    message_text = str(body.get("message_text") or "").strip()
+    if not name or not channel_id or not area_id or not message_text:
+        return JSONResponse({"ok": False, "error": "name/channel_id/area_id/message_text 不能为空"}, status_code=400)
+    task_id = ScheduledMessageDB.create(
+        name=name, cron_hour=hour, cron_minute=minute,
+        channel_id=channel_id, area_id=area_id, message_text=message_text,
+        weekdays=weekdays,
+    )
+    return JSONResponse({"ok": True, "id": task_id})
+
+
+@admin_router.put("/admin/api/scheduled-messages/{task_id}")
+async def admin_scheduled_messages_update(task_id: int, request: Request):
+    body = await request.json()
+    updated = ScheduledMessageDB.update(task_id, **body)
+    if not updated:
+        return JSONResponse({"ok": False, "error": "未找到或无变更"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@admin_router.delete("/admin/api/scheduled-messages/{task_id}")
+def admin_scheduled_messages_delete(task_id: int):
+    deleted = ScheduledMessageDB.delete(task_id)
+    if not deleted:
+        return JSONResponse({"ok": False, "error": "未找到"}, status_code=404)
+    return JSONResponse({"ok": True})
+
+
+@admin_router.post("/admin/api/scheduled-messages/{task_id}/toggle")
+def admin_scheduled_messages_toggle(task_id: int):
+    result = ScheduledMessageDB.toggle(task_id)
+    if result is None:
+        return JSONResponse({"ok": False, "error": "未找到"}, status_code=404)
+    return JSONResponse({"ok": True, "enabled": result})
+
+
+# ---------------------------------------------------------------------------
+# 消息统计 API
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/message-stats/daily")
+def admin_message_stats_daily(days: int = Query(14, ge=1, le=90)):
+    daily = MessageStatsDB.get_all_daily(days=days)
+    return JSONResponse({"ok": True, "daily": daily})
+
+
+@admin_router.get("/admin/api/message-stats/ranking")
+def admin_message_stats_ranking(
+    days: int = Query(7, ge=1, le=90),
+    limit: int = Query(10, ge=1, le=50),
+    area_id: str = Query(""),
+):
+    if not area_id:
+        from database import db_connection as _dbc
+        with _dbc() as conn:
+            row = conn.execute(
+                "SELECT DISTINCT area_id FROM message_stats LIMIT 1"
+            ).fetchone()
+            area_id = row["area_id"] if row else ""
+    if not area_id:
+        return JSONResponse({"ok": True, "ranking": []})
+    ranking = MessageStatsDB.get_user_ranking(area_id, days=days, limit=limit)
+    resolver = get_resolver()
+    for item in ranking:
+        item["display_name"] = resolver.user(item["user_id"])
+    return JSONResponse({"ok": True, "ranking": ranking})
+
+
+@admin_router.get("/admin/api/message-stats/overview")
+def admin_message_stats_overview():
+    return JSONResponse({
+        "ok": True,
+        "today_messages": MessageStatsDB.get_today_total(),
+        "week_messages": MessageStatsDB.get_week_total(),
+        "active_users_today": MessageStatsDB.get_active_users_today(),
+    })
+
+
+# ---------------------------------------------------------------------------
+# 提醒查看 API
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/reminders")
+def admin_reminders_list():
+    return JSONResponse({"ok": True, "items": ReminderDB.get_all_pending()})

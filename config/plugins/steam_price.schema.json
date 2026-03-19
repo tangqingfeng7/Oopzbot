@@ -1,0 +1,62 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "steam_price",
+  "description": "Steam 游戏价格查询与史低提醒插件配置 (IsThereAnyDeal 数据源)",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否启用插件"
+    },
+    "api_key": {
+      "type": "string",
+      "default": "",
+      "description": "IsThereAnyDeal API Key (在 https://isthereanydeal.com/apps/my/ 免费申请)"
+    },
+    "proxy": {
+      "type": "string",
+      "default": "",
+      "description": "HTTP 代理地址"
+    },
+    "country": {
+      "type": "string",
+      "default": "CN",
+      "description": "价格地区代码 (ISO 3166-1 alpha-2)，如 CN/US/EU"
+    },
+    "request_timeout_sec": {
+      "type": "integer",
+      "default": 15,
+      "minimum": 1,
+      "description": "API 请求超时秒数"
+    },
+    "request_retries": {
+      "type": "integer",
+      "default": 2,
+      "minimum": 1,
+      "maximum": 5,
+      "description": "API 请求重试次数"
+    },
+    "check_interval_sec": {
+      "type": "integer",
+      "default": 1800,
+      "minimum": 300,
+      "description": "后台价格检查间隔秒数"
+    },
+    "max_watches_per_user": {
+      "type": "integer",
+      "default": 20,
+      "minimum": 1,
+      "maximum": 100,
+      "description": "每用户最大关注数"
+    },
+    "min_discount_for_push": {
+      "type": "integer",
+      "default": 50,
+      "minimum": 0,
+      "maximum": 100,
+      "description": "频道推送最低折扣百分比"
+    }
+  },
+  "additionalProperties": false
+}

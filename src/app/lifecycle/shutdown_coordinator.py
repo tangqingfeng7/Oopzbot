@@ -12,6 +12,14 @@ class ShutdownCoordinator:
     def stop(self, context: AppContext | None, netease_runtime: NeteaseApiRuntime) -> None:
         netease_runtime.stop()
 
+        if context:
+            try:
+                scheduler = context.handler.services.scheduler
+                scheduler.scheduled.stop()
+                scheduler.reminder.stop()
+            except Exception as exc:
+                logger.warning("停止定时服务时出现异常: %s", exc)
+
         if not context or not context.voice:
             return
 

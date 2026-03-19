@@ -90,6 +90,8 @@ class SlashCommandRouter:
             (("/blocklist",), lambda: self._actions.moderation.show_block_list(channel, area)),
             (("/autorecall",), lambda: self._actions.recall.configure_auto_recall(raw, channel, area)),
             (("/recall",), lambda: self._actions.recall.recall(raw or None, channel, area)),
+            (("/ranking", "/活跃", "/活跃排行"), lambda: self._actions.scheduler.show_ranking(channel, area)),
+            (("/chatstats", "/频道统计"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
         )
 
     def _arg_rules(self, channel: str, area: str):
@@ -162,6 +164,49 @@ class SlashCommandRouter:
 
         if command == "/clear" and subcommand == "history":
             self._actions.recall.clear_history(channel, area)
+            return
+
+        if command in ("/remind", "/提醒"):
+            if subcommand == "list":
+                self._actions.scheduler.list_reminders(channel, area, user)
+            elif subcommand == "del" and arg:
+                self._actions.scheduler.delete_reminder(arg, channel, area, user)
+            elif raw:
+                self._actions.scheduler.set_reminder(raw, channel, area, user)
+            else:
+                self._sender.send_message(
+                    "用法:\n/remind 30分钟后 提醒内容\n/remind list  查看我的提醒\n/remind del <ID>  删除提醒",
+                    channel=channel, area=area,
+                )
+            return
+
+        if command == "/schedule":
+            if subcommand == "list" or not subcommand:
+                self._actions.scheduler.list_scheduled(channel, area)
+            elif subcommand == "add":
+                if arg:
+                    self._actions.scheduler.add_scheduled(arg, channel, area)
+                else:
+                    self._sender.send_message("用法: /schedule add 08:00 早上好", channel=channel, area=area)
+            elif subcommand == "del":
+                if arg:
+                    self._actions.scheduler.delete_scheduled(arg, channel, area)
+                else:
+                    self._sender.send_message("用法: /schedule del <ID>", channel=channel, area=area)
+            elif subcommand == "on":
+                if arg:
+                    self._actions.scheduler.toggle_scheduled(arg, channel, area, True)
+                else:
+                    self._sender.send_message("用法: /schedule on <ID>", channel=channel, area=area)
+            elif subcommand == "off":
+                if arg:
+                    self._actions.scheduler.toggle_scheduled(arg, channel, area, False)
+                else:
+                    self._sender.send_message("用法: /schedule off <ID>", channel=channel, area=area)
+            else:
+                self._sender.send_message(
+                    "用法: /schedule list | add | del | on | off", channel=channel, area=area,
+                )
             return
 
         self._services.interaction.chat.send_unknown_command(command, channel, area)

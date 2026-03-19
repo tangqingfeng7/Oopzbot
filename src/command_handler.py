@@ -2,7 +2,11 @@ from app.infrastructure import PluginHost, build_bot_infrastructure
 from app.services.registry import build_command_service_registry
 from app.services.runtime import CommandRuntime
 from config import OOPZ_CONFIG
+from database import MessageStatsDB, cn_today
+from logger_config import get_logger
 from oopz_sender import OopzSender
+
+_stats_logger = get_logger("MessageStats")
 
 _BOT_UID = OOPZ_CONFIG.get("person_uid", "")
 _BOT_MENTION = f"(met){_BOT_UID}(met)" if _BOT_UID else ""
@@ -50,6 +54,11 @@ class CommandHandler:
         ctx = self.services.routing.message.build_context(msg_data)
         # 先记录消息，再路由，撤回类命令才能立刻命中。
         self.services.routing.message.remember_message(ctx)
+
+        try:
+            MessageStatsDB.increment(cn_today(), ctx.channel, ctx.area, ctx.user)
+        except Exception:
+            _stats_logger.debug("消息统计写入失败", exc_info=True)
 
         if not ctx.content:
             return

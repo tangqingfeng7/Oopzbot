@@ -82,7 +82,7 @@ def _next_poll_interval(base_interval: int, current_interval: int, rate_limited:
     current = max(base, int(current_interval))
     if not rate_limited:
         return base
-    return min(max(current * 2, base), 10)
+    return min(max(current * 2, base), 60)
 
 
 def _build_member_mention(uid: str) -> Tuple[str, list]:
@@ -129,7 +129,8 @@ def _run_join_poll_loop(
             )
             if "error" in result:
                 err = str(result.get("error") or "")
-                return None, err.startswith("HTTP 429")
+                is_rl = err.startswith("HTTP 429") or err in ("invalid JSON", "empty response")
+                return None, is_rl
             members = result.get("members") or []
             for m in members:
                 uid = _member_uid(m)

@@ -1,0 +1,83 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="schedulerState" class="micro-status is-warning">等待同步</span>
+            <button class="btn btn-primary" type="button" onclick="loadScheduler().catch(() => {})">刷新列表</button>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-head">
+            <h3 class="section-title">新建定时消息</h3>
+          </div>
+          <div class="stack" style="margin-top: 12px; gap: 10px;">
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <input id="schName" type="text" placeholder="任务名称（如 早安消息）" style="flex: 1; min-width: 140px;" />
+              <input id="schHour" type="number" min="0" max="23" value="8" placeholder="时" style="width: 60px;" />
+              <span style="line-height: 36px;">:</span>
+              <input id="schMinute" type="number" min="0" max="59" value="0" placeholder="分" style="width: 60px;" />
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <input id="schWeekdays" type="text" placeholder="星期 (0-6, 逗号分隔, 0=周一)" value="0,1,2,3,4,5,6" style="flex: 1; min-width: 180px;" />
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <input id="schChannel" type="text" placeholder="频道 ID" style="flex: 1; min-width: 180px;" />
+              <input id="schArea" type="text" placeholder="域 ID" style="flex: 1; min-width: 180px;" />
+            </div>
+            <textarea id="schText" rows="3" placeholder="消息内容" style="width: 100%;"></textarea>
+            <div class="action-row">
+              <button class="btn btn-primary" type="button" onclick="createScheduled()">创建</button>
+              <span id="createMsg" class="msg"></span>
+            </div>
+          </div>
+        </article>
+
+        <article class="table-card">
+          <div class="section-head">
+            <h3 class="section-title">定时消息列表</h3>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>名称</th>
+                  <th>时间</th>
+                  <th>星期</th>
+                  <th>消息内容</th>
+                  <th>状态</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="scheduledRows">
+                <tr>
+                  <td colspan="7" class="empty-state">暂无定时消息</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="table-card">
+          <div class="section-head">
+            <h3 class="section-title">待执行提醒</h3>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>用户</th>
+                  <th>触发时间</th>
+                  <th>内容</th>
+                </tr>
+              </thead>
+              <tbody id="reminderRows">
+                <tr>
+                  <td colspan="4" class="empty-state">暂无待执行提醒</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>

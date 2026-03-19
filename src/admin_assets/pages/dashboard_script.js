@@ -21,6 +21,8 @@
       AdminShell.animateNumber("sUp", Number(data.uptime_seconds ?? 0));
       AdminShell.animateNumber("sQueue", Number(data.queue_length ?? 0));
       AdminShell.animateNumber("sTotal", Number(data.statistics_summary?.total_plays ?? 0));
+      AdminShell.animateNumber("sTodayMsg", Number(data.today_messages ?? 0));
+      AdminShell.animateNumber("sActiveUsers", Number(data.active_users_today ?? 0));
       AdminShell.flashUpdate("sRedis");
     }
 

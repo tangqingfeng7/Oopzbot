@@ -78,6 +78,10 @@ class MentionCommandRouter:
             (("封禁列表", "封禁名单", "黑名单"), lambda: self._actions.moderation.show_block_list(channel, area)),
             (("插件列表", "扩展列表", "插件"), lambda: self._actions.plugins.show_plugin_list(channel, area)),
             (("帮助", "help", "指令", "命令"), lambda: self._actions.interaction.show_help(channel, area, user)),
+            (("活跃排行", "活跃榜", "排行榜"), lambda: self._actions.scheduler.show_ranking(channel, area)),
+            (("频道统计", "消息统计"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
+            (("定时消息列表", "定时消息"), lambda: self._actions.scheduler.list_scheduled(channel, area)),
+            (("我的提醒", "提醒列表"), lambda: self._actions.scheduler.list_reminders(channel, area, user)),
         )
 
     def _arg_rules(self, channel: str, area: str, user: str):
@@ -114,7 +118,7 @@ class MentionCommandRouter:
             ),
         )
 
-    def _raw_rules(self, channel: str, area: str):
+    def _raw_rules(self, channel: str, area: str, user: str):
         return (
             (("禁言",), lambda raw: self._actions.moderation.mute_user(raw, channel, area, "用法: @bot 禁言 谁 10")),
             (("解除禁言", "解禁"), lambda raw: self._actions.moderation.unmute_user(raw, channel, area, "用法: @bot 解禁 谁")),
@@ -135,6 +139,12 @@ class MentionCommandRouter:
             ),
             (("自动撤回",), lambda arg: self._actions.recall.configure_auto_recall(arg, channel, area)),
             (("撤回",), lambda raw: self._actions.recall.recall(raw or None, channel, area)),
+            (("提醒",), lambda raw: self._actions.scheduler.set_reminder(raw, channel, area, user)),
+            (("删除提醒", "取消提醒"), lambda raw: self._actions.scheduler.delete_reminder(raw, channel, area, user)),
+            (("添加定时消息", "新增定时消息"), lambda raw: self._actions.scheduler.add_scheduled(raw, channel, area)),
+            (("删除定时消息", "移除定时消息"), lambda raw: self._actions.scheduler.delete_scheduled(raw, channel, area)),
+            (("开启定时消息", "启用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, True)),
+            (("关闭定时消息", "停用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, False)),
         )
 
     def dispatch(self, text: str, channel: str, area: str, user: str) -> None:
@@ -167,7 +177,7 @@ class MentionCommandRouter:
             self._actions.recall.recall_multiple(int(match.group(1)), channel, area)
             return
 
-        for prefixes, callback in self._raw_rules(channel, area):
+        for prefixes, callback in self._raw_rules(channel, area, user):
             if self._dispatch_prefixed_raw(text, prefixes, callback):
                 return
 

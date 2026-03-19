@@ -237,6 +237,25 @@ CHAT_CONFIG = {
     },
 }
 
+# 定时消息调度配置
+SCHEDULER_CONFIG = {
+    "enabled": True,
+    "check_interval_seconds": 30,  # 检查间隔（秒），最小 10
+}
+
+# 用户提醒配置
+REMINDER_CONFIG = {
+    "enabled": True,
+    "max_per_user": 5,             # 每用户最大待执行提醒数
+    "max_delay_hours": 72,         # 最大提醒延迟（小时）
+    "check_interval_seconds": 15,  # 检查间隔（秒），最小 5
+}
+
+# 消息统计配置
+MESSAGE_STATS_CONFIG = {
+    "enabled": True,
+}
+
 # Bot 管理员列表（只有这些用户可以执行指令，其他用户无权限）
 # 填入用户 UID，留空则不做权限限制（所有人可用）
 ADMIN_UIDS = [

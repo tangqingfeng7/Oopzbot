@@ -15,6 +15,7 @@ class BackgroundServiceRunner:
     def start(self, context: AppContext) -> None:
         self._start_music_services(context)
         self._start_web_player()
+        self._start_scheduler_services(context)
 
     def _start_music_services(self, context: AppContext) -> None:
         music = context.handler.infrastructure.music
@@ -35,3 +36,11 @@ class BackgroundServiceRunner:
         ).start()
         logger.info("Web 播放器已启动: http://%s:%s", web_host, web_port)
         logger.info("WebSocket 客户端启动中...")
+
+    def _start_scheduler_services(self, context: AppContext) -> None:
+        try:
+            scheduler = context.handler.services.scheduler
+            scheduler.scheduled.start()
+            scheduler.reminder.start()
+        except Exception:
+            logger.warning("定时消息/提醒服务启动失败", exc_info=True)

@@ -1,0 +1,11 @@
+{
+  "enabled": false,
+  "api_key": "",
+  "proxy": "",
+  "country": "CN",
+  "request_timeout_sec": 15,
+  "request_retries": 2,
+  "check_interval_sec": 1800,
+  "max_watches_per_user": 20,
+  "min_discount_for_push": 50
+}

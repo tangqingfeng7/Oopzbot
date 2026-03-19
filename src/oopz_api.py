@@ -130,7 +130,21 @@ class OopzApiMixin:
                 logger.error(f"获取域成员失败: HTTP {resp.status_code}")
                 return {"error": f"HTTP {resp.status_code}"}
 
-            result = resp.json()
+            if not resp.content:
+                logger.warning("获取域成员失败: HTTP 200 但响应体为空")
+                return {"error": "empty response"}
+
+            try:
+                result = resp.json()
+            except ValueError:
+                body_preview = resp.content[:200]
+                logger.warning(
+                    "获取域成员失败: 响应非合法 JSON (len=%d, status=%d, preview=%r)",
+                    len(resp.content),
+                    resp.status_code,
+                    body_preview,
+                )
+                return {"error": "invalid JSON"}
             if not result.get("status"):
                 msg = result.get("message") or result.get("error") or "未知错误"
                 logger.error(f"获取域成员失败: {msg}")

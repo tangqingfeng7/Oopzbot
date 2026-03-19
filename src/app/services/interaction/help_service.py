@@ -39,6 +39,13 @@ class HelpService:
             "**个人信息**",
             "@bot 个人信息  个人基本信息  |  @bot 我的资料  自身详细资料",
             "/me  |  /myinfo",
+            "",
+            "**提醒 & 统计**",
+            "@bot 提醒 30分钟后 <内容>  设置提醒  |  /remind <时间> <内容>",
+            "@bot 我的提醒  查看待执行提醒  |  /remind list",
+            "@bot 删除提醒 <ID>  删除提醒  |  /remind del <ID>",
+            "@bot 活跃排行  近7天排行  |  /ranking",
+            "@bot 频道统计  频道消息统计  |  /chatstats",
         ]
 
         ai_cmds = []
@@ -81,6 +88,12 @@ class HelpService:
                 "@bot 撤回<消息ID>  撤回最后/撤回N条  |  /recall <ID|last|数量>",
                 "@bot 自动撤回  查看/开 [秒]/关  |  /autorecall",
                 "@bot 清理历史  清理历史日志  |  /clear history",
+                "",
+                "**定时消息管理**",
+                "@bot 定时消息列表  查看全部  |  /schedule list",
+                "@bot 添加定时消息 HH:MM 内容  |  /schedule add HH:MM 内容",
+                "@bot 删除定时消息 <ID>  |  /schedule del <ID>",
+                "@bot 开启/关闭定时消息 <ID>  |  /schedule on/off <ID>",
                 "",
                 "**插件扩展**",
                 "@bot 插件列表  已加载/可加载  |  @bot 加载插件 <名>  @bot 卸载插件 <名>",
