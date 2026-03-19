@@ -83,3 +83,20 @@ class PluginManagementService:
             channel=channel,
             area=area,
         )
+
+    def reload_config(self, raw_name: str, channel: str, area: str) -> None:
+        """热重载插件配置（不重载代码）。"""
+        name = self.normalize_plugin_name(raw_name)
+        if not name:
+            self._sender.send_message(
+                format_invalid_plugin_name_message(),
+                channel=channel,
+                area=area,
+            )
+            return
+        result = self._plugins.reload_config(name, handler=self._runtime.plugin_host)
+        self._sender.send_message(
+            format_plugin_operation_message(result),
+            channel=channel,
+            area=area,
+        )

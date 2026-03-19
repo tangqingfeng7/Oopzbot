@@ -10,6 +10,30 @@ _AI_TIMEOUT = 15
 _IMAGE_TIMEOUT = 60
 
 
+def _extract_chat_content(data: dict) -> Optional[str]:
+    """从 OpenAI 兼容的 chat/completions 响应中安全提取文本内容。"""
+    choices = data.get("choices")
+    if not isinstance(choices, list) or not choices:
+        return None
+    message = choices[0].get("message") if isinstance(choices[0], dict) else None
+    if not isinstance(message, dict):
+        return None
+    content = message.get("content")
+    return content.strip() if isinstance(content, str) and content.strip() else None
+
+
+def _extract_image_url(data: dict) -> Optional[str]:
+    """从图片生成 API 响应中安全提取第一张图片 URL。"""
+    items = data.get("data")
+    if not isinstance(items, list) or not items:
+        return None
+    first = items[0] if isinstance(items[0], dict) else None
+    if not isinstance(first, dict):
+        return None
+    url = first.get("url")
+    return url if isinstance(url, str) and url.strip() else None
+
+
 class ChatHandler:
     """关键词匹配 + AI 聊天回复"""
 
@@ -87,7 +111,10 @@ class ChatHandler:
             resp.raise_for_status()
             data = resp.json()
 
-            reply = data["choices"][0]["message"]["content"].strip()
+            reply = _extract_chat_content(data)
+            if not reply:
+                logger.warning("豆包 AI 返回结构异常，未提取到回复内容: %s", str(data)[:200])
+                return None
             logger.info(f"AI 回复: {content[:30]}... -> {reply[:50]}...")
             return reply
 
@@ -124,7 +151,10 @@ class ChatHandler:
             resp.raise_for_status()
             data = resp.json()
 
-            url = data["data"][0]["url"]
+            url = _extract_image_url(data)
+            if not url:
+                logger.warning("图片生成返回结构异常，未提取到 URL: %s", str(data)[:200])
+                return None
             logger.info(f"图片生成成功: {prompt[:30]}...")
             return url
 
@@ -171,7 +201,10 @@ class ChatHandler:
                 timeout=5,
             )
             resp.raise_for_status()
-            result = resp.json()["choices"][0]["message"]["content"].strip()
+            result = _extract_chat_content(resp.json())
+            if not result:
+                logger.warning("AI 审核返回结构异常，跳过本次检测")
+                return None
             logger.info(f"AI 审核: \"{content[:30]}\" -> {result}")
 
             if result.startswith("违规"):

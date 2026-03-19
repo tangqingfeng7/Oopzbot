@@ -80,6 +80,8 @@ class MentionCommandRouter:
             (("帮助", "help", "指令", "命令"), lambda: self._actions.interaction.show_help(channel, area, user)),
             (("活跃排行", "活跃榜", "排行榜"), lambda: self._actions.scheduler.show_ranking(channel, area)),
             (("频道统计", "消息统计"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
+            (("点歌排行", "播放排行", "热歌榜"), lambda: self._actions.scheduler.show_music_ranking(channel, area)),
+            (("最近播放", "播放历史"), lambda: self._actions.scheduler.show_recent_songs(channel, area)),
             (("定时消息列表", "定时消息"), lambda: self._actions.scheduler.list_scheduled(channel, area)),
             (("我的提醒", "提醒列表"), lambda: self._actions.scheduler.list_reminders(channel, area, user)),
         )
@@ -97,6 +99,7 @@ class MentionCommandRouter:
             (("进入频道", "进入"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: @bot 进入频道 <频道ID>"),
             (("加载插件", "启用插件", "loadplugin"), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: @bot 加载插件 <名>"),
             (("卸载插件", "禁用插件", "unloadplugin"), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: @bot 卸载插件 <名>"),
+            (("重载插件", "刷新插件", "reloadplugin"), lambda name: self._actions.plugins.reload_plugin_config(name, channel, area), "用法: @bot 重载插件 <名>"),
             (
                 ("画", "画一个", "画一张", "生成图片", "生成", "画图"),
                 lambda prompt: self._actions.interaction.generate_image(prompt, channel, area, user),

@@ -93,6 +93,19 @@ DOUBAO_IMAGE_CONFIG = {
     "watermark": False,
 }
 
+# QQ 音乐配置（需部署 QQMusicApi 服务）
+QQ_MUSIC_CONFIG = {
+    "enabled": False,
+    "base_url": "http://localhost:3300",   # QQ 音乐 API 服务地址
+    "cookie": "",                          # 可选，登录后的 Cookie
+}
+
+# B 站音乐配置
+BILIBILI_MUSIC_CONFIG = {
+    "enabled": False,
+    "cookie": "",  # 可选，B 站 Cookie（获取更高音质需要）
+}
+
 # LOL 插件配置
 # 已迁移到 config/plugins/lol_ban.json 与 config/plugins/lol_fa8.json（见 config/plugins/README.md）
 
@@ -222,9 +235,11 @@ AUTO_RECALL_CONFIG = {
 # 退出：WebSocket 推送；加入：轮询域成员 API 检测新成员（因服务端不推送加入事件）
 AREA_JOIN_NOTIFY = {
     "enabled": False,
-    "message_template": "欢迎 {name} 加入域～",  # 加入时消息，占位符: {name} {uid}
+    "message_template": "欢迎 {name} 加入域～\n请阅读频道规则，祝你玩得开心！",  # 加入时消息，占位符: {name} {uid}；支持多行
     "message_template_leave": "{name} 已退出域",  # 退出时消息
     "poll_interval_seconds": 2,   # 轮询间隔（秒），最小 2；遇到 429 会自动退避并临时放慢
+    "auto_assign_role_id": "",    # 新人自动分配的身份组 ID，留空则不分配
+    "auto_assign_role_name": "",  # 或用身份组名称匹配（优先使用 role_id）
 }
 
 # 聊天自动回复配置

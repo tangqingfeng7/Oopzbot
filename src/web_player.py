@@ -84,6 +84,18 @@ def reset_netease() -> None:
     _netease = None
 
 
+_sender = None
+
+
+def set_sender(sender) -> None:
+    global _sender
+    _sender = sender
+
+
+def get_sender():
+    return _sender
+
+
 # ---------------------------------------------------------------------------
 # 启动时加载后台配置覆盖
 # ---------------------------------------------------------------------------
@@ -176,8 +188,9 @@ def add_song_to_queue(body: dict) -> dict:
     song_id = body.get("id")
     if not song_id:
         return {"ok": False, "error": "缺少歌曲 ID"}
-    nc = get_netease()
-    url = nc.get_song_url(int(song_id))
+    platform = body.get("platform", "netease")
+    p = _resolve_platform(platform)
+    url = p.get_song_url(song_id)
     if not url:
         return {"ok": False, "error": "无法获取播放链接，可能需要 VIP"}
 
@@ -188,7 +201,7 @@ def add_song_to_queue(body: dict) -> dict:
     duration_ms = body.get("duration", 0)
     duration_text = body.get("durationText", "")
     song_data = {
-        "platform": "netease",
+        "platform": platform,
         "song_id": str(song_id),
         "name": name,
         "artists": artists,
@@ -208,6 +221,19 @@ def add_song_to_queue(body: dict) -> dict:
     notify = json.dumps({"name": name, "artists": artists, "position": queue_len}, ensure_ascii=False)
     r.rpush(KEY_WEB_COMMANDS, f"notify:{notify}")
     return {"ok": True, "position": queue_len, "name": name}
+
+
+def _resolve_platform(name: str = "netease"):
+    """根据平台名称获取对应的音乐平台实例。"""
+    if not name or name == "netease":
+        return get_netease()
+    if name == "qq":
+        from qq_music import QQMusic
+        return QQMusic()
+    if name == "bilibili":
+        from bilibili_music import BilibiliMusic
+        return BilibiliMusic()
+    return get_netease()
 
 
 def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
@@ -293,21 +319,23 @@ def api_status():
 
 
 @app.get("/api/lyric")
-def api_lyric(id: int = Query(...)):
+def api_lyric(id: str = Query(...), platform: str = Query("netease")):
     try:
-        cache_key = f"lyric:{id}"
+        cache_key = f"lyric:{platform}:{id}"
         with _lyric_lock:
             if cache_key in _lyric_cache:
                 cached = _lyric_cache[cache_key]
                 return JSONResponse({"id": id, **cached})
 
-        nc = get_netease()
-        lyric = nc.get_lyric(id)
+        p = _resolve_platform(platform)
+        lyric = p.get_lyric(id)
         tlyric = None
-        try:
-            tlyric = nc.get_tlyric(id)
-        except Exception:
-            pass
+        if platform == "netease":
+            try:
+                nc = get_netease()
+                tlyric = nc.get_tlyric(id)
+            except Exception:
+                pass
 
         result = {"lyric": lyric, "tlyric": tlyric}
         with _lyric_lock:
@@ -422,12 +450,16 @@ def api_liked_refresh():
 
 
 @app.get("/api/search")
-def api_search(keyword: str = Query(..., min_length=1), limit: int = Query(10, ge=1, le=30)):
-    """搜索歌曲，返回列表"""
+def api_search(
+    keyword: str = Query(..., min_length=1),
+    limit: int = Query(10, ge=1, le=30),
+    platform: str = Query("netease"),
+):
+    """搜索歌曲，返回列表。platform 可选 netease / qq / bilibili。"""
     try:
-        nc = get_netease()
-        results = nc.search_many(keyword, limit=limit)
-        return JSONResponse({"results": results})
+        p = _resolve_platform(platform)
+        results = p.search_many(keyword, limit=limit)
+        return JSONResponse({"results": results, "platform": platform})
     except Exception as e:
         logger.error(f"/api/search 异常: {e}")
         return JSONResponse({"results": [], "error": str(e)})
@@ -468,6 +500,71 @@ async def api_queue_action(request: Request):
     except Exception as e:
         logger.error(f"/api/queue/action 异常: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
+
+
+@app.get("/health")
+def health_check():
+    """系统健康检查 -- 汇报各子系统状态，无需认证。"""
+    checks: dict[str, dict] = {}
+    overall = True
+
+    # Redis
+    try:
+        r = get_redis()
+        r.ping()
+        checks["redis"] = {"status": "ok"}
+    except Exception as e:
+        checks["redis"] = {"status": "degraded", "detail": str(e)}
+        overall = False
+
+    # 数据库
+    try:
+        from database import get_connection
+        conn = get_connection()
+        conn.execute("SELECT 1")
+        conn.close()
+        checks["database"] = {"status": "ok"}
+    except Exception as e:
+        checks["database"] = {"status": "error", "detail": str(e)}
+        overall = False
+
+    # 网易云 API
+    try:
+        nc = get_netease()
+        uid = nc.get_user_id()
+        checks["netease_api"] = {"status": "ok" if uid else "degraded", "logged_in": bool(uid)}
+    except Exception as e:
+        checks["netease_api"] = {"status": "error", "detail": str(e)}
+        overall = False
+
+    # 播放队列状态
+    try:
+        r = get_redis()
+        queue_len = int(r.llen("music:queue") or 0)
+        current = r.get("music:current")
+        checks["music"] = {
+            "status": "ok",
+            "queue_length": queue_len,
+            "now_playing": bool(current),
+        }
+    except Exception as e:
+        checks["music"] = {"status": "error", "detail": str(e)}
+
+    # 运行时间
+    uptime_seconds = int(time.time() - started_at)
+    hours, remainder = divmod(uptime_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+
+    status_code = 200 if overall else 503
+    return JSONResponse(
+        {
+            "status": "healthy" if overall else "degraded",
+            "uptime": f"{hours}h {minutes}m {seconds}s",
+            "uptime_seconds": uptime_seconds,
+            "checks": checks,
+        },
+        status_code=status_code,
+    )
 
 
 @app.get("/", response_class=HTMLResponse)

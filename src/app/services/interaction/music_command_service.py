@@ -1,6 +1,7 @@
 from typing import Optional
 
 from app.services.runtime import CommandRuntimeView, music_of, sender_of
+from music import parse_platform_prefix
 
 
 class MusicCommandService:
@@ -11,15 +12,26 @@ class MusicCommandService:
         self._sender = sender_of(runtime)
         self._music = music_of(runtime)
 
+    def _play(self, keyword: str, channel: str, area: str, user: str) -> None:
+        """解析平台前缀后调用多平台点歌。"""
+        platform, clean_kw = parse_platform_prefix(keyword)
+        if platform:
+            self._music.play_song(clean_kw, platform, channel, area, user)
+        else:
+            self._music.play_song(clean_kw, "netease", channel, area, user)
+
     def handle_mention(self, text: str, channel: str, area: str, user: str) -> bool:
         """处理 @bot 中文音乐指令。"""
         for prefix in ("播放", "放", "点播", "来一首", "唱"):
             if text.startswith(prefix):
                 keyword = text[len(prefix):].strip()
                 if keyword:
-                    self._music.play_netease(keyword, channel, area, user)
+                    self._play(keyword, channel, area, user)
                 else:
-                    self._sender.send_message("请输入歌名，例如: @bot 播放海阔天空", channel=channel, area=area)
+                    self._sender.send_message(
+                        "请输入歌名，例如:\n  @bot 播放海阔天空\n  @bot 播放 qq:周杰伦\n  @bot 播放 b站:稻香",
+                        channel=channel, area=area,
+                    )
                 return True
 
         if text in ("停止", "停", "停止播放", "关"):
@@ -59,16 +71,26 @@ class MusicCommandService:
     ) -> bool:
         """处理音乐相关斜杠命令。"""
         if command in ("/bf", "/play"):
-            keyword = " ".join(parts[1:]) if len(parts) > 1 else None
-            if keyword:
-                self._music.play_netease(keyword, channel, area, user)
+            if len(parts) < 2:
+                self._sender.send_message(
+                    "用法: /bf 歌曲名\n  /bf qq 歌曲名 (QQ音乐)\n  /bf bili 歌曲名 (B站)",
+                    channel=channel, area=area,
+                )
+                return True
+            slug = parts[1].lower()
+            _SLASH_PLATFORM_MAP = {"qq": "qq", "bili": "bilibili", "bilibili": "bilibili", "netease": "netease", "b站": "bilibili", "网易": "netease"}
+            if slug in _SLASH_PLATFORM_MAP and len(parts) > 2:
+                platform = _SLASH_PLATFORM_MAP[slug]
+                keyword = " ".join(parts[2:])
+                self._music.play_song(keyword, platform, channel, area, user)
             else:
-                self._sender.send_message("用法: /bf 歌曲名", channel=channel, area=area)
+                keyword = " ".join(parts[1:])
+                self._play(keyword, channel, area, user)
             return True
 
         if command == "/yun" and subcommand == "play":
             if arg:
-                self._music.play_netease(arg, channel, area, user)
+                self._play(arg, channel, area, user)
             else:
                 self._sender.send_message("用法: /yun play 歌曲名", channel=channel, area=area)
             return True

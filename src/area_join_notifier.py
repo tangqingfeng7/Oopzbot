@@ -50,12 +50,22 @@ EVENT_AREA_MEMBER_ENTER = 10
 EVENT_AREA_MEMBER_LEAVE = 11
 
 
+_area_channel_cache: dict = {"area": "", "channel": "", "ts": 0.0}
+_AREA_CHANNEL_CACHE_TTL = 300.0  # 5 分钟
+
+
 def _get_default_area_channel(sender: OopzSender, quiet: bool = False) -> Tuple[str, str]:
     """获取默认域 ID 和文字频道 ID（与 WS 通知逻辑一致）。quiet=True 时不打域/频道列表日志。"""
     default_area = (OOPZ_CONFIG.get("default_area") or "").strip()
     default_channel = (OOPZ_CONFIG.get("default_channel") or "").strip()
     if default_area and default_channel:
         return default_area, default_channel
+
+    now = time.time()
+    if _area_channel_cache["area"] and _area_channel_cache["channel"] \
+            and now - _area_channel_cache["ts"] < _AREA_CHANNEL_CACHE_TTL:
+        return _area_channel_cache["area"], _area_channel_cache["channel"]
+
     areas = sender.get_joined_areas(quiet=quiet)
     if areas:
         default_area = (areas[0].get("id") or "").strip()
@@ -65,7 +75,10 @@ def _get_default_area_channel(sender: OopzSender, quiet: bool = False) -> Tuple[
                 if (ch.get("type") or "").upper() != "VOICE":
                     default_channel = (ch.get("id") or "").strip()
                     if default_channel:
+                        _area_channel_cache.update(area=default_area, channel=default_channel, ts=now)
                         return default_area, default_channel
+    if default_area and default_channel:
+        _area_channel_cache.update(area=default_area, channel=default_channel, ts=now)
     return default_area, default_channel
 
 
@@ -78,7 +91,7 @@ def _member_uid(m: dict) -> str:
 
 def _next_poll_interval(base_interval: int, current_interval: int, rate_limited: bool) -> int:
     """根据是否被限流，计算下一次轮询间隔。"""
-    base = max(2, int(base_interval))
+    base = max(5, int(base_interval))
     current = max(base, int(current_interval))
     if not rate_limited:
         return base
@@ -101,11 +114,63 @@ def _build_member_mention(uid: str) -> Tuple[str, list]:
     )
 
 
+def _resolve_role_id(
+    sender: OopzSender,
+    uid: str,
+    area: str,
+    auto_role_id: str,
+    auto_role_name: str,
+) -> Optional[int]:
+    """将配置中的 role_id / role_name 解析为数字 role_id。"""
+    if auto_role_id:
+        try:
+            return int(auto_role_id)
+        except (ValueError, TypeError):
+            logger.warning("auto_assign_role_id 非法: %s", auto_role_id)
+            return None
+    if not auto_role_name:
+        return None
+    try:
+        roles = sender.get_assignable_roles(uid, area=area)
+        for r in roles:
+            if str(r.get("name") or "").strip() == auto_role_name.strip():
+                return int(r.get("roleID") or r.get("id") or 0) or None
+    except Exception as e:
+        logger.warning("按名称查找身份组失败 (name=%s): %s", auto_role_name, e)
+    return None
+
+
+def _try_assign_role(
+    sender: OopzSender,
+    uid: str,
+    area: str,
+    auto_role_id: str,
+    auto_role_name: str,
+) -> None:
+    """为新成员自动分配身份组，失败仅记录日志。"""
+    if not auto_role_id and not auto_role_name:
+        return
+    role_id = _resolve_role_id(sender, uid, area, auto_role_id, auto_role_name)
+    if role_id is None:
+        logger.warning("新人身份组分配跳过: 未能解析 role_id (id=%s, name=%s)", auto_role_id, auto_role_name)
+        return
+    try:
+        result = sender.edit_user_role(uid, role_id, add=True, area=area)
+        if "error" in result:
+            logger.warning("新人身份组分配失败 uid=%s role=%s: %s", uid, role_id, result["error"])
+        else:
+            logger.info("新人身份组分配成功 uid=%s role=%s", uid, role_id)
+    except Exception as e:
+        logger.warning("新人身份组分配异常 uid=%s role=%s: %s", uid, role_id, e)
+
+
 def _run_join_poll_loop(
     sender: OopzSender,
     message_template_join: str,
     interval_seconds: int,
     bot_uid: str,
+    auto_role_id: str = "",
+    auto_role_name: str = "",
 ) -> None:
     """
     后台轮询域成员列表，发现新加入的成员则发送欢迎消息。
@@ -114,7 +179,7 @@ def _run_join_poll_loop(
     last_uids: Set[str] = set()
     first_run = True
 
-    current_interval = max(2, int(interval_seconds))
+    current_interval = max(5, int(interval_seconds))
 
     def _fetch_member_uids(area: str) -> Tuple[Optional[Set[str]], bool]:
         page_size = 100
@@ -129,7 +194,7 @@ def _run_join_poll_loop(
             )
             if "error" in result:
                 err = str(result.get("error") or "")
-                is_rl = err.startswith("HTTP 429") or err in ("invalid JSON", "empty response")
+                is_rl = err.startswith("HTTP 429") or err in ("invalid JSON", "empty response") or "服务异常" in err
                 return None, is_rl
             members = result.get("members") or []
             for m in members:
@@ -156,8 +221,8 @@ def _run_join_poll_loop(
                 current_interval = next_interval
                 time.sleep(current_interval)
                 continue
-            if current_interval != max(2, int(interval_seconds)):
-                current_interval = max(2, int(interval_seconds))
+            if current_interval != max(5, int(interval_seconds)):
+                current_interval = max(5, int(interval_seconds))
                 logger.info("域成员加入轮询: 成员接口已恢复，轮询间隔恢复为 %ss", current_interval)
             if first_run:
                 last_uids = current_uids
@@ -181,6 +246,7 @@ def _run_join_poll_loop(
                         )
                     except Exception as e:
                         logger.warning("域成员欢迎发送失败 uid=%s: %s", uid, e)
+                    _try_assign_role(sender, uid, area, auto_role_id, auto_role_name)
             # 保持固定轮询间隔，避免短时间连续请求触发成员接口限流
             time.sleep(current_interval)
         except Exception as e:
@@ -360,11 +426,15 @@ def start_area_join_notifier(
 
     s = sender or OopzSender()
     # 加入事件服务端不推送，用轮询检测新成员并发欢迎
-    poll_interval = max(2, int(config.get("poll_interval_seconds", 2)))
+    poll_interval = max(5, int(config.get("poll_interval_seconds", 10)))
     bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
+    auto_role_id = str(config.get("auto_assign_role_id") or "").strip()
+    auto_role_name = str(config.get("auto_assign_role_name") or "").strip()
+    if auto_role_id or auto_role_name:
+        logger.info("新人自动身份组已启用: id=%s, name=%s", auto_role_id or "(无)", auto_role_name or "(无)")
     poll_thread = threading.Thread(
         target=_run_join_poll_loop,
-        args=(s, msg_join, poll_interval, bot_uid),
+        args=(s, msg_join, poll_interval, bot_uid, auto_role_id, auto_role_name),
         daemon=True,
         name="AreaJoinPoll",
     )

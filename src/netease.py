@@ -10,6 +10,9 @@ logger = get_logger("Netease")
 class NeteaseCloud:
     """网易云音乐搜索与获取"""
 
+    name = "netease"
+    display_name = "网易云"
+
     def __init__(self):
         self.base_url = NETEASE_CLOUD.get("base_url", "").rstrip("/")
         self.cookie = NETEASE_CLOUD.get("cookie", "")

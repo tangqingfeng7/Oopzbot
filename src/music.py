@@ -17,6 +17,7 @@ from config import WEB_PLAYER_CONFIG
 from logger_config import get_logger
 from web_link_token import clear_token, get_token
 from music_web_control import WebControlExecutor
+from music_platform import PlatformRegistry
 from music_playback import (
     PlaybackMixin,
     reset_web_player_url_cache,  # noqa: F401 — re-export
@@ -27,6 +28,32 @@ logger = get_logger("Music")
 
 _LIKED_PER_PAGE = 20
 _PLATFORM_NETEASE = "netease"
+
+_PLATFORM_PREFIX_MAP = {
+    "qq:": "qq",
+    "QQ:": "qq",
+    "qq\uff1a": "qq",
+    "QQ\uff1a": "qq",
+    "b\u7ad9:": "bilibili",
+    "B\u7ad9:": "bilibili",
+    "bili:": "bilibili",
+    "BILI:": "bilibili",
+    "b\u7ad9\uff1a": "bilibili",
+    "B\u7ad9\uff1a": "bilibili",
+    "bili\uff1a": "bilibili",
+    "\u7f51\u6613:": "netease",
+    "\u7f51\u6613\uff1a": "netease",
+    "netease:": "netease",
+    "netease\uff1a": "netease",
+}
+
+
+def parse_platform_prefix(keyword: str) -> tuple[str, str]:
+    """从关键词中解析平台前缀，返回 (platform, clean_keyword)。"""
+    for prefix, platform in _PLATFORM_PREFIX_MAP.items():
+        if keyword.startswith(prefix):
+            return platform, keyword[len(prefix):].strip()
+    return "", keyword
 
 
 class MusicHandler(PlaybackMixin):
@@ -48,6 +75,28 @@ class MusicHandler(PlaybackMixin):
         self._playlist_idle_since: float = 0  # 播放列表空闲起始时间（用于释放 Web 链接）
         self._web_link_released_due_to_idle: bool = False
         self._web_control = WebControlExecutor(self)
+        self.platforms = PlatformRegistry()
+        self.platforms.register(self.netease)
+        self._init_extra_platforms()
+
+    def _init_extra_platforms(self) -> None:
+        """初始化并注册 QQ 音乐和 B 站平台（仅在配置启用时）。"""
+        try:
+            from qq_music import QQMusic
+            qq = QQMusic()
+            if qq.enabled:
+                self.platforms.register(qq)
+                logger.info("QQ 音乐平台已注册")
+        except Exception as e:
+            logger.debug("QQ 音乐平台初始化跳过: %s", e)
+        try:
+            from bilibili_music import BilibiliMusic
+            bili = BilibiliMusic()
+            if bili.enabled:
+                self.platforms.register(bili)
+                logger.info("B 站音乐平台已注册")
+        except Exception as e:
+            logger.debug("B 站音乐平台初始化跳过: %s", e)
 
     def _get_web_link(self) -> str:
         """获取 Web 播放器链接（按需生成随机访问令牌）。"""
@@ -238,7 +287,11 @@ class MusicHandler(PlaybackMixin):
 
     def play_netease(self, keyword: str, channel: str, area: str, user: str) -> None:
         """搜索网易云并播放或加入队列"""
-        result = self._prepare_song_request(keyword, channel, area, user)
+        self.play_song(keyword, "netease", channel, area, user)
+
+    def play_song(self, keyword: str, platform: str, channel: str, area: str, user: str) -> None:
+        """通用的多平台点歌入口。"""
+        result = self._prepare_song_request(keyword, channel, area, user, platform=platform)
         if result["code"] != "success":
             self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
             return
@@ -366,81 +419,19 @@ class MusicHandler(PlaybackMixin):
             return
 
         song_id = self._liked_ids_cache[index - 1]
-        result = self.netease.summarize_by_id(song_id)
-        if result["code"] != "success":
-            self.sender.send_message(f"获取歌曲失败: {result['message']}", channel=channel, area=area)
+        song_data = self._fetch_netease_song_data(song_id, channel, area, user)
+        if not song_data:
+            self.sender.send_message("获取歌曲失败，请稍后再试", channel=channel, area=area)
             return
 
-        data = result["data"]
-
-        # 封面处理
-        resolve_song = {"song_id": str(song_id), "cover": data.get("cover"), "platform": _PLATFORM_NETEASE}
-        attachments, image_cache_id, cache_hit = self._resolve_song_attachments(resolve_song)
-
-        # 消息
         user_name = self.names.user(user) if user else "未知用户"
-        text = (
-            f"{user_name} 从喜欢列表点播了:\n"
-            "来自于网易云:\n"
-            f"歌曲: {data['name']}\n"
-            f"歌手: {data['artists']}\n"
-            f"专辑: {data['album']}\n"
-            f"时长: {data['durationText']}"
+        result = self._commit_song_request(song_data, prefix=f"{user_name} 从喜欢列表点播了")
+        self.sender.send_message(
+            text=result["message"],
+            attachments=result.get("attachments", []),
+            channel=channel,
+            area=area,
         )
-
-        link = self._get_web_link()
-        if link:
-            text += f"\n{link}"
-
-        if attachments:
-            att = attachments[0]
-            text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
-
-        # 判断立即播放还是排队
-        is_playing = self._is_playing()
-        current_song = self.queue.get_current()
-        queue_length = self.queue.get_queue_length()
-
-        if not is_playing and current_song is not None:
-            self.queue.clear_current()
-            current_song = None
-
-        song_data = {
-            "platform": _PLATFORM_NETEASE,
-            "song_id": str(song_id),
-            "name": data["name"],
-            "artists": data["artists"],
-            "album": data["album"],
-            "url": data["url"],
-            "cover": data.get("cover"),
-            "duration": data["durationText"],
-            "duration_ms": data.get("duration", 0),
-            "attachments": attachments,
-            "channel": channel,
-            "area": area,
-            "user": user,
-        }
-
-        if not is_playing and current_song is None and queue_length == 0:
-            play_uuid = str(uuid.uuid4())
-            song_data["play_uuid"] = play_uuid
-            self._start_playing(data.get("duration", 0))
-            self.queue.set_current(song_data)
-            SongCache.record_play(song_id, _PLATFORM_NETEASE, data, image_cache_id, channel, user)
-            Statistics.update_today(_PLATFORM_NETEASE, cache_hit)
-            threading.Thread(
-                target=self._stream_to_voice_channel,
-                args=(data["url"], data["name"], channel, area,
-                      str(data.get("id", "")), data.get("duration", 0)),
-                daemon=True,
-            ).start()
-            self._preload_next_song_if_any()
-        else:
-            pos = self.queue.add_to_queue(song_data)
-            actual = pos + 1 + (1 if current_song or is_playing else 0)
-            text += f"\n已加入队列 (位置: {actual})"
-
-        self.sender.send_message(text=text, attachments=attachments, channel=channel, area=area)
 
     def play_liked(self, channel: str, area: str, user: str, count: int = 1) -> None:
         """从登录账号的喜欢列表中随机选歌播放"""
@@ -463,87 +454,19 @@ class MusicHandler(PlaybackMixin):
         first_text = None
         first_attachments = []
 
-        for i, song_id in enumerate(selected):
-            result = self.netease.summarize_by_id(song_id)
-            if result["code"] != "success":
-                logger.warning(f"喜欢列表歌曲获取失败 (ID: {song_id}): {result['message']}")
+        user_name = self.names.user(user) if user else "未知用户"
+        prefix = f"{user_name} 随机播放了喜欢的音乐"
+
+        for song_id in selected:
+            song_data = self._fetch_netease_song_data(song_id, channel, area, user)
+            if not song_data:
+                logger.warning(f"喜欢列表歌曲获取失败 (ID: {song_id})")
                 continue
 
-            data = result["data"]
-
-            # 封面处理
-            resolve_song = {"song_id": str(song_id), "cover": data.get("cover"), "platform": _PLATFORM_NETEASE}
-            attachments, image_cache_id, cache_hit = self._resolve_song_attachments(resolve_song)
-
-            song_data = {
-                "platform": _PLATFORM_NETEASE,
-                "song_id": str(song_id),
-                "name": data["name"],
-                "artists": data["artists"],
-                "album": data["album"],
-                "url": data["url"],
-                "cover": data.get("cover"),
-                "duration": data["durationText"],
-                "duration_ms": data.get("duration", 0),
-                "attachments": attachments,
-                "channel": channel,
-                "area": area,
-                "user": user,
-            }
-
-            # 第一首尝试立即播放，其余加队列
             if success_count == 0:
-                is_playing = self._is_playing()
-                current_song = self.queue.get_current()
-
-                if not is_playing and current_song is not None:
-                    self.queue.clear_current()
-                    current_song = None
-
-                queue_length = self.queue.get_queue_length()
-
-                if not is_playing and current_song is None and queue_length == 0:
-                    play_uuid = str(uuid.uuid4())
-                    song_data["play_uuid"] = play_uuid
-                    self._start_playing(data.get("duration", 0))
-                    self.queue.set_current(song_data)
-                    SongCache.record_play(song_id, _PLATFORM_NETEASE, data, image_cache_id, channel, user)
-                    Statistics.update_today(_PLATFORM_NETEASE, cache_hit)
-                    threading.Thread(
-                        target=self._stream_to_voice_channel,
-                        args=(data["url"], data["name"], channel, area,
-                              str(data.get("id", "")), data.get("duration", 0)),
-                        daemon=True,
-                    ).start()
-                    self._preload_next_song_if_any()
-
-                    user_name = self.names.user(user) if user else "未知用户"
-                    text = (
-                        f"{user_name} 随机播放了喜欢的音乐:\n"
-                        "来自于网易云:\n"
-                        f"歌曲: {data['name']}\n"
-                        f"歌手: {data['artists']}\n"
-                        f"专辑: {data['album']}\n"
-                        f"时长: {data['durationText']}"
-                    )
-                    link = self._get_web_link()
-                    if link:
-                        text += f"\n{link}"
-                    if attachments:
-                        att = attachments[0]
-                        text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
-
-                    first_text = text
-                    first_attachments = attachments
-                else:
-                    pos = self.queue.add_to_queue(song_data)
-                    user_name = self.names.user(user) if user else "未知用户"
-                    first_text = (
-                        f"{user_name} 随机播放了喜欢的音乐:\n"
-                        f"歌曲: {data['name']} - {data['artists']}\n"
-                        f"已加入队列"
-                    )
-                    first_attachments = attachments
+                result = self._commit_song_request(song_data, prefix=prefix)
+                first_text = result["message"]
+                first_attachments = result.get("attachments", [])
             else:
                 self.queue.add_to_queue(song_data)
 
@@ -621,23 +544,50 @@ class MusicHandler(PlaybackMixin):
     # 内部方法
     # ------------------------------------------------------------------
 
-    def _prepare_song_request(self, keyword: str, channel: str, area: str, user: str) -> dict:
-        """搜索歌曲并准备播放数据，但不提前进入语音频道。"""
-        search_result = self.netease.summarize(keyword)
-        if search_result["code"] != "success":
-            return search_result
-
-        data = search_result["data"]
-
-        song_data = {
+    def _fetch_netease_song_data(self, song_id: int, channel: str, area: str, user: str) -> Optional[dict]:
+        """通过歌曲 ID 获取详情并构建统一的 song_data 字典，失败返回 None。"""
+        result = self.netease.summarize_by_id(song_id)
+        if result["code"] != "success":
+            return None
+        data = result["data"]
+        return {
             "platform": _PLATFORM_NETEASE,
-            "song_id": str(data.get("id", keyword)),
+            "song_id": str(song_id),
             "name": data["name"],
             "artists": data["artists"],
             "album": data["album"],
             "url": data["url"],
             "cover": data.get("cover"),
             "duration": data["durationText"],
+            "duration_ms": data.get("duration", 0),
+            "attachments": [],
+            "channel": channel,
+            "area": area,
+            "user": user,
+        }
+
+    def _prepare_song_request(self, keyword: str, channel: str, area: str, user: str, platform: str = "") -> dict:
+        """搜索歌曲并准备播放数据，但不提前进入语音频道。"""
+        resolved_platform = platform or _PLATFORM_NETEASE
+        p = self.platforms.get(resolved_platform)
+        if not p:
+            return {"code": "error", "message": f"未知或未启用的音乐平台: {resolved_platform}"}
+
+        search_result = p.summarize(keyword)
+        if search_result["code"] != "success":
+            return search_result
+
+        data = search_result["data"]
+
+        song_data = {
+            "platform": resolved_platform,
+            "song_id": str(data.get("id") or data.get("mid") or keyword),
+            "name": data["name"],
+            "artists": data["artists"],
+            "album": data.get("album", ""),
+            "url": data["url"],
+            "cover": data.get("cover"),
+            "duration": data.get("durationText", ""),
             "duration_ms": data.get("duration", 0),
             "attachments": [],
             "channel": channel,
@@ -674,12 +624,21 @@ class MusicHandler(PlaybackMixin):
             image_cache_id = ImageCache.save(song_id, platform, cover, att)
         return attachments, image_cache_id, cache_hit
 
-    def _build_song_request_text(self, song_data: dict) -> str:
-        """统一构建点歌通知文本。"""
-        user_name = self.names.user(song_data.get("user", "")) if song_data.get("user") else "未知用户"
+    def _build_song_request_text(self, song_data: dict, prefix: str = "") -> str:
+        """统一构建点歌通知文本。prefix 为空时使用默认的 'XXX 点播了' 格式。"""
+        if not prefix:
+            user_name = self.names.user(song_data.get("user", "")) if song_data.get("user") else "未知用户"
+            prefix = f"{user_name} 点播了"
+
+        platform_name = {
+            "netease": "网易云",
+            "qq": "QQ音乐",
+            "bilibili": "B站",
+        }.get(song_data.get("platform"), "网易云")
+
         text = (
-            f"{user_name} 点播了:\n"
-            "来自于网易云:\n"
+            f"{prefix}:\n"
+            f"来自于{platform_name}:\n"
             f"歌曲: {song_data['name']}\n"
             f"歌手: {song_data['artists']}\n"
             f"专辑: {song_data['album']}\n"
@@ -696,8 +655,8 @@ class MusicHandler(PlaybackMixin):
             text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
         return text
 
-    def _commit_song_request(self, song_data: dict) -> dict:
-        """将已准备好的歌曲请求正式提交为播放或排队。"""
+    def _commit_song_request(self, song_data: dict, prefix: str = "") -> dict:
+        """将已准备好的歌曲请求正式提交为播放或排队。prefix 用于自定义通知前缀。"""
         song_data = dict(song_data)
         attachments, image_cache_id, cache_hit = self._resolve_song_attachments(song_data)
         song_data["attachments"] = attachments
@@ -711,7 +670,6 @@ class MusicHandler(PlaybackMixin):
             current_song = None
 
         if not is_playing and current_song is None and queue_length == 0:
-            # 立即播放
             song_data = dict(song_data)
             play_uuid = str(uuid.uuid4())
             song_data["play_uuid"] = play_uuid
@@ -731,13 +689,7 @@ class MusicHandler(PlaybackMixin):
                 daemon=True,
             ).start()
             self._preload_next_song_if_any()
-            text = self._build_song_request_text(song_data)
-        else:
-            pos = self.queue.add_to_queue(song_data)
-            actual = pos + 1 + (1 if current_song or is_playing else 0)
-            text = self._build_song_request_text(song_data) + f"\n已加入队列 (位置: {actual})"
 
-        if not is_playing and current_song is None and queue_length == 0:
             SongCache.record_play(
                 song_data.get("song_id"),
                 song_data.get("platform", _PLATFORM_NETEASE),
@@ -747,6 +699,11 @@ class MusicHandler(PlaybackMixin):
                 song_data.get("user", ""),
             )
             Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
+            text = self._build_song_request_text(song_data, prefix=prefix)
+        else:
+            pos = self.queue.add_to_queue(song_data)
+            actual = pos + 1 + (1 if current_song or is_playing else 0)
+            text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
 
         return {"code": "success", "message": text, "attachments": attachments}
 

@@ -36,12 +36,14 @@ class OopzClient:
         self,
         on_chat_message: Optional[Callable[[dict], None]] = None,
         on_other_event: Optional[Callable[[int, dict], None]] = None,
-        reconnect_interval: float = 5.0,
+        reconnect_interval: float = 2.0,
+        max_reconnect_interval: float = 120.0,
         heartbeat_interval: float = 10.0,
     ):
         self.on_chat_message = on_chat_message
         self.on_other_event = on_other_event
-        self.reconnect_interval = reconnect_interval
+        self._base_reconnect = reconnect_interval
+        self._max_reconnect = max_reconnect_interval
         self.heartbeat_interval = heartbeat_interval
 
         self._person_id = OOPZ_CONFIG["person_uid"]
@@ -51,13 +53,22 @@ class OopzClient:
         self._ws: Optional[websocket.WebSocketApp] = None
         self._running = False
         self._thread: Optional[threading.Thread] = None
+        self._consecutive_failures = 0
 
     # ------------------------------------------------------------------
     # 公共接口
     # ------------------------------------------------------------------
 
+    def _next_reconnect_delay(self) -> float:
+        delay = min(
+            self._base_reconnect * (2 ** self._consecutive_failures),
+            self._max_reconnect,
+        )
+        self._consecutive_failures += 1
+        return delay
+
     def start(self):
-        """阻塞运行（带自动重连）"""
+        """阻塞运行（带指数退避自动重连）"""
         self._running = True
         while self._running:
             try:
@@ -66,8 +77,9 @@ class OopzClient:
                 logger.error(f"WebSocket 异常: {e}")
 
             if self._running:
-                logger.info(f"{self.reconnect_interval}s 后重连...")
-                time.sleep(self.reconnect_interval)
+                delay = self._next_reconnect_delay()
+                logger.info(f"{delay:.1f}s 后重连 (第 {self._consecutive_failures} 次)")
+                time.sleep(delay)
 
     def start_async(self):
         """在后台线程中运行"""
@@ -111,6 +123,7 @@ class OopzClient:
 
     def _on_open(self, ws):
         logger.info("WebSocket 连接已建立")
+        self._consecutive_failures = 0
         self._send_auth(ws)
         threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True).start()
 

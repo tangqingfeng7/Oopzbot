@@ -6,6 +6,7 @@
     { key: "stats", href: "/admin/stats", label: "统计" },
     { key: "activity", href: "/admin/activity", label: "活跃" },
     { key: "scheduler", href: "/admin/scheduler", label: "定时" },
+    { key: "members", href: "/admin/members", label: "成员" },
     { key: "system", href: "/admin/system", label: "系统" },
   ];
 

@@ -69,7 +69,7 @@ class OopzApiMixin:
         max_attempts = 3
         cache_key = (str(area), int(offset_start), int(offset_end))
         cache_ttl = float(getattr(self, "_area_members_cache_ttl", 2.0))
-        stale_ttl = float(getattr(self, "_area_members_stale_ttl", 15.0))
+        stale_ttl = float(getattr(self, "_area_members_stale_ttl", 300.0))
 
         if quiet:
             cached = self._get_cached_area_members(cache_key, max_age=cache_ttl)
@@ -127,47 +127,86 @@ class OopzApiMixin:
                 return {"error": "未获得响应"}
 
             if resp.status_code != 200:
-                logger.error(f"获取域成员失败: HTTP {resp.status_code}")
+                logger.debug(f"获取域成员失败: HTTP {resp.status_code}")
+                stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+                if stale is not None:
+                    stale["stale"] = True
+                    return stale
                 return {"error": f"HTTP {resp.status_code}"}
 
             if not resp.content:
-                logger.warning("获取域成员失败: HTTP 200 但响应体为空")
+                logger.debug("获取域成员失败: HTTP 200 但响应体为空")
+                stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+                if stale is not None:
+                    stale["stale"] = True
+                    return stale
                 return {"error": "empty response"}
 
             try:
                 result = resp.json()
             except ValueError:
-                body_preview = resp.content[:200]
-                logger.warning(
-                    "获取域成员失败: 响应非合法 JSON (len=%d, status=%d, preview=%r)",
-                    len(resp.content),
-                    resp.status_code,
-                    body_preview,
-                )
+                content_encoding = (resp.headers.get("Content-Encoding") or "").lower()
+                if content_encoding in ("br", "zstd") or (
+                    resp.content and resp.content[:4] != b'{"st'
+                ):
+                    logger.debug(
+                        "获取域成员失败: 响应体可能未被正确解压 "
+                        "(Content-Encoding=%s, len=%d)。"
+                        "请确保已安装 brotli 和 zstandard 包: "
+                        "pip install brotli zstandard",
+                        content_encoding or "未知",
+                        len(resp.content),
+                    )
+                else:
+                    logger.debug(
+                        "获取域成员失败: 响应非合法 JSON (len=%d, status=%d, preview=%r)",
+                        len(resp.content),
+                        resp.status_code,
+                        resp.content[:200],
+                    )
+                stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+                if stale is not None:
+                    stale["stale"] = True
+                    return stale
                 return {"error": "invalid JSON"}
             if not result.get("status"):
                 msg = result.get("message") or result.get("error") or "未知错误"
-                logger.error(f"获取域成员失败: {msg}")
+                logger.debug(f"获取域成员失败: {msg}")
+                stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+                if stale is not None:
+                    stale["stale"] = True
+                    return stale
                 return {"error": msg}
 
             data = result.get("data", {})
             members = data.get("members", [])
             online = sum(1 for m in members if m.get("online") == 1)
             fetched = len(members)
-            api_total = data.get("userCount")
+            api_total = data.get("totalCount") or data.get("userCount")
             try:
                 total = int(api_total) if api_total is not None else fetched
             except Exception:
                 total = fetched
+
+            role_count = data.get("roleCount", [])
+            online_from_api = sum(
+                rc.get("count", 0) for rc in role_count if rc.get("role", 0) != -1
+            ) if role_count else online
+
             if not quiet:
-                logger.info(f"获取域成员成功: 本页 {fetched} 人, 在线 {online} 人, 域总人数 {total}")
-            data["onlineCount"] = online
+                logger.info(f"获取域成员成功: 本页 {fetched} 人, 在线 {online_from_api} 人, 域总人数 {total}")
+            data["onlineCount"] = online_from_api or online
+            data["totalCount"] = total
             data["userCount"] = total
             data["fetchedCount"] = fetched
             self._set_cached_area_members(cache_key, data)
             return data
         except Exception as e:
             logger.error(f"获取域成员异常: {e}")
+            stale = self._get_cached_area_members(cache_key, max_age=stale_ttl)
+            if stale is not None:
+                stale["stale"] = True
+                return stale
             return {"error": str(e)}
 
     # ---- 频道列表 ----
@@ -465,13 +504,13 @@ class OopzApiMixin:
         """
         获取域详细信息（含角色列表、主页频道 ID/名称等）。
 
-        API: GET /area/v2/info?area={area}
+        API: GET /area/v3/info?area={area}
 
         Returns:
             域信息字典，或 {"error": "..."} 表示失败。
         """
         area = area or OOPZ_CONFIG["default_area"]
-        url_path = "/area/v2/info"
+        url_path = "/area/v3/info"
         params = {"area": area}
         try:
             resp = self._get(url_path, params=params)
@@ -517,6 +556,43 @@ class OopzApiMixin:
             f"{stats['areas_named']} 个域, "
             f"{stats['channels_named']} 个频道"
         )
+
+    # ---- 批量获取用户信息 ----
+
+    def get_person_infos_batch(self, uids: list[str]) -> dict[str, dict]:
+        """
+        批量获取用户基本信息（昵称、头像、在线状态等）。
+
+        API: POST /client/v1/person/v1/personInfos
+
+        Args:
+            uids: 用户 UID 列表
+
+        Returns:
+            {uid: {name, avatar, online, pid, ...}, ...}
+        """
+        if not uids:
+            return {}
+        url_path = "/client/v1/person/v1/personInfos"
+        result_map: dict[str, dict] = {}
+        batch_size = 30
+        for i in range(0, len(uids), batch_size):
+            batch = uids[i : i + batch_size]
+            body = {"persons": batch, "commonIds": []}
+            try:
+                resp = self._post(url_path, body)
+                if resp.status_code != 200:
+                    continue
+                data = resp.json()
+                if not data.get("status"):
+                    continue
+                for person in data.get("data", []):
+                    uid = person.get("uid", "")
+                    if uid:
+                        result_map[uid] = person
+            except Exception as e:
+                logger.debug(f"批量获取用户信息部分失败: {e}")
+        return result_map
 
     # ---- 个人详细信息 ----
 
@@ -1122,6 +1198,7 @@ class OopzApiMixin:
         body = {"area": area, "target": uid}
 
         try:
+            self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
             headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
             url = OOPZ_CONFIG["base_url"] + full_path
@@ -1165,13 +1242,13 @@ class OopzApiMixin:
         try:
             resp = self._get(url_path, params=params)
             if resp.status_code != 200:
-                logger.error(f"获取域封禁列表失败: HTTP {resp.status_code}")
+                logger.debug(f"获取域封禁列表失败: HTTP {resp.status_code}")
                 return {"error": f"HTTP {resp.status_code}"}
 
             result = resp.json()
             if not result.get("status"):
                 msg = result.get("message") or result.get("error") or "未知错误"
-                logger.error(f"获取域封禁列表失败: {msg}")
+                logger.debug(f"获取域封禁列表失败: {msg}")
                 return {"error": msg}
 
             data = result.get("data", {})
@@ -1204,6 +1281,7 @@ class OopzApiMixin:
         """通用 PATCH 管理操作（禁言/禁麦等），参数同时放 query string 和 body。"""
         full_path = url_path + query
         try:
+            self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
             headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
             url = OOPZ_CONFIG["base_url"] + full_path

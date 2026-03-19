@@ -20,10 +20,18 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://127.0.0.1:8080/health')\""]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     environment:
       TZ: Asia/Shanghai
       BOT_REDIS_HOST: redis
       BOT_NETEASE_BASE_URL: http://netease-api:3000
+      # BOT_LOG_CONSOLE_LEVEL: INFO       # DEBUG / INFO / WARNING / ERROR
+      # BOT_LOG_FILE_LEVEL: DEBUG
     ports:
       - "8080:8080"
     shm_size: "1gb"

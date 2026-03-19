@@ -14,7 +14,7 @@
   },
   "area_join_notify": {
     "enabled": true,
-    "poll_interval_seconds": 2
+    "poll_interval_seconds": 60
   },
   "chat": {
     "enabled": true
@@ -22,6 +22,48 @@
   "profanity": {
     "enabled": true,
     "mute_duration": 5,
-    "warn_before_mute": true
+    "warn_before_mute": true,
+    "skip_admins": true,
+    "context_detection": true,
+    "context_window": 30,
+    "context_max_messages": 10,
+    "ai_detection": true,
+    "ai_min_length": 2
+  },
+  "oopz": {
+    "default_area": "",
+    "default_channel": "",
+    "proxy": "",
+    "use_announcement_style": true
+  },
+  "netease": {
+    "base_url": "http://localhost:3000",
+    "audio_download_timeout": 120,
+    "audio_download_retries": 2,
+    "audio_quality": "standard",
+    "cookie": "MUSIC_U=00CC45F5EEB79639AFFC937922A214723F78D0A8499C7E49E780D1BB014A9119EC8D9023B405184AE5487F46034154E5AF277E423F3914C38B5129716AF1DEF9DDA8E3D2F496FD8735D3FB49D5434B4DD5AC38481692A66F36A43887DE9CD149E473C2EADA8C6B0371FDAE7F5E88749175D473DF3D70C26C69B31DDE46C7623CE64A069AF385E3F51B6056DF2D084C629E5EEDF4BB35B760927A30E48C5BBDA9F637D3D934228798F9ADE80936F2BBC48A0DD62F494DA15F3BF574DEE91233F566C1EDA0F698509C5722E686FC1A545B8B79D176B5A2203982D547886A18E7C3391DA0F62B6E45AD7F3F5693F6AE21CCDF9E085F349D0B74C1EBE5DCAB439890003DE6E62DB26812AD09A7D49D97B29687C16D45E807CA78AE2058540F8685CD9905AE21E5E74166FD9EF896D554BFD1A6397E6F6C620C99D9674A60852185616817C7CE59AEAE2156EAFAD95095AB5163FBB0DBEEFC7F9523BF1AD1620D52ED859F7F6742093C80AB7A6655987C163EB4B32E1172104DBFD5E83B4536FB4E503237E15932CEAB5C845EE1E347C68EFEE2; MUSIC_A_T=1484280749682; MUSIC_R_T=1484280766196; __csrf=e30a34f442fdd6a9ff74756a9302330a; NMTID=00OGmA75vuMuLK6i0RtkNoG1TC3klkAAAGcZ8yOxg"
+  },
+  "redis": {
+    "host": "127.0.0.1",
+    "port": 6379,
+    "db": 0,
+    "decode_responses": true
+  },
+  "doubao_chat": {
+    "enabled": true,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "model": "doubao-1-5-pro-32k-250115",
+    "max_tokens": 256,
+    "temperature": 0.7,
+    "system_prompt": "你是 Oopz Bot，一个活泼有趣的聊天机器人。回复简洁友好，不超过100字。",
+    "api_key": "63c98107-906a-41b2-919b-f5f562f7a6d0"
+  },
+  "doubao_image": {
+    "enabled": true,
+    "base_url": "https://ark.cn-beijing.volces.com/api/v3",
+    "model": "doubao-seedream-4-5-251128",
+    "size": "1920x1920",
+    "watermark": false,
+    "api_key": "f73dff00-2fc1-499e-add0-fb47740c7186"
   }
 }

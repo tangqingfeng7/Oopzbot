@@ -7,7 +7,7 @@ from oopz_sender import OopzSender
 from plugin_base import PluginDescriptor
 
 from .gateways import ChatGateway, SenderGateway
-from .plugin_runtime import PluginRegistry, discover_plugins, load_plugin, load_plugins_dir, unload_plugin
+from .plugin_runtime import PluginRegistry, discover_plugins, load_plugin, load_plugins_dir, reload_plugin_config, unload_plugin
 
 
 class MusicGateway:
@@ -84,6 +84,9 @@ class PluginRuntime:
 
     def unload(self, plugin_name: str, handler=None) -> PluginOperationResult:
         return unload_plugin(self._registry, plugin_name, handler=handler)
+
+    def reload_config(self, plugin_name: str, handler=None) -> PluginOperationResult:
+        return reload_plugin_config(self._registry, plugin_name, handler=handler)
 
     def load_all(self, handler=None) -> list[str]:
         return load_plugins_dir(self._registry, self._plugins_dir, handler=handler)

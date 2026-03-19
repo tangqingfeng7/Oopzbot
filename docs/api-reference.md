@@ -454,10 +454,66 @@ GET /userSubscribeArea/v1/list
 ### 获取域详情
 
 ```
-GET /area/v2/info?area={area}
+GET /area/v3/info?area={area}
 ```
 
 返回域的详细信息，含角色列表、主页频道等。
+
+**响应 data：**
+
+```json
+{
+  "id": "域ID",
+  "code": "315084890",
+  "name": "域名称",
+  "banner": "横幅URL",
+  "avatar": "头像URL",
+  "desc": "域描述",
+  "subscribed": true,
+  "privateChannels": ["私密频道ID"],
+  "isPublic": false,
+  "roleList": [
+    {
+      "roleID": 10911515,
+      "name": "",
+      "description": "域的所有者",
+      "sort": 99999,
+      "isDisplay": true,
+      "type": 1
+    },
+    {
+      "roleID": 10911519,
+      "name": "全体成员",
+      "description": "域的默认身份组",
+      "sort": 1,
+      "isDisplay": false,
+      "type": 2
+    }
+  ],
+  "areaRoleInfos": {
+    "maxRole": 10911517,
+    "roles": [10911517, 19507623, 10911519],
+    "privilegeKeys": ["MANAGE_GROUP", "MANAGE_CHANNEL", "..."],
+    "categoryKeys": ["MESSAGE", "AREA", "MEMBER"],
+    "isOwner": false
+  },
+  "homePageChannelId": "主页频道ID"
+}
+```
+
+**roleList 字段说明：**
+
+| 字段 | 说明 |
+|------|------|
+| `roleID` | 身份组 ID（与 members 接口中的 `role` 对应） |
+| `name` | 身份组名称 |
+| `sort` | 排序权重（与 members 接口中的 `roleSort` 对应） |
+| `isDisplay` | 是否在成员列表中单独分组显示 |
+| `type` | `1` = 域主，`2` = 默认身份组，`3` = 自定义身份组 |
+
+**areaRoleInfos：** 当前用户在域内的权限信息。
+
+> 此接口返回的 `roleList` 可与 `/area/v3/members` 接口的 `role` 字段配合使用，将身份组 ID 映射为名称。旧版 `/area/v2/info` 仍可用但建议使用 v3。
 
 ### 获取域频道列表
 
@@ -697,7 +753,7 @@ DELETE /client/v1/area/v1/member/v1/removeFromChannel?area={area}&channel={chann
 
 ## 成员 API
 
-### 获取域成员列表
+### 获取域成员列表（含在线状态）
 
 ```
 GET /area/v3/members?area={area}&offsetStart={start}&offsetEnd={end}
@@ -718,12 +774,45 @@ GET /area/v3/members?area={area}&offsetStart={start}&offsetEnd={end}
   "members": [
     {
       "uid": "用户UID",
+      "role": 10911515,
+      "roleSort": 99999,
       "online": 1,
-      "playingState": "正在玩的游戏"
+      "roleStatus": 10911515,
+      "playingState": "明明就",
+      "displayType": "MUSIC"
     }
-  ]
+  ],
+  "roleCount": [
+    {"role": 10911515, "count": 1},
+    {"role": -1, "count": 14}
+  ],
+  "totalCount": 17
 }
 ```
+
+**members 字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `uid` | string | 用户 UID |
+| `role` | int | 用户当前最高身份组 ID |
+| `roleSort` | int | 身份组排序权重（越大越靠前） |
+| `online` | int | 在线状态：`1` = 在线，`0` = 离线 |
+| `roleStatus` | int | 在线时等于 `role`；离线时为 `-1` |
+| `playingState` | string | 正在做的事情（如歌曲名、游戏名），空串表示无 |
+| `displayType` | string | 活动类型：`"MUSIC"` = 听音乐，`""` = 无活动 |
+
+**roleCount 字段说明：**
+
+| 字段 | 说明 |
+|------|------|
+| `role` | 身份组 ID；`-1` 表示离线 |
+| `count` | 该身份组当前在线人数；`role=-1` 时为离线总人数 |
+
+**totalCount：** 域内成员总数。
+
+> Web 端右侧成员面板即通过此接口获取数据，按 `roleSort` 降序排列，在线成员在前、离线成员在后。
+> 此接口会被 Web 端定期轮询以刷新在线状态。
 
 ### 移出域（踢出用户）
 
@@ -930,18 +1019,44 @@ POST /client/v1/person/v1/personInfos
 [
   {
     "uid": "用户UID",
+    "pid": "公开ID（如 824778414）",
     "name": "昵称",
-    "online": true,
-    "introduction": "简介",
-    "ipAddress": "IP属地",
-    "personType": "类型",
-    "playingState": "正在玩",
+    "status": "ENABLED",
+    "personType": "PERSON",
+    "personRole": "NORMAL",
     "avatar": "头像URL",
-    "personVIPEndTime": 0,
-    "badges": []
+    "online": true,
+    "badges": null,
+    "avatarFrame": "",
+    "avatarFrameAnimation": "",
+    "avatarFrameExpireTime": 0,
+    "mark": "",
+    "markName": "",
+    "markExpireTime": 0,
+    "introduction": "",
+    "userCommonId": "公开ID"
   }
 ]
 ```
+
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `uid` | string | 用户 UID |
+| `pid` | string | 公开 ID（数字字符串） |
+| `name` | string | 昵称 |
+| `status` | string | 账号状态（`ENABLED` / `DISABLED`） |
+| `personType` | string | 用户类型（`PERSON`） |
+| `personRole` | string | 用户角色（`NORMAL`） |
+| `avatar` | string | 头像 URL（带签名） |
+| `online` | boolean | 在线状态：`true` / `false` |
+| `badges` | array\|null | 徽章列表 |
+| `avatarFrame` | string | 头像框 URL |
+| `mark` | string | 标记 |
+| `markName` | string | 标记名称 |
+| `introduction` | string | 个人简介 |
+| `userCommonId` | string | 公开 ID（同 `pid`） |
 
 ### 获取用户详细资料
 
@@ -958,6 +1073,57 @@ GET /client/v1/person/v2/selfDetail?uid={uid}
 ```
 
 返回当前登录用户的完整资料。
+
+**响应 data：**
+
+```json
+{
+  "uid": "用户UID",
+  "pid": "公开ID",
+  "name": "昵称",
+  "phone": "167****1220",
+  "avatar": "头像URL",
+  "banner": "个人主页横幅URL",
+  "online": true,
+  "introduction": "",
+  "stealth": false,
+  "status": "ENABLED",
+  "personType": "PERSON",
+  "personRole": "NORMAL",
+  "ipAddress": "IP",
+  "defaultAvatar": false,
+  "defaultName": false,
+  "displayPlayingState": true,
+  "playingState": "",
+  "playingTime": 0,
+  "playingGameImage": "",
+  "musicState": "",
+  "songState": "",
+  "displayType": "",
+  "userLevel": 1,
+  "likeCount": 0,
+  "mutualFollowCount": 0,
+  "followCount": 0,
+  "fansCount": 0,
+  "badges": [],
+  "avatarFrame": "",
+  "mark": "",
+  "greeting": "你已加入Oopz 1 天"
+}
+```
+
+**关键字段说明：**
+
+| 字段 | 说明 |
+|------|------|
+| `online` | 是否在线（`true` / `false`） |
+| `stealth` | 是否隐身模式 |
+| `ipAddress` | IP 归属地 |
+| `displayPlayingState` | 是否对外展示正在播放状态 |
+| `playingState` | 正在播放/游戏内容 |
+| `displayType` | 活动类型（`MUSIC` 等） |
+| `userLevel` | 用户等级 |
+| `greeting` | 加入平台天数提示 |
 
 ### 获取用户等级信息
 
@@ -1100,13 +1266,25 @@ GET /general/v1/speech
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
+| POST | `https://gateway.oopz.cn/client/v1/login/v2/login` | 登录（v2） |
 | POST | `https://gateway.oopz.cn/client/v1/login/v1/autoLogin` | 自动登录 |
 | GET | `https://gateway.oopz.cn/login/v1/loginCheck` | 登录校验 |
 | GET | `https://gateway.oopz.cn/client/v1/person/v2/selfDetail?uid=...` | 当前用户详情 |
 | GET | `https://gateway.oopz.cn/client/v1/person/v1/personDetail?uid=...` | 用户详情 |
-| POST | `https://gateway.oopz.cn/client/v1/person/v1/personInfos` | 批量用户信息 |
+| POST | `https://gateway.oopz.cn/client/v1/person/v1/personInfos` | 批量用户信息（含在线状态） |
+| GET | `https://gateway.oopz.cn/client/v1/person/v1/noviceGuide` | 新手引导 |
+| GET | `https://gateway.oopz.cn/person/v1/userNoticeSetting/noticeSetting` | 通知设置 |
+| GET | `https://gateway.oopz.cn/person/v1/remarkName/getUserRemarkNames?uid=...` | 备注名 |
 | GET | `https://gateway.oopz.cn/person/v1/blockCheck?targetUid=...` | 拉黑检查 |
 | GET | `https://gateway.oopz.cn/client/v1/person/v1/privacy/v1/query` | 隐私设置查询 |
+| GET | `https://gateway.oopz.cn/client/v1/person/v1/notification/v1/query` | 通知查询 |
+| GET | `https://gateway.oopz.cn/client/v1/person/v2/realNameAuth` | 实名认证状态 |
+| GET | `https://gateway.oopz.cn/client/v1/list/v1/friendship` | 好友列表 |
+| GET | `https://gateway.oopz.cn/client/v1/list/v1/blocked` | 黑名单列表 |
+| GET | `https://gateway.oopz.cn/client/v1/friendship/v1/requests` | 好友请求 |
+| GET | `https://gateway.oopz.cn/user_points/v1/level_info` | 用户等级 |
+| GET | `https://gateway.oopz.cn/diamond/v1/remain` | 钻石余额 |
+| GET | `https://gateway.oopz.cn/client/v1/settings/v1/mixer` | 混音器设置 |
 
 #### 会话 / IM
 
@@ -1119,6 +1297,10 @@ GET /general/v1/speech
 | POST | `https://gateway.oopz.cn/im/session/v1/areasUnread` | 区域未读数 |
 | POST | `https://gateway.oopz.cn/im/session/v1/areasMentionUnread` | @ 未读 |
 | POST | `https://gateway.oopz.cn/im/session/v1/saveReadStatus` | 保存已读状态 |
+| POST | `https://gateway.oopz.cn/im/session/v1/gimReactions` | 消息表情反应 |
+| POST | `https://gateway.oopz.cn/im/session/v1/gimMessageDetails` | 消息详情 |
+| GET | `https://gateway.oopz.cn/im/systemMessage/v1/unreadCount` | 系统消息未读数 |
+| GET | `https://gateway.oopz.cn/im/systemMessage/v1/messageList?offsetTime` | 系统消息列表 |
 
 #### 区域 / 频道（权限页相关）
 
@@ -1135,8 +1317,29 @@ GET /general/v1/speech
 | POST | `https://gateway.oopz.cn/client/v1/area/v1/channel/v1/create` | 创建频道 |
 | DELETE | `https://gateway.oopz.cn/client/v1/area/v1/channel/v1/delete?channel=...&area=...` | 删除频道 |
 | POST | `https://gateway.oopz.cn/area/v2/getUserAreaNicknames` | 获取区域昵称 |
+| POST | `https://gateway.oopz.cn/area/v3/channel/membersByChannels` | 频道在线成员（按频道分组） |
 | GET | `https://gateway.oopz.cn/area/v3/userDetail?area=...&target=...` | 区域内用户详情 |
 | GET | `https://gateway.oopz.cn/area/v3/role/canGiveList?area=...&target=...` | 可授予身份组列表 |
+| POST | `https://gateway.oopz.cn/area/v3/role/editUserRole` | 编辑用户身份组 |
+| GET | `https://gateway.oopz.cn/client/v1/area/v1/areaSettings/v1/blocks?area=...` | 域封禁列表 |
+| PATCH | `https://gateway.oopz.cn/client/v1/area/v1/unblock?area=...&target=...` | 解除域封禁 |
+| POST | `https://gateway.oopz.cn/area/v3/remove?area=...&target=...` | 移出域 |
+
+#### 其他
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `https://gateway.oopz.cn/userSubscribeArea/v1/list` | 已加入域列表 |
+| POST | `https://tracking.oopz.cn/events/push` | 埋点事件上报 |
+| GET | `https://gateway.oopz.cn/task/v1/bounty/list` | 赏金任务列表 |
+| GET | `https://gateway.oopz.cn/advertisement/v2/list` | 广告列表 |
+| GET | `https://gateway.oopz.cn/discovery/v3/home?needTop=1&areaCount=20` | 发现页首页 |
+| GET | `https://gateway.oopz.cn/shop/v1/preview?previewType=DIAMOND` | 商店预览 |
+| GET | `https://gateway.oopz.cn/client/v1/interaction/v1/list` | 互动列表 |
+| GET | `https://gateway.oopz.cn/client/v1/sticker/v1/list` | 贴纸列表 |
+| GET | `https://gateway.oopz.cn/client/v1/roaming/v1/emojis` | 漫游表情 |
+| GET | `https://gateway.oopz.cn/im/systemMessage/v1/unreadCount` | 系统消息未读数 |
+| GET | `https://gateway.oopz.cn/diamond/v1/remain` | 钻石余额 |
 
 ### Web 端请求头样例
 
@@ -1162,4 +1365,3 @@ GET /general/v1/speech
 - `client/v1/login/v1/autoLogin` 的 `code` 字段即登录 JWT，后续请求放到 `oopz-signature`。
 - `im/session/v2/sendGimMessage` 为 Web 端可见的频道消息包裹格式；本 Bot 当前常用实现仍是 `v1/sendGimMessage`。
 - `area/v3/channel/setting/info` 的 Web 抓包查询参数仅包含 `channel`，未见必须传 `area`。
-- 抓取时间：通用 / 登录 / 权限相关为 2026-03-02；发送 @ 消息为 2026-03-03。

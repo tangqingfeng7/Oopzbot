@@ -149,5 +149,9 @@ class BotModule(ABC):
     def on_load(self, handler: Any, config: Optional[PluginConfig] = None) -> None:
         """插件加载完成后调用。"""
 
+    def on_config_reload(self, handler: Any, config: PluginConfig) -> None:
+        """配置热重载时调用。默认行为等同于 on_load，子类可覆盖以实现更精细的重载。"""
+        self.on_load(handler, config)
+
     def on_unload(self) -> None:
         """插件卸载前调用。"""

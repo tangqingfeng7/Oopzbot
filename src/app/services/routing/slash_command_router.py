@@ -63,6 +63,7 @@ class SlashCommandRouter:
             (("/plugins",), lambda: self._actions.plugins.show_plugin_list(channel, area), None),
             (("/loadplugin",), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: /loadplugin <名>"),
             (("/unloadplugin",), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: /unloadplugin <名>"),
+            (("/reloadplugin",), lambda name: self._actions.plugins.reload_plugin_config(name, channel, area), "用法: /reloadplugin <名>"),
         )
 
     def _exact_rules(self, channel: str, area: str, user: str, raw: str):
@@ -92,6 +93,8 @@ class SlashCommandRouter:
             (("/recall",), lambda: self._actions.recall.recall(raw or None, channel, area)),
             (("/ranking", "/活跃", "/活跃排行"), lambda: self._actions.scheduler.show_ranking(channel, area)),
             (("/chatstats", "/频道统计"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
+            (("/topsongs", "/点歌排行", "/播放排行"), lambda: self._actions.scheduler.show_music_ranking(channel, area)),
+            (("/recentsongs", "/最近播放"), lambda: self._actions.scheduler.show_recent_songs(channel, area)),
         )
 
     def _arg_rules(self, channel: str, area: str):

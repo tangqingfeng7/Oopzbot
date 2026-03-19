@@ -46,6 +46,8 @@ class HelpService:
             "@bot 删除提醒 <ID>  删除提醒  |  /remind del <ID>",
             "@bot 活跃排行  近7天排行  |  /ranking",
             "@bot 频道统计  频道消息统计  |  /chatstats",
+            "@bot 点歌排行  播放最多的歌  |  /topsongs",
+            "@bot 最近播放  最近播放的歌  |  /recentsongs",
         ]
 
         ai_cmds = []
@@ -64,9 +66,11 @@ class HelpService:
             lines += [
                 "",
                 "**音乐播放**",
-                "@bot 播放<歌名>  搜索并播放  |  @bot 停止  停止播放  |  @bot 下一首  切换下一首",
-                "@bot 队列  查看播放队列  |  @bot 随机  随机播放喜欢  |  @bot 喜欢列表  喜欢的音乐",
-                "/bf <歌名>  /st  /next  /queue  |  /like  /like list  /like play",
+                "@bot 播放<歌名>  搜索并播放  |  @bot 播放 qq:<歌名>  QQ音乐  |  @bot 播放 b站:<歌名>  B站",
+                "@bot 停止  停止播放  |  @bot 下一首  切换下一首  |  @bot 队列  播放队列",
+                "@bot 随机  随机播放喜欢  |  @bot 喜欢列表  喜欢的音乐",
+                "/bf <歌名>  /bf qq <歌名>  /bf bili <歌名>  |  /st  /next  /queue",
+                "/like  /like list  /like play",
                 "",
                 "**成员查询**",
                 "@bot 成员  域成员在线  |  @bot 查看<用户>  他人详细资料  |  @bot 搜索<关键词>  搜索域成员",

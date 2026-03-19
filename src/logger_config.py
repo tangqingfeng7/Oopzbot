@@ -12,6 +12,18 @@ LOG_FILE = os.path.join(LOG_DIR, "oopz_bot.log")
 
 LOG_RETENTION_DAYS = 7
 
+_LEVEL_MAP = {
+    "DEBUG": logging.DEBUG,
+    "INFO": logging.INFO,
+    "WARNING": logging.WARNING,
+    "ERROR": logging.ERROR,
+    "CRITICAL": logging.CRITICAL,
+}
+
+def _env_level(env_key: str, default: int) -> int:
+    raw = os.environ.get(env_key, "").upper().strip()
+    return _LEVEL_MAP.get(raw, default)
+
 _initialized = False
 
 
@@ -57,29 +69,28 @@ def setup_logger(name: str, level=logging.DEBUG) -> logging.Logger:
             datefmt="%Y-%m-%d %H:%M:%S",
         )
 
-        # 文件 handler（自动轮转，最大 10MB，保留 5 个备份）
+        file_level = _env_level("BOT_LOG_FILE_LEVEL", logging.DEBUG)
+        console_level = _env_level("BOT_LOG_CONSOLE_LEVEL", logging.INFO)
+
         file_handler = RotatingFileHandler(
             LOG_FILE,
             maxBytes=10 * 1024 * 1024,
             backupCount=5,
             encoding="utf-8",
         )
-        file_handler.setLevel(logging.DEBUG)
+        file_handler.setLevel(file_level)
         file_handler.setFormatter(formatter)
 
-        # 强制控制台输出使用 UTF-8 编码，避免 Windows GBK 乱码
         if sys.platform == "win32":
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
             sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-        # 控制台 handler（使用 UTF-8 的 stderr）
         console_handler = logging.StreamHandler(sys.stderr)
-        console_handler.setLevel(logging.INFO)
+        console_handler.setLevel(console_level)
         console_handler.setFormatter(formatter)
 
-        # 添加到 root logger，这样所有子 logger 都继承
         root = logging.getLogger()
-        root.setLevel(logging.DEBUG)
+        root.setLevel(min(file_level, console_level))
         root.addHandler(file_handler)
         root.addHandler(console_handler)
 

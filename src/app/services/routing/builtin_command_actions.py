@@ -1,7 +1,7 @@
 from dataclasses import dataclass
 
 from app.services.runtime import CommandRuntimeView, sender_of
-from database import MessageStatsDB, ReminderDB, ScheduledMessageDB
+from database import MessageStatsDB, ReminderDB, ScheduledMessageDB, SongCache
 from name_resolver import get_resolver
 
 
@@ -157,6 +157,9 @@ class PluginCommandActions:
     def unload_plugin(self, name: str, channel: str, area: str) -> None:
         self._services.plugins.management.unload(name, channel, area)
 
+    def reload_plugin_config(self, name: str, channel: str, area: str) -> None:
+        self._services.plugins.management.reload_config(name, channel, area)
+
 
 class SchedulerCommandActions:
     def __init__(self, runtime: CommandRuntimeView):
@@ -301,6 +304,36 @@ class SchedulerCommandActions:
             lines.append(f"  {d['date']}  —  {d['total']} 条")
             total += d["total"]
         lines.append(f"合计: {total} 条")
+        self._sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    # ------------------------------------------------------------------
+    # 播放排行
+    # ------------------------------------------------------------------
+
+    def show_music_ranking(self, channel: str, area: str) -> None:
+        songs = SongCache.get_top_songs(limit=10)
+        if not songs:
+            self._sender.send_message("暂无播放记录", channel=channel, area=area)
+            return
+        lines = ["【点歌排行榜 Top 10】"]
+        for i, s in enumerate(songs):
+            artist = s.get("artist", "未知")
+            name = s.get("song_name", "未知")
+            count = s.get("play_count", 0)
+            lines.append(f" {i + 1}. {name} - {artist}  ({count}次)")
+        self._sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    def show_recent_songs(self, channel: str, area: str) -> None:
+        songs = SongCache.get_recent_songs(limit=10)
+        if not songs:
+            self._sender.send_message("暂无播放记录", channel=channel, area=area)
+            return
+        lines = ["【最近播放】"]
+        for i, s in enumerate(songs):
+            artist = s.get("artist", "未知")
+            name = s.get("song_name", "未知")
+            played = s.get("last_played_at", "")[:16]
+            lines.append(f" {i + 1}. {name} - {artist}  ({played})")
         self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
 

@@ -179,6 +179,59 @@ def load_plugin(
         )
 
 
+def reload_plugin_config(
+    registry: PluginRegistry,
+    plugin_name: str,
+    handler: Any = None,
+) -> PluginOperationResult:
+    """重新读取插件配置并通知插件实例，不重新加载代码。"""
+    module = registry.get(plugin_name)
+    if not module:
+        return PluginOperationResult.failure(
+            f"插件未加载: {plugin_name}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.NOT_LOADED,
+        )
+
+    try:
+        config = module.config_spec.apply(load_plugin_config(plugin_name))
+    except PluginConfigValidationError as exc:
+        return PluginOperationResult.failure(
+            f"配置校验失败: {exc}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.INVALID_CONFIG,
+        )
+    except Exception as exc:
+        logger.exception("PluginLoader: %s 读取配置失败", plugin_name)
+        return PluginOperationResult.failure(
+            f"读取配置失败: {exc!s}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.LOAD_FAILED,
+        )
+
+    try:
+        module.on_config_reload(handler, config)
+    except PluginConfigValidationError as exc:
+        return PluginOperationResult.failure(
+            f"热重载配置校验失败: {exc}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.INVALID_CONFIG,
+        )
+    except Exception as exc:
+        logger.exception("PluginLoader: %s on_config_reload 异常", plugin_name)
+        return PluginOperationResult.failure(
+            f"热重载失败: {exc!s}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.ON_LOAD_FAILED,
+        )
+
+    logger.info("插件配置已热重载: %s", plugin_name)
+    return PluginOperationResult.success(
+        f"已重载配置: {plugin_name}",
+        plugin_name=plugin_name,
+    )
+
+
 def unload_plugin(
     registry: PluginRegistry,
     plugin_name: str,

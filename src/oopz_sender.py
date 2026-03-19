@@ -121,13 +121,18 @@ class Signer:
 class OopzSender(UploadMixin, OopzApiMixin):
     """Oopz 平台消息发送、文件上传、平台 API 查询。"""
 
+    # 全局速率限制: 最小请求间隔 (秒), 即 1/max_rps
+    _RATE_LIMIT_INTERVAL = 0.35  # ~3 req/s
+
     def __init__(self):
         self.signer = Signer()
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
         self._area_members_cache: dict[tuple[str, int, int], dict] = {}
-        self._area_members_cache_ttl = 2.0
-        self._area_members_stale_ttl = 15.0
+        self._area_members_cache_ttl = 15.0
+        self._area_members_stale_ttl = 300.0
+        self._rate_lock = threading.Lock()
+        self._last_request_time = 0.0
         # 代理：留空/不设=使用系统代理(HTTP_PROXY/HTTPS_PROXY)；False 或 "direct"=直连；或 "http://ip:port"
         proxy_cfg = OOPZ_CONFIG.get("proxy")
         if proxy_cfg is False or (isinstance(proxy_cfg, str) and proxy_cfg.strip().lower() == "direct"):
@@ -142,10 +147,20 @@ class OopzSender(UploadMixin, OopzApiMixin):
         logger.info(f"  用户: {OOPZ_CONFIG['person_uid']}")
         logger.info(f"  设备: {OOPZ_CONFIG['device_id']}")
 
+    def _throttle(self) -> None:
+        """阻塞直到距上次请求满足最小间隔,线程安全。"""
+        with self._rate_lock:
+            now = time.time()
+            elapsed = now - self._last_request_time
+            if elapsed < self._RATE_LIMIT_INTERVAL:
+                time.sleep(self._RATE_LIMIT_INTERVAL - elapsed)
+            self._last_request_time = time.time()
+
     # ---- 内部 ----
 
     def _request(self, method: str, url_path: str, body: dict | None = None) -> requests.Response:
         """统一处理带签名的 HTTP 请求（POST/PUT/DELETE）。"""
+        self._throttle()
         body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False) if body else "{}"
         headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
         url = OOPZ_CONFIG["base_url"] + url_path
@@ -178,6 +193,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
         bases = [OOPZ_CONFIG["api_url"], OOPZ_CONFIG["base_url"]] if use_api \
             else [OOPZ_CONFIG["base_url"], OOPZ_CONFIG["api_url"]]
 
+        self._throttle()
         last_error = None
         resp = None
         for base in bases:

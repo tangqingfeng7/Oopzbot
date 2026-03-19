@@ -241,11 +241,14 @@ class PlaybackMixin:
             self.voice.play_audio(url)
             logger.info(f"开始 Agora 推流: {name}")
         except Exception as e:
-            # URL 可能过期，尝试重新获取
             if song_id:
                 logger.info(f"推流失败，尝试重新获取音频URL: {name}")
                 try:
-                    new_url = self.netease.get_song_url(int(song_id))
+                    current = self.queue.get_current() or {}
+                    platform_name = current.get("platform", "netease")
+                    p = self.platforms.get(platform_name) if hasattr(self, "platforms") else None
+                    refetch = p or self.netease
+                    new_url = refetch.get_song_url(song_id)
                     if new_url:
                         self.voice.play_audio(new_url)
                         logger.info(f"重新获取URL后推流成功: {name}")

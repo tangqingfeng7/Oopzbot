@@ -1,4 +1,6 @@
 requests
+brotli
+zstandard
 cryptography
 websocket-client
 pillow

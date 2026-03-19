@@ -11,6 +11,7 @@ from .loader import (
     load_plugin,
     load_plugin_config,
     load_plugins_dir,
+    reload_plugin_config,
     unload_plugin,
 )
 from .registry import PluginRegistry
@@ -29,6 +30,7 @@ __all__ = [
     "load_plugin",
     "load_plugin_config",
     "load_plugins_dir",
+    "reload_plugin_config",
     "unload_plugin",
     "write_plugin_config_assets",
 ]
