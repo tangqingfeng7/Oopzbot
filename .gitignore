@@ -8,6 +8,7 @@ data/credentials.txt
 .oopz_capture_credentials
 capture_recall_result.json
 capture_trace.zip
+data/
 
 # === 运行时生成的数据 ===
 data/names.json
@@ -20,15 +21,14 @@ __pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
-test/
-tests/
-!tests/
-!tests/*.py
 dist/
 build/
 *.egg
 .learnings
-tests/
+
+# === 测试（保留 tests 目录下的 .py 文件）===
+tests/**
+!tests/*.py
 
 # === 日志 ===
 logs/
@@ -53,4 +53,3 @@ Thumbs.db
 .DS_Store
 delta-force-plugin-main
 docs_local/
-

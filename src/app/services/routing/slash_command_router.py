@@ -212,4 +212,12 @@ class SlashCommandRouter:
                 )
             return
 
+        if command in ("/clearai", "/清除记忆", "/重置对话"):
+            cleared = self._services.interaction.chat.clear_memory(user, channel)
+            if cleared:
+                self._sender.send_message("对话记忆已清除", channel=channel, area=area)
+            else:
+                self._sender.send_message("当前没有对话记忆", channel=channel, area=area)
+            return
+
         self._services.interaction.chat.send_unknown_command(command, channel, area)

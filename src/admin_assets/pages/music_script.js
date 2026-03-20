@@ -5,14 +5,7 @@
     let queuePage = 1;
     let queuePages = 1;
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
+    var escapeHtml = AdminShell.escapeHtml;
 
     function setPageState(text, variant) {
       AdminShell.setStatus(text, variant, "topStatus");

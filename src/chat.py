@@ -40,6 +40,7 @@ class ChatHandler:
     def __init__(self):
         self.enabled = CHAT_CONFIG.get("enabled", True)
         self.keyword_replies: dict = CHAT_CONFIG.get("keyword_replies", {})
+        self._session = requests.Session()
 
         # 豆包 AI
         self.ai_enabled = DOUBAO_CONFIG.get("enabled", False)
@@ -82,16 +83,22 @@ class ChatHandler:
 
         return None
 
-    def ai_reply(self, content: str) -> Optional[str]:
+    def ai_reply(self, content: str, history: list[dict] | None = None) -> Optional[str]:
         """
         调用豆包 AI 生成回复。
         用于 @bot 触发的非指令消息。
+        history: 可选的对话历史 [{"role":"user","content":...}, {"role":"assistant","content":...}, ...]
         """
         if not self.ai_enabled or not self._ai_key or not self._ai_base:
             return None
 
+        messages = [{"role": "system", "content": self._system_prompt}]
+        if history:
+            messages.extend(history)
+        messages.append({"role": "user", "content": content})
+
         try:
-            resp = requests.post(
+            resp = self._session.post(
                 f"{self._ai_base}/chat/completions",
                 headers={
                     "Content-Type": "application/json",
@@ -99,10 +106,7 @@ class ChatHandler:
                 },
                 json={
                     "model": self._ai_model,
-                    "messages": [
-                        {"role": "system", "content": self._system_prompt},
-                        {"role": "user", "content": content},
-                    ],
+                    "messages": messages,
                     "max_tokens": self._max_tokens,
                     "temperature": self._temperature,
                 },
@@ -132,7 +136,7 @@ class ChatHandler:
 
         try:
             logger.info(f"图片生成请求: {prompt[:50]}...")
-            resp = requests.post(
+            resp = self._session.post(
                 f"{self._img_base}/images/generations",
                 headers={
                     "Content-Type": "application/json",
@@ -183,7 +187,7 @@ class ChatHandler:
             "只回复\"正常\"或\"违规:原因\"（原因不超过10字），不要解释。"
         )
         try:
-            resp = requests.post(
+            resp = self._session.post(
                 f"{self._ai_base}/chat/completions",
                 headers={
                     "Content-Type": "application/json",

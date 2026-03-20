@@ -22,6 +22,7 @@
           currentArea = areas[0].id;
           picker.value = currentArea;
         }
+        AdminShell.upgradeSelect("areaPicker");
         populateSendAreaPicker(areas);
       } catch (e) {
         var picker = AdminShell.byId("areaPicker");
@@ -43,14 +44,7 @@
       AdminShell.setMicroStatus(text, variant, "membersState");
     }
 
-    function esc(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
+    var esc = AdminShell.escapeHtml;
 
     /* ========= 自定义弹窗 ========= */
 
@@ -498,6 +492,7 @@
         sendArea = areas[0].id;
         picker.value = sendArea;
       }
+      AdminShell.upgradeSelect("sendAreaPicker");
     }
 
     function onSendAreaChange() {
@@ -531,6 +526,7 @@
       } catch (e) {
         picker.innerHTML = '<option value="">加载频道失败</option>';
       }
+      AdminShell.upgradeSelect("channelPicker");
     }
 
     function _setSendStatus(text, isErr) {

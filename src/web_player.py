@@ -16,7 +16,7 @@ from fastapi.staticfiles import StaticFiles
 
 from logger_config import get_logger
 from netease import NeteaseCloud
-from queue_manager import get_redis_client
+from queue_manager import get_redis_client, _area_key, KEY_QUEUE, KEY_CURRENT, KEY_PLAY_STATE
 from web_link_token import ensure_token, get_token, set_token
 
 import web_player_config as cfg
@@ -101,6 +101,7 @@ def get_sender():
 # ---------------------------------------------------------------------------
 
 cfg.bootstrap_admin_overrides()
+cfg.bootstrap_area_overrides()
 
 # ---------------------------------------------------------------------------
 # 中间件
@@ -134,12 +135,13 @@ async def _auth_web_api(request: Request, call_next):
 # 共享业务逻辑（admin 模块亦调用）
 # ---------------------------------------------------------------------------
 
-def execute_control_action(action: str, body: dict, redis_client: redis.Redis) -> dict:
+def execute_control_action(action: str, body: dict, redis_client: redis.Redis, area: str = "") -> dict:
+    queue_key = _area_key(KEY_QUEUE, area)
     if action == "next":
         redis_client.rpush(KEY_WEB_COMMANDS, "next")
         return {"ok": True}
     if action == "clear":
-        redis_client.delete("music:queue")
+        redis_client.delete(queue_key)
         return {"ok": True}
     if action == "stop":
         redis_client.rpush(KEY_WEB_COMMANDS, "stop")
@@ -161,30 +163,31 @@ def execute_control_action(action: str, body: dict, redis_client: redis.Redis) -
     return {"ok": False, "error": f"未知操作: {action}"}
 
 
-def execute_queue_action(action: str, index, redis_client: redis.Redis) -> dict:
+def execute_queue_action(action: str, index, redis_client: redis.Redis, area: str = "") -> dict:
     try:
         idx = int(index)
     except (TypeError, ValueError):
         return {"ok": False, "error": "索引无效"}
-    queue_items = redis_client.lrange("music:queue", 0, -1)
+    queue_key = _area_key(KEY_QUEUE, area)
+    queue_items = redis_client.lrange(queue_key, 0, -1)
     if idx < 0 or idx >= len(queue_items):
         return {"ok": False, "error": "索引无效"}
     if action == "remove":
         placeholder = "__REMOVED__"
-        redis_client.lset("music:queue", idx, placeholder)
-        redis_client.lrem("music:queue", 1, placeholder)
+        redis_client.lset(queue_key, idx, placeholder)
+        redis_client.lrem(queue_key, 1, placeholder)
         return {"ok": True}
     if action == "top":
         item = queue_items[idx]
         placeholder = "__REMOVED__"
-        redis_client.lset("music:queue", idx, placeholder)
-        redis_client.lrem("music:queue", 1, placeholder)
-        redis_client.lpush("music:queue", item)
+        redis_client.lset(queue_key, idx, placeholder)
+        redis_client.lrem(queue_key, 1, placeholder)
+        redis_client.lpush(queue_key, item)
         return {"ok": True}
     return {"ok": False, "error": f"未知操作: {action}"}
 
 
-def add_song_to_queue(body: dict) -> dict:
+def add_song_to_queue(body: dict, area: str = "") -> dict:
     song_id = body.get("id")
     if not song_id:
         return {"ok": False, "error": "缺少歌曲 ID"}
@@ -212,28 +215,41 @@ def add_song_to_queue(body: dict) -> dict:
         "duration_ms": duration_ms,
         "attachments": [],
         "channel": "",
-        "area": "",
+        "area": area,
         "user": "web",
     }
     r = get_redis()
-    r.rpush("music:queue", json.dumps(song_data, ensure_ascii=False))
-    queue_len = int(r.llen("music:queue") or 0)
+    queue_key = _area_key(KEY_QUEUE, area)
+    pipe = r.pipeline(transaction=False)
+    pipe.rpush(queue_key, json.dumps(song_data, ensure_ascii=False))
+    pipe.llen(queue_key)
+    results = pipe.execute()
+    queue_len = int(results[1] or 0)
     notify = json.dumps({"name": name, "artists": artists, "position": queue_len}, ensure_ascii=False)
     r.rpush(KEY_WEB_COMMANDS, f"notify:{notify}")
     return {"ok": True, "position": queue_len, "name": name}
 
 
+_platform_cache: dict = {}
+
+
 def _resolve_platform(name: str = "netease"):
-    """根据平台名称获取对应的音乐平台实例。"""
+    """根据平台名称获取对应的音乐平台实例（缓存复用）。"""
     if not name or name == "netease":
         return get_netease()
+    cached = _platform_cache.get(name)
+    if cached is not None:
+        return cached
     if name == "qq":
         from qq_music import QQMusic
-        return QQMusic()
-    if name == "bilibili":
+        inst = QQMusic()
+    elif name == "bilibili":
         from bilibili_music import BilibiliMusic
-        return BilibiliMusic()
-    return get_netease()
+        inst = BilibiliMusic()
+    else:
+        return get_netease()
+    _platform_cache[name] = inst
+    return inst
 
 
 def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
@@ -255,11 +271,17 @@ def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
 # ---------------------------------------------------------------------------
 
 @app.get("/api/status")
-def api_status():
+def api_status(area: str = Query("", description="域 ID，用于多域隔离")):
     try:
         r = get_redis()
-        current_raw = r.get("music:current")
-        play_state_raw = r.get("music:play_state")
+        current_key = _area_key(KEY_CURRENT, area)
+        ps_key = _area_key(KEY_PLAY_STATE, area)
+
+        pipe = r.pipeline(transaction=False)
+        pipe.get(current_key)
+        pipe.get(ps_key)
+        pipe.get("music:volume")
+        current_raw, play_state_raw, vol_raw = pipe.execute()
 
         if not current_raw:
             return JSONResponse({"playing": False})
@@ -290,7 +312,6 @@ def api_status():
             elif start and duration:
                 progress = time.time() - start
 
-        vol_raw = r.get("music:volume")
         volume = int(vol_raw) if vol_raw else 50
 
         song_id = current.get("song_id") or current.get("id")
@@ -328,14 +349,11 @@ def api_lyric(id: str = Query(...), platform: str = Query("netease")):
                 return JSONResponse({"id": id, **cached})
 
         p = _resolve_platform(platform)
-        lyric = p.get_lyric(id)
-        tlyric = None
-        if platform == "netease":
-            try:
-                nc = get_netease()
-                tlyric = nc.get_tlyric(id)
-            except Exception:
-                pass
+        if platform == "netease" and hasattr(p, "get_lyrics"):
+            lyric, tlyric = p.get_lyrics(id)
+        else:
+            lyric = p.get_lyric(id)
+            tlyric = None
 
         result = {"lyric": lyric, "tlyric": tlyric}
         with _lyric_lock:
@@ -351,10 +369,11 @@ def api_lyric(id: str = Query(...), platform: str = Query("netease")):
 
 
 @app.get("/api/queue")
-def api_queue():
+def api_queue(area: str = Query("", description="域 ID，用于多域隔离")):
     try:
         r = get_redis()
-        items = r.lrange("music:queue", 0, -1)
+        queue_key = _area_key(KEY_QUEUE, area)
+        items = r.lrange(queue_key, 0, -1)
         queue: list[dict] = []
         for item in items:
             song = json.loads(item)
@@ -377,18 +396,22 @@ def api_queue():
 
 
 @app.get("/api/debug")
-def api_debug():
+def api_debug(area: str = Query("", description="域 ID")):
     """调试端点：显示 Redis 中的原始数据"""
     try:
         r = get_redis()
         r.ping()
-        current = r.get("music:current")
-        play_state = r.get("music:play_state")
-        queue_len = r.llen("music:queue")
+        current_key = _area_key(KEY_CURRENT, area)
+        queue_key = _area_key(KEY_QUEUE, area)
+        current = r.get(current_key)
+        ps_key = _area_key(KEY_PLAY_STATE, area)
+        play_state = r.get(ps_key)
+        queue_len = r.llen(queue_key)
         return JSONResponse({
             "redis": "connected",
-            "music:current": json.loads(current) if current else None,
-            "music:play_state": json.loads(play_state) if play_state else None,
+            "area": area or "(default)",
+            current_key: json.loads(current) if current else None,
+            ps_key: json.loads(play_state) if play_state else None,
             "queue_length": queue_len,
         })
     except Exception as e:
@@ -466,23 +489,23 @@ def api_search(
 
 
 @app.post("/api/add")
-async def api_add(request: Request):
+async def api_add(request: Request, area: str = Query("", description="域 ID")):
     """通过歌曲 ID 添加到播放队列"""
     try:
         body = await request.json()
-        return JSONResponse(add_song_to_queue(body=body))
+        return JSONResponse(add_song_to_queue(body=body, area=area))
     except Exception as e:
         logger.error(f"/api/add 异常: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
 
 
 @app.post("/api/control")
-async def api_control(request: Request):
+async def api_control(request: Request, area: str = Query("", description="域 ID")):
     """Web 端控制接口：next / clear / stop / pause / resume / seek / volume"""
     try:
         body = await request.json()
         action = body.get("action", "")
-        result = execute_control_action(action=action, body=body, redis_client=get_redis())
+        result = execute_control_action(action=action, body=body, redis_client=get_redis(), area=area)
         return JSONResponse(result)
     except Exception as e:
         logger.error(f"/api/control 异常: {e}")
@@ -490,13 +513,13 @@ async def api_control(request: Request):
 
 
 @app.post("/api/queue/action")
-async def api_queue_action(request: Request):
+async def api_queue_action(request: Request, area: str = Query("", description="域 ID")):
     """队列项操作：top(置顶) / remove(删除)"""
     try:
         body = await request.json()
         action = body.get("action", "")
         index = body.get("index", -1)
-        return JSONResponse(execute_queue_action(action=action, index=index, redis_client=get_redis()))
+        return JSONResponse(execute_queue_action(action=action, index=index, redis_client=get_redis(), area=area))
     except Exception as e:
         logger.error(f"/api/queue/action 异常: {e}")
         return JSONResponse({"ok": False, "error": str(e)})
@@ -522,7 +545,6 @@ def health_check():
         from database import get_connection
         conn = get_connection()
         conn.execute("SELECT 1")
-        conn.close()
         checks["database"] = {"status": "ok"}
     except Exception as e:
         checks["database"] = {"status": "error", "detail": str(e)}
@@ -540,8 +562,8 @@ def health_check():
     # 播放队列状态
     try:
         r = get_redis()
-        queue_len = int(r.llen("music:queue") or 0)
-        current = r.get("music:current")
+        queue_len = int(r.llen(KEY_QUEUE) or 0)
+        current = r.get(KEY_CURRENT)
         checks["music"] = {
             "status": "ok",
             "queue_length": queue_len,

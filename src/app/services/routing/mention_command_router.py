@@ -84,6 +84,7 @@ class MentionCommandRouter:
             (("最近播放", "播放历史"), lambda: self._actions.scheduler.show_recent_songs(channel, area)),
             (("定时消息列表", "定时消息"), lambda: self._actions.scheduler.list_scheduled(channel, area)),
             (("我的提醒", "提醒列表"), lambda: self._actions.scheduler.list_reminders(channel, area, user)),
+            (("清除记忆", "重置对话", "清除对话", "清空记忆"), lambda: self._clear_ai_memory(user, channel, area)),
         )
 
     def _arg_rules(self, channel: str, area: str, user: str):
@@ -150,6 +151,14 @@ class MentionCommandRouter:
             (("关闭定时消息", "停用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, False)),
         )
 
+    def _clear_ai_memory(self, user: str, channel: str, area: str) -> None:
+        """清除用户在当前频道的 AI 对话记忆。"""
+        cleared = self._services.interaction.chat.clear_memory(user, channel)
+        if cleared:
+            self._sender.send_message("对话记忆已清除", channel=channel, area=area)
+        else:
+            self._sender.send_message("当前没有对话记忆", channel=channel, area=area)
+
     def dispatch(self, text: str, channel: str, area: str, user: str) -> None:
         if self._plugins.try_dispatch_mention(
             text,
@@ -184,4 +193,4 @@ class MentionCommandRouter:
             if self._dispatch_prefixed_raw(text, prefixes, callback):
                 return
 
-        self._services.interaction.chat.handle_mention_fallback(text, channel, area)
+        self._services.interaction.chat.handle_mention_fallback(text, channel, area, user=user)

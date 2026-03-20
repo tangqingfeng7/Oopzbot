@@ -537,6 +537,329 @@ input[type="checkbox"] {
   accent-color: var(--ink);
 }
 
+select {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  min-height: 40px;
+  padding: 10px 38px 10px 12px;
+  border: 1px solid rgba(17, 17, 17, 0.1);
+  border-radius: 10px;
+  background:
+    #ffffff
+    url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12' fill='none'%3E%3Cpath d='M2.5 4.5L6 8L9.5 4.5' stroke='%23555' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E")
+    no-repeat right 13px center;
+  background-size: 12px;
+  color: var(--ink);
+  outline: none;
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+select:hover {
+  border-color: rgba(17, 17, 17, 0.22);
+}
+
+select:focus {
+  border-color: rgba(17, 17, 17, 0.26);
+  box-shadow: 0 0 0 4px rgba(17, 17, 17, 0.05);
+}
+
+select:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+select.select--compact {
+  min-height: 34px;
+  padding-top: 0;
+  padding-bottom: 0;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* ---------------------------------------------------------------------------
+   Custom Select Dropdown (.cs-*)
+   --------------------------------------------------------------------------- */
+
+.cs-wrap {
+  position: relative;
+  display: inline-block;
+  vertical-align: middle;
+  z-index: 1;
+}
+
+.cs-wrap.is-open {
+  z-index: 601;
+}
+
+.cs-elevated {
+  z-index: 602 !important;
+  position: relative;
+}
+
+.surface-card:has(.cs-wrap.is-open),
+.table-card:has(.cs-wrap.is-open),
+.action-row:has(.cs-wrap.is-open) {
+  z-index: 602;
+  position: relative;
+}
+
+.cs-wrap--full {
+  display: block;
+  width: 100%;
+}
+
+.cs-trigger {
+  appearance: none;
+  -webkit-appearance: none;
+  position: relative;
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  width: 100%;
+  min-height: 36px;
+  padding: 6px 32px 6px 11px;
+  margin: 0;
+  border: 1.5px solid rgba(17, 17, 17, 0.10);
+  border-radius: 9px;
+  background: #fff;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.01em;
+  cursor: pointer;
+  outline: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  user-select: none;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease, background 0.15s ease;
+}
+
+.cs-trigger::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  width: 16px;
+  height: 16px;
+  transform: translateY(-50%) rotate(0deg);
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 16 16'%3E%3Cpath d='M4 6l4 4 4-4' stroke='%23777' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center;
+  transition: transform 0.2s ease;
+  pointer-events: none;
+}
+
+.cs-wrap.is-open .cs-trigger::after {
+  transform: translateY(-50%) rotate(180deg);
+}
+
+.cs-trigger:hover {
+  border-color: rgba(17, 17, 17, 0.24);
+  background: #fafafa;
+}
+
+.cs-trigger:focus,
+.cs-wrap.is-open .cs-trigger {
+  border-color: rgba(17, 17, 17, 0.32);
+  box-shadow: 0 0 0 3px rgba(17, 17, 17, 0.06);
+  background: #fff;
+}
+
+.cs-dropdown {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  box-sizing: border-box;
+  min-width: 100%;
+  width: max-content;
+  max-width: min(320px, 90vw);
+  max-height: 260px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  background: #fff;
+  border: 1px solid rgba(17, 17, 17, 0.08);
+  border-radius: 12px;
+  box-shadow:
+    0 4px 6px -1px rgba(0, 0, 0, 0.07),
+    0 12px 24px -4px rgba(0, 0, 0, 0.10),
+    0 0 0 1px rgba(0, 0, 0, 0.03);
+  padding: 5px;
+  z-index: 600;
+  opacity: 0;
+  transform: translateY(-6px) scale(0.98);
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+.cs-wrap.is-open .cs-dropdown {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+.cs-dropdown::-webkit-scrollbar {
+  width: 5px;
+}
+
+.cs-dropdown::-webkit-scrollbar-track {
+  background: transparent;
+  margin: 6px 0;
+}
+
+.cs-dropdown::-webkit-scrollbar-thumb {
+  background: rgba(17, 17, 17, 0.10);
+  border-radius: 99px;
+}
+
+.cs-dropdown::-webkit-scrollbar-thumb:hover {
+  background: rgba(17, 17, 17, 0.20);
+}
+
+.cs-option {
+  box-sizing: border-box;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin: 0;
+  padding: 9px 32px 9px 12px;
+  border: none;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--ink);
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  line-height: 1.35;
+  text-align: left;
+  cursor: pointer;
+  outline: none;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  position: relative;
+  transition: background 0.1s ease, color 0.1s ease;
+}
+
+.cs-option + .cs-option {
+  margin-top: 1px;
+}
+
+.cs-option:hover {
+  background: rgba(17, 17, 17, 0.045);
+}
+
+.cs-option:active {
+  background: rgba(17, 17, 17, 0.08);
+}
+
+.cs-option.is-selected {
+  background: rgba(17, 17, 17, 0.055);
+  font-weight: 700;
+}
+
+.cs-option.is-selected::after {
+  content: "";
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 16px;
+  height: 16px;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' fill='none' viewBox='0 0 16 16'%3E%3Cpath d='M4 8.5L6.5 11L12 5' stroke='%23111' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E") no-repeat center;
+}
+
+.cs-group-label {
+  box-sizing: border-box;
+  display: block;
+  width: 100%;
+  padding: 10px 12px 5px;
+  margin: 0;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 10.5px;
+  font-weight: 700;
+  color: var(--ink-faint);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  user-select: none;
+  pointer-events: none;
+}
+
+.cs-group-label:not(:first-child) {
+  margin-top: 4px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(17, 17, 17, 0.06);
+}
+
+.cs-group-label + .cs-option {
+  margin-top: 2px;
+}
+
+.cs-group-label ~ .cs-option {
+  padding-left: 18px;
+}
+
+.cs-empty {
+  display: block;
+  padding: 16px 12px;
+  font-size: 12px;
+  color: var(--ink-faint);
+  text-align: center;
+}
+
+/* Config Tab Layout */
+.cfg-tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid var(--line);
+  margin: -14px -14px 0;
+  padding: 0 6px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.cfg-tabs::-webkit-scrollbar { display: none; }
+
+.cfg-tab {
+  position: relative;
+  padding: 12px 18px;
+  border: none;
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ink-faint);
+  cursor: pointer;
+  white-space: nowrap;
+  transition: color 0.15s ease;
+  outline: none;
+}
+
+.cfg-tab:hover { color: var(--ink-soft); }
+
+.cfg-tab.is-active {
+  color: var(--ink);
+}
+
+.cfg-tab.is-active::after {
+  content: "";
+  position: absolute;
+  bottom: -2px;
+  left: 12px;
+  right: 12px;
+  height: 2px;
+  background: var(--ink);
+  border-radius: 2px 2px 0 0;
+}
+
+.cfg-panel { display: none; padding-top: 14px; }
+.cfg-panel.is-active { display: block; }
+
 .field-section {
   display: grid;
   gap: 12px;
@@ -544,7 +867,8 @@ input[type="checkbox"] {
   border-top: 1px solid var(--line);
 }
 
-.field-section:first-child {
+.field-section:first-child,
+.cfg-panel > .field-section:first-child {
   padding-top: 0;
   border-top: none;
 }
@@ -588,6 +912,99 @@ input[type="checkbox"] {
 
 .secret-input input {
   flex: 1 1 auto;
+}
+
+/* Modal Dialog */
+.m-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.35);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  z-index: 1100;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+
+.m-modal-overlay.is-open {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.m-modal {
+  position: fixed;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -46%) scale(0.96);
+  width: min(460px, 92vw);
+  z-index: 1101;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  box-shadow:
+    0 8px 30px -6px rgba(0, 0, 0, 0.12),
+    0 20px 50px -10px rgba(0, 0, 0, 0.15);
+  opacity: 0;
+  pointer-events: none;
+  transition:
+    transform 0.3s cubic-bezier(0.22, 1, 0.36, 1),
+    opacity 0.25s ease;
+}
+
+.m-modal.is-open {
+  transform: translate(-50%, -50%) scale(1);
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.m-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 20px 24px 0;
+}
+
+.m-modal__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.m-modal__close {
+  width: 30px;
+  height: 30px;
+  border: none;
+  background: var(--bg-soft);
+  border-radius: 8px;
+  font-size: 18px;
+  line-height: 1;
+  color: var(--ink-soft);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s ease, color 0.15s ease;
+}
+
+.m-modal__close:hover {
+  background: var(--line-strong);
+  color: var(--ink);
+}
+
+.m-modal__body {
+  padding: 20px 24px;
+}
+
+.m-modal__body .field + .field {
+  margin-top: 14px;
+}
+
+.m-modal__foot {
+  padding: 0 24px 20px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
 }
 
 .sticky-rail {

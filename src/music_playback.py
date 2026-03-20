@@ -31,6 +31,13 @@ def reset_web_player_url_cache() -> None:
     _resolved_web_url = None
 
 
+try:
+    from web_player_config import on_config_refresh
+    on_config_refresh(reset_web_player_url_cache)
+except ImportError:
+    pass
+
+
 def _get_web_player_url() -> str:
     """获取 Web 播放器 URL，自动检测 IP（公网优先，回退内网）"""
     global _resolved_web_url
@@ -138,7 +145,7 @@ class PlaybackMixin:
                         logger.info("自动播放监控: 歌曲已播完，清理 current 状态")
                         self.queue.clear_current()
                         try:
-                            self.queue.redis.delete("music:play_state")
+                            self.queue.clear_play_state()
                         except Exception as e:
                             logger.debug(f"自动播放监控清理 play_state 失败: {e}")
                         current = None
@@ -160,7 +167,7 @@ class PlaybackMixin:
                             if not ch:
                                 logger.warning("自动播放: 未获取到语音频道，歌曲保留在队列")
                                 try:
-                                    self.queue.redis.lpush("music:queue", json.dumps(next_song, ensure_ascii=False))
+                                    self.queue.redis.lpush(self.queue._qkey(), json.dumps(next_song, ensure_ascii=False))
                                 except Exception as e:
                                     logger.error(f"自动播放回退入队失败，歌曲可能丢失: {e}")
                                 time.sleep(2)
@@ -232,7 +239,7 @@ class PlaybackMixin:
             self._play_duration = 0
             self.queue.clear_current()
             try:
-                self.queue.redis.delete("music:play_state")
+                self.queue.clear_play_state()
             except Exception as e:
                 logger.debug(f"推流前清理 play_state 失败: {e}")
             return
@@ -261,7 +268,7 @@ class PlaybackMixin:
             self._play_duration = 0
             self.queue.clear_current()
             try:
-                self.queue.redis.delete("music:play_state")
+                self.queue.clear_play_state()
             except Exception as clear_e:
                 logger.debug(f"推流失败后清理 play_state 失败: {clear_e}")
 
@@ -270,10 +277,10 @@ class PlaybackMixin:
         self._play_start_time = time.time()
         self._play_duration = duration_ms / 1000 if duration_ms else _DEFAULT_PLAY_DURATION
         try:
-            self.queue.redis.set("music:play_state", json.dumps({
+            self.queue.set_play_state({
                 "start_time": self._play_start_time,
                 "duration": self._play_duration,
-            }))
+            })
         except Exception as e:
             logger.debug(f"写入 play_state 到 Redis 失败: {e}")
 
@@ -282,9 +289,8 @@ class PlaybackMixin:
         if self._play_start_time <= 0:
             return False
         try:
-            ps_raw = self.queue.redis.get("music:play_state")
-            if ps_raw:
-                ps = json.loads(ps_raw)
+            ps = self.queue.get_play_state()
+            if ps:
                 if ps.get("paused"):
                     return True
         except Exception as e:
@@ -314,7 +320,7 @@ class PlaybackMixin:
         if song_data.get("duration"):
             text += f"时长: {song_data['duration']}\n"
 
-        link = self._get_web_link()
+        link = self._get_web_link(area=song_data.get("area", ""))
         if link:
             text += link
 

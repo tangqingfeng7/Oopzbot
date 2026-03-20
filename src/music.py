@@ -57,27 +57,41 @@ def parse_platform_prefix(keyword: str) -> tuple[str, str]:
 
 
 class MusicHandler(PlaybackMixin):
-    """音乐功能处理器"""
+    """音乐功能处理器。
+    队列按域隔离，每个域拥有独立的 QueueManager。
+    语音连接同一时刻只有一个（Agora 限制），通过 _voice_channel_area 标识当前所在域。"""
 
     def __init__(self, sender: OopzSender, voice: Optional[VoiceClient] = None):
         self.sender = sender
         self.voice = voice
         self.netease = NeteaseCloud()
-        self.queue = QueueManager()
+        self._queue_cache: dict[str, QueueManager] = {}
         self.names = NameResolver()
-        self._liked_cache: list = []       # 缓存最近显示的喜欢列表
-        self._liked_ids_cache: list = []   # 缓存完整的喜欢歌曲 ID 列表
-        self._play_start_time: float = 0   # 当前歌曲开始播放时间戳
-        self._play_duration: float = 0     # 当前歌曲时长（秒）
-        self._voice_channel_id: Optional[str] = None  # Bot 当前所在语音频道 ID
-        self._voice_channel_area: Optional[str] = None  # Bot 当前所在语音频道的域 ID
-        self._voice_enter_time: float = 0  # 进入语音频道的时间戳（宽限期用）
-        self._playlist_idle_since: float = 0  # 播放列表空闲起始时间（用于释放 Web 链接）
+        self._liked_cache: list = []
+        self._liked_ids_cache: list = []
+        self._play_start_time: float = 0
+        self._play_duration: float = 0
+        self._voice_channel_id: Optional[str] = None
+        self._voice_channel_area: Optional[str] = None
+        self._voice_enter_time: float = 0
+        self._playlist_idle_since: float = 0
         self._web_link_released_due_to_idle: bool = False
         self._web_control = WebControlExecutor(self)
         self.platforms = PlatformRegistry()
         self.platforms.register(self.netease)
         self._init_extra_platforms()
+
+    def _get_queue(self, area: str = "") -> QueueManager:
+        """获取域隔离的 QueueManager（带缓存）。"""
+        area = (area or "").strip()
+        if area not in self._queue_cache:
+            self._queue_cache[area] = QueueManager(area=area)
+        return self._queue_cache[area]
+
+    @property
+    def queue(self) -> QueueManager:
+        """向后兼容：未传 area 时使用当前语音域的队列，或全局默认队列。"""
+        return self._get_queue(self._voice_channel_area or "")
 
     def _init_extra_platforms(self) -> None:
         """初始化并注册 QQ 音乐和 B 站平台（仅在配置启用时）。"""
@@ -98,9 +112,10 @@ class MusicHandler(PlaybackMixin):
         except Exception as e:
             logger.debug("B 站音乐平台初始化跳过: %s", e)
 
-    def _get_web_link(self) -> str:
+    def _get_web_link(self, area: str = "") -> str:
         """获取 Web 播放器链接（按需生成随机访问令牌）。"""
-        link = _web_player_link(redis_client=getattr(self.queue, "redis", None))
+        q = self._get_queue(area)
+        link = _web_player_link(redis_client=getattr(q, "redis", None))
         if link:
             self._web_link_released_due_to_idle = False
         return link
@@ -113,9 +128,10 @@ class MusicHandler(PlaybackMixin):
             self._web_link_released_due_to_idle = False
             return
 
+        q = self.queue
         try:
-            current = self.queue.get_current()
-            queue_length = self.queue.get_queue_length()
+            current = q.get_current()
+            queue_length = q.get_queue_length()
         except Exception as e:
             logger.debug(f"读取播放队列状态失败，跳过链接释放检查: {e}")
             return
@@ -129,9 +145,9 @@ class MusicHandler(PlaybackMixin):
             idle_for = time.time() - self._playlist_idle_since
             if idle_for >= timeout:
                 try:
-                    token = get_token(redis_client=self.queue.redis)
+                    token = get_token(redis_client=q.redis)
                     if token:
-                        clear_token(redis_client=self.queue.redis)
+                        clear_token(redis_client=q.redis)
                         logger.info("播放列表空闲超时，已释放 Web 播放器访问链接令牌")
                 except Exception as e:
                     logger.debug(f"释放 Web 播放器链接令牌失败: {e}")
@@ -314,20 +330,19 @@ class MusicHandler(PlaybackMixin):
                 area=area,
             )
             return
-        next_song = self.queue.play_next()
+        q = self._get_queue(area)
+        next_song = q.play_next()
         if not next_song:
             self.sender.send_message("队列为空，没有下一首了", channel=channel, area=area)
             return
 
-        # 更新频道和区域
         next_song["channel"] = channel
         next_song["area"] = area
 
-        # 生成 UUID 追踪
         play_uuid = str(uuid.uuid4())
         next_song["play_uuid"] = play_uuid
         self._start_playing(next_song.get("duration_ms", 0))
-        self.queue.set_current(next_song)
+        q.set_current(next_song)
 
         SongCache.record_play(
             song_id=next_song.get("song_id"),
@@ -338,7 +353,6 @@ class MusicHandler(PlaybackMixin):
         )
         Statistics.update_today(next_song.get("platform", _PLATFORM_NETEASE), cache_hit=False)
 
-        # 上传音频到频道
         threading.Thread(
             target=self._stream_to_voice_channel,
             args=(next_song["url"], next_song.get("name", "music"), channel, area,
@@ -347,16 +361,16 @@ class MusicHandler(PlaybackMixin):
         ).start()
         self._preload_next_song_if_any()
 
-        # 发送通知
         text = self._build_now_playing_text("切换到下一首", next_song)
         attachments = next_song.get("attachments", [])
         self.sender.send_message(text=text, attachments=attachments, channel=channel, area=area)
 
     def show_queue(self, channel: str, area: str) -> None:
         """显示当前队列"""
-        queue_list = self.queue.get_queue(0, 9)
+        q = self._get_queue(area)
+        queue_list = q.get_queue(0, 9)
         if queue_list:
-            total = self.queue.get_queue_length()
+            total = q.get_queue_length()
             lines = [f"{i}. {s['name']} - {s.get('artists', '未知')}" for i, s in enumerate(queue_list, 1)]
             msg = "当前队列（前10首）:\n" + "\n".join(lines) + f"\n\n总计: {total} 首"
             self.sender.send_message(msg, channel=channel, area=area)
@@ -468,7 +482,7 @@ class MusicHandler(PlaybackMixin):
                 first_text = result["message"]
                 first_attachments = result.get("attachments", [])
             else:
-                self.queue.add_to_queue(song_data)
+                self._get_queue(area).add_to_queue(song_data)
 
             success_count += 1
 
@@ -485,9 +499,10 @@ class MusicHandler(PlaybackMixin):
         """停止播放并退出语音频道"""
         self._play_start_time = 0
         self._play_duration = 0
-        self.queue.clear_current()
+        q = self._get_queue(area)
+        q.clear_current()
         try:
-            self.queue.redis.delete("music:play_state")
+            q.clear_play_state()
         except Exception as e:
             logger.debug(f"停止播放时清理 play_state 失败: {e}")
         if self.voice and self.voice.available:
@@ -504,7 +519,7 @@ class MusicHandler(PlaybackMixin):
         try:
             ps = {"start_time": self._play_start_time, "duration": self._play_duration}
             ps.update(overrides)
-            self.queue.redis.set("music:play_state", json.dumps(ps))
+            self.queue.set_play_state(ps)
         except Exception as e:
             logger.debug(f"更新 play_state 失败: {e}")
 
@@ -645,7 +660,7 @@ class MusicHandler(PlaybackMixin):
             f"时长: {song_data['duration']}"
         )
 
-        link = self._get_web_link()
+        link = self._get_web_link(area=song_data.get("area", ""))
         if link:
             text += f"\n{link}"
 
@@ -660,13 +675,15 @@ class MusicHandler(PlaybackMixin):
         song_data = dict(song_data)
         attachments, image_cache_id, cache_hit = self._resolve_song_attachments(song_data)
         song_data["attachments"] = attachments
+
+        q = self._get_queue(song_data.get("area", ""))
         is_playing = self._is_playing()
-        current_song = self.queue.get_current()
-        queue_length = self.queue.get_queue_length()
+        current_song = q.get_current()
+        queue_length = q.get_queue_length()
 
         if not is_playing and current_song is not None:
             logger.info("检测到残留状态: 歌曲已播完但 current 存在, 自动清理")
-            self.queue.clear_current()
+            q.clear_current()
             current_song = None
 
         if not is_playing and current_song is None and queue_length == 0:
@@ -674,7 +691,7 @@ class MusicHandler(PlaybackMixin):
             play_uuid = str(uuid.uuid4())
             song_data["play_uuid"] = play_uuid
             self._start_playing(song_data.get("duration_ms", 0))
-            self.queue.set_current(song_data)
+            q.set_current(song_data)
 
             threading.Thread(
                 target=self._stream_to_voice_channel,
@@ -701,7 +718,7 @@ class MusicHandler(PlaybackMixin):
             Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
             text = self._build_song_request_text(song_data, prefix=prefix)
         else:
-            pos = self.queue.add_to_queue(song_data)
+            pos = q.add_to_queue(song_data)
             actual = pos + 1 + (1 if current_song or is_playing else 0)
             text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
 

@@ -13,6 +13,7 @@ from logger_config import get_logger
 logger = get_logger("Voice")
 
 _PLAY_POLL_INTERVAL = 2
+_PLAY_POLL_TIMEOUT = 600
 _INIT_TIMEOUT_DEFAULT = 60
 
 _HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agora_player.html")
@@ -509,10 +510,15 @@ class VoiceClient:
                 duration = result.get("duration", 0)
                 logger.info(f"Agora 推流已开始 (时长: {duration:.1f}s)")
 
+                timeout = max(duration * 1.5 + 30, _PLAY_POLL_TIMEOUT) if duration > 0 else _PLAY_POLL_TIMEOUT
+                poll_start = time.monotonic()
                 while not self._stop_event.is_set():
                     state = self.get_state()
                     if state == "finished":
                         logger.info("Agora 推流播放完成")
+                        break
+                    if time.monotonic() - poll_start > timeout:
+                        logger.warning("Agora 推流轮询超时 (%.0fs)，强制结束", timeout)
                         break
                     time.sleep(_PLAY_POLL_INTERVAL)
             else:

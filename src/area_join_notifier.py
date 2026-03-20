@@ -174,10 +174,13 @@ def _run_join_poll_loop(
 ) -> None:
     """
     后台轮询域成员列表，发现新加入的成员则发送欢迎消息。
+    支持多域：遍历 AreaConfigRegistry 中的所有域，每个域独立维护成员快照。
     首次轮询只记录当前成员，不发送；之后每次对比上次集合，多出来的且非 bot 则发欢迎。
     """
-    last_uids: Set[str] = set()
-    first_run = True
+    from area_config import get_area_registry
+
+    last_uids_map: dict[str, Set[str]] = {}
+    first_run_set: Set[str] = set()
 
     current_interval = max(5, int(interval_seconds))
 
@@ -205,49 +208,84 @@ def _run_join_poll_loop(
                 break
         return uids, False
 
+    def _resolve_area_channel(area_id: str) -> Tuple[str, str]:
+        registry = get_area_registry()
+        ch = registry.get_default_channel(area_id)
+        if ch:
+            return area_id, ch
+        return _get_default_area_channel(sender, quiet=True)
+
+    def _get_poll_areas() -> list[str]:
+        registry = get_area_registry()
+        area_ids = registry.get_all_area_ids()
+        if area_ids:
+            return area_ids
+        a, _ = _get_default_area_channel(sender, quiet=True)
+        return [a] if a else []
+
     while True:
         try:
-            area, channel = _get_default_area_channel(sender, quiet=True)
-            if not area or not channel:
-                if first_run:
-                    logger.warning("域成员加入轮询: 未获取到默认域/频道，请配置 default_area 与 default_channel")
+            poll_areas = _get_poll_areas()
+            if not poll_areas:
+                if not last_uids_map:
+                    logger.warning("域成员加入轮询: 未获取到任何域，请配置 AREA_CONFIGS 或 default_area")
                 time.sleep(current_interval)
                 continue
-            current_uids, rate_limited = _fetch_member_uids(area)
-            if current_uids is None:
-                next_interval = _next_poll_interval(interval_seconds, current_interval, rate_limited)
+
+            registry = get_area_registry()
+            any_rate_limited = False
+
+            for area in poll_areas:
+                area_channel = _resolve_area_channel(area)
+                area_id, channel = area_channel
+                if not area_id or not channel:
+                    continue
+
+                area_cfg = registry.get(area_id)
+                current_uids, rate_limited = _fetch_member_uids(area_id)
+
+                if current_uids is None:
+                    any_rate_limited = any_rate_limited or rate_limited
+                    continue
+
+                is_first = area_id not in first_run_set
+                if is_first:
+                    last_uids_map[area_id] = current_uids
+                    first_run_set.add(area_id)
+                else:
+                    prev = last_uids_map.get(area_id, set())
+                    new_uids = current_uids - prev
+                    last_uids_map[area_id] = current_uids
+                    for uid in new_uids:
+                        if not uid or uid == bot_uid:
+                            continue
+                        try:
+                            name = _resolve_display_name(sender, uid, None)
+                            join_msg = area_cfg.welcome_message if area_cfg.welcome_message else message_template_join
+                            text = join_msg.format(name=name, uid=uid)
+                            mention_text, mention_list = _build_member_mention(uid)
+                            sender.send_message(
+                                f"{mention_text}\n{text}",
+                                area=area_id,
+                                channel=channel,
+                                auto_recall=False,
+                                mentionList=mention_list,
+                            )
+                        except Exception as e:
+                            logger.warning("域成员欢迎发送失败 area=%s uid=%s: %s", area_id[:8], uid[:8], e)
+                        a_role_id = area_cfg.auto_assign_role_id or auto_role_id
+                        a_role_name = area_cfg.auto_assign_role_name or auto_role_name
+                        _try_assign_role(sender, uid, area_id, a_role_id, a_role_name)
+
+            if any_rate_limited:
+                next_interval = _next_poll_interval(interval_seconds, current_interval, True)
                 if next_interval != current_interval:
                     logger.warning("域成员加入轮询: 检测到限流，轮询间隔调整为 %ss", next_interval)
                 current_interval = next_interval
-                time.sleep(current_interval)
-                continue
-            if current_interval != max(5, int(interval_seconds)):
+            elif current_interval != max(5, int(interval_seconds)):
                 current_interval = max(5, int(interval_seconds))
                 logger.info("域成员加入轮询: 成员接口已恢复，轮询间隔恢复为 %ss", current_interval)
-            if first_run:
-                last_uids = current_uids
-                first_run = False
-            else:
-                new_uids = current_uids - last_uids
-                last_uids = current_uids
-                for uid in new_uids:
-                    if not uid or uid == bot_uid:
-                        continue
-                    try:
-                        name = _resolve_display_name(sender, uid, None)
-                        text = message_template_join.format(name=name, uid=uid)
-                        mention_text, mention_list = _build_member_mention(uid)
-                        sender.send_message(
-                            f"{mention_text}\n{text}",
-                            area=area,
-                            channel=channel,
-                            auto_recall=False,
-                            mentionList=mention_list,
-                        )
-                    except Exception as e:
-                        logger.warning("域成员欢迎发送失败 uid=%s: %s", uid, e)
-                    _try_assign_role(sender, uid, area, auto_role_id, auto_role_name)
-            # 保持固定轮询间隔，避免短时间连续请求触发成员接口限流
+
             time.sleep(current_interval)
         except Exception as e:
             logger.warning("域成员加入轮询异常: %s", e)
@@ -345,25 +383,27 @@ def make_ws_handler(
     message_template_join: str,
     message_template_leave: str,
 ) -> Callable[[int, dict], None]:
-    bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
-    default_area = (OOPZ_CONFIG.get("default_area") or "").strip()
-    default_channel = (OOPZ_CONFIG.get("default_channel") or "").strip()
+    from area_config import get_area_registry
 
-    def _ensure_area_channel() -> Tuple[str, str]:
-        nonlocal default_area, default_channel
-        if default_area and default_channel:
-            return default_area, default_channel
-        areas = sender.get_joined_areas()
-        if areas:
-            default_area = (areas[0].get("id") or "").strip()
-        if default_area:
-            for g in sender.get_area_channels(area=default_area):
-                for ch in (g.get("channels") or []):
-                    if (ch.get("type") or "").upper() != "VOICE":
-                        default_channel = (ch.get("id") or "").strip()
-                        if default_channel:
-                            return default_area, default_channel
-        return default_area, default_channel
+    bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
+    _channel_cache: dict[str, str] = {}
+
+    def _resolve_channel_for_area(area: str) -> str:
+        if area in _channel_cache:
+            return _channel_cache[area]
+        registry = get_area_registry()
+        ch = registry.get_default_channel(area)
+        if ch:
+            _channel_cache[area] = ch
+            return ch
+        for g in sender.get_area_channels(area=area, quiet=True):
+            for c in (g.get("channels") or []):
+                if (c.get("type") or "").upper() != "VOICE":
+                    ch_id = (c.get("id") or "").strip()
+                    if ch_id:
+                        _channel_cache[area] = ch_id
+                        return ch_id
+        return ""
 
     _IGNORE_EVENTS = (0,)
 
@@ -376,27 +416,35 @@ def make_ws_handler(
         action, area, uid = parsed
         if uid == bot_uid:
             return
-        a, ch = _ensure_area_channel()
+
+        registry = get_area_registry()
+        configured_areas = registry.get_all_area_ids()
+        if configured_areas and area not in configured_areas:
+            return
+
+        ch = _resolve_channel_for_area(area)
         if not ch:
-            logger.warning("域成员通知跳过: 未获取到默认频道，请配置 default_channel 或确保域下有文字频道")
+            logger.warning("域成员通知跳过: 域 %s 未获取到默认频道", area[:8])
             return
-        if a and area != a:
-            return
+
+        area_cfg = registry.get(area)
         try:
             name = _resolve_display_name(sender, uid, None)
             if action == "join":
-                text = message_template_join.format(name=name, uid=uid)
+                join_msg = area_cfg.welcome_message or message_template_join
+                text = join_msg.format(name=name, uid=uid)
                 mention_text, mention_list = _build_member_mention(uid)
                 sender.send_message(
                     f"{mention_text}\n{text}",
-                    area=a,
+                    area=area,
                     channel=ch,
                     auto_recall=False,
                     mentionList=mention_list,
                 )
             else:
-                text = message_template_leave.format(name=name, uid=uid)
-                sender.send_message(text, area=a, channel=ch, auto_recall=False)
+                leave_msg = area_cfg.leave_message or message_template_leave
+                text = leave_msg.format(name=name, uid=uid)
+                sender.send_message(text, area=area, channel=ch, auto_recall=False)
         except Exception as e:
             logger.warning("域成员通知发送失败: %s", e)
 

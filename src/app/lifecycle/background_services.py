@@ -42,22 +42,30 @@ class BackgroundServiceRunner:
 
     def _warmup_members_cache(self, sender) -> None:
         try:
-            from config import OOPZ_CONFIG
-            area = (OOPZ_CONFIG.get("default_area") or "").strip()
-            if not area:
-                areas = sender.get_joined_areas(quiet=True)
-                if areas:
-                    area = (areas[0].get("id") or "").strip()
-            if not area:
-                return
-            result = sender.get_area_members(area=area, quiet=True)
-            if "error" not in result:
-                count = result.get("fetchedCount", 0)
-                logger.info("成员缓存预热完成: %d 人", count)
-            else:
-                logger.debug("成员缓存预热失败: %s", result.get("error"))
+            from area_config import get_area_registry
+            registry = get_area_registry()
+            area_ids = registry.get_all_area_ids()
+            if not area_ids:
+                from config import OOPZ_CONFIG
+                fallback = (OOPZ_CONFIG.get("default_area") or "").strip()
+                if not fallback:
+                    areas = sender.get_joined_areas(quiet=True)
+                    if areas:
+                        fallback = (areas[0].get("id") or "").strip()
+                area_ids = [fallback] if fallback else []
+            total = 0
+            for area in area_ids:
+                if not area:
+                    continue
+                result = sender.get_area_members(area=area, quiet=True)
+                if "error" not in result:
+                    total += result.get("fetchedCount", 0)
+                else:
+                    logger.debug("成员缓存预热失败 (area=%s): %s", area[:8], result.get("error"))
+            if total:
+                logger.info("成员缓存预热完成: %d 个域, 共 %d 人", len(area_ids), total)
         except Exception:
-            pass
+            logger.debug("成员缓存预热异常", exc_info=True)
 
     def _start_scheduler_services(self, context: AppContext) -> None:
         try:

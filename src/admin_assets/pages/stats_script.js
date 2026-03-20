@@ -1,14 +1,7 @@
     let topPage = 1;
     let topPages = 1;
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
+    var escapeHtml = AdminShell.escapeHtml;
 
     function setPageState(text, variant) {
       AdminShell.setStatus(text, variant, "topStatus");

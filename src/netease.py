@@ -1,3 +1,5 @@
+import time
+import threading
 import requests
 from typing import Optional
 
@@ -5,6 +7,34 @@ from config import NETEASE_CLOUD
 from logger_config import get_logger
 
 logger = get_logger("Netease")
+
+
+class _SearchCache:
+    """简单的线程安全短期搜索缓存，避免重复搜索同一关键词反复请求外部 API。"""
+
+    def __init__(self, max_size: int = 128, ttl: int = 300):
+        self._data: dict[str, tuple[float, object]] = {}
+        self._max_size = max_size
+        self._ttl = ttl
+        self._lock = threading.Lock()
+
+    def get(self, key: str):
+        with self._lock:
+            entry = self._data.get(key)
+            if entry is None:
+                return None
+            ts, val = entry
+            if time.time() - ts > self._ttl:
+                self._data.pop(key, None)
+                return None
+            return val
+
+    def put(self, key: str, val):
+        with self._lock:
+            if len(self._data) >= self._max_size:
+                oldest_key = min(self._data, key=lambda k: self._data[k][0])
+                self._data.pop(oldest_key, None)
+            self._data[key] = (time.time(), val)
 
 
 class NeteaseCloud:
@@ -16,18 +46,20 @@ class NeteaseCloud:
     def __init__(self):
         self.base_url = NETEASE_CLOUD.get("base_url", "").rstrip("/")
         self.cookie = NETEASE_CLOUD.get("cookie", "")
+        self._search_cache = _SearchCache()
+        self._session = requests.Session()
         if not self.base_url:
             logger.warning("网易云 API 地址未配置 (NETEASE_CLOUD.base_url)")
 
-    def _get(self, path: str, params: dict = None) -> Optional[dict]:
-        """发起 GET 请求"""
+    def _get(self, path: str, params: Optional[dict] = None) -> Optional[dict]:
+        """发起 GET 请求（复用连接池）"""
         if not self.base_url:
             return None
         try:
             headers = {}
             if self.cookie:
                 headers["Cookie"] = self.cookie
-            resp = requests.get(
+            resp = self._session.get(
                 f"{self.base_url}{path}",
                 params=params,
                 headers=headers,
@@ -53,6 +85,11 @@ class NeteaseCloud:
                 "cover": "封面URL"
             }
         """
+        cache_key = f"s:{keyword}:{limit}"
+        cached = self._search_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
         data = self._get("/cloudsearch", params={"keywords": keyword, "limit": limit, "type": 1})
         if not data or data.get("code") != 200:
             return None
@@ -61,8 +98,10 @@ class NeteaseCloud:
         if not songs:
             return None
 
-        song = songs[0]
-        return self._parse_song(song)
+        result = self._parse_song(songs[0])
+        if result:
+            self._search_cache.put(cache_key, result)
+        return result
 
     def search_many(self, keyword: str, limit: int = 10, offset: int = 0) -> list[dict]:
         """搜索歌曲，返回多条结果列表"""
@@ -177,23 +216,26 @@ class NeteaseCloud:
         )
         return {"code": "success", "message": msg, "data": song_info}
 
-    def get_lyric(self, song_id: int) -> Optional[str]:
-        """获取歌曲 LRC 歌词文本，无歌词返回 None。"""
+    def get_lyrics(self, song_id: int) -> tuple[Optional[str], Optional[str]]:
+        """获取歌曲 LRC 歌词和翻译歌词，一次请求同时返回 (lyric, tlyric)。"""
         data = self._get("/lyric/new", params={"id": song_id})
         if not data or data.get("code") != 200:
-            return None
-        lrc = data.get("lrc", {})
-        lyric_text = lrc.get("lyric", "")
-        return lyric_text if lyric_text and "[" in lyric_text else None
+            return None, None
+        lrc_text = (data.get("lrc") or {}).get("lyric", "")
+        tlrc_text = (data.get("tlyric") or {}).get("lyric", "")
+        lyric = lrc_text if lrc_text and "[" in lrc_text else None
+        tlyric = tlrc_text if tlrc_text and "[" in tlrc_text else None
+        return lyric, tlyric
+
+    def get_lyric(self, song_id: int) -> Optional[str]:
+        """获取歌曲 LRC 歌词文本，无歌词返回 None。"""
+        lyric, _ = self.get_lyrics(song_id)
+        return lyric
 
     def get_tlyric(self, song_id: int) -> Optional[str]:
         """获取歌曲翻译歌词，无翻译返回 None。"""
-        data = self._get("/lyric/new", params={"id": song_id})
-        if not data or data.get("code") != 200:
-            return None
-        tlyric = data.get("tlyric", {})
-        tlyric_text = tlyric.get("lyric", "")
-        return tlyric_text if tlyric_text and "[" in tlyric_text else None
+        _, tlyric = self.get_lyrics(song_id)
+        return tlyric
 
     def _parse_song(self, song: dict) -> Optional[dict]:
         """从 API 返回的原始歌曲数据中提取标准化字段，防御所有 None 值"""

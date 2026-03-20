@@ -6,6 +6,7 @@ import time
 import uuid
 import base64
 import threading
+from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, List
 
 import requests
@@ -36,16 +37,20 @@ class NameResolver:
                     cls._instance = super().__new__(cls)
         return cls._instance
 
+    _MAX_UNNAMED_USERS = 5000
+
     def __init__(self):
         if getattr(self, "_initialized", False):
             return
         self._lock = threading.RLock()
-        self._data = {"users": {}, "channels": {}, "areas": {}}
-        self._pending_uids: set = set()  # 待查询的用户 ID
+        self._data: dict[str, dict[str, str]] = {"users": {}, "channels": {}, "areas": {}}
+        self._pending_uids: set[str] = set()
         self._dirty = False
         self._save_timer: Optional[threading.Timer] = None
         self._save_delay_seconds = 1.0
         self._api_ready = False
+        self._session = requests.Session()
+        self._pool = ThreadPoolExecutor(max_workers=2, thread_name_prefix="name-resolve")
         self._initialized = True
         self._load()
         self._init_api()
@@ -115,18 +120,32 @@ class NameResolver:
                 return
             bucket[id_val] = ""
             self._mark_dirty_no_lock()
+            if category == "users":
+                self._evict_unnamed_users_no_lock()
+
+    def register_ids(self, **categories: str):
+        """批量注册多个 ID，单次加锁。用法: register_ids(areas=aid, channels=cid, users=uid)"""
+        with self._lock:
+            dirty = False
+            for category, id_val in categories.items():
+                if not id_val:
+                    continue
+                bucket = self._data.setdefault(category, {})
+                if id_val in bucket:
+                    continue
+                bucket[id_val] = ""
+                dirty = True
+                if category == "users":
+                    self._evict_unnamed_users_no_lock()
+            if dirty:
+                self._mark_dirty_no_lock()
 
     def batch_resolve_users(self, uids: List[str]):
-        """批量解析用户名（后台异步）"""
+        """批量解析用户名（后台线程池异步）"""
         to_fetch = self._claim_pending_uids(uids)
         if not to_fetch:
             return
-        threading.Thread(
-            target=self._fetch_user_names_batch,
-            args=(to_fetch,),
-            daemon=True,
-            name="NameResolverBatchFetch",
-        ).start()
+        self._pool.submit(self._fetch_user_names_batch, to_fetch)
 
     def ensure_users(self, uids: List[str]) -> dict[str, str]:
         """同步确保一批用户名称已进入缓存，并返回当前名称映射。"""
@@ -209,6 +228,7 @@ class NameResolver:
                     if uid and not self._data.get("users", {}).get(uid, "")
                 ]
             if not to_fetch:
+                self._release_pending_uids(uids)
                 return
 
             body = {"persons": to_fetch, "commonIds": []}
@@ -216,7 +236,7 @@ class NameResolver:
             url = self._config["base_url"] + PERSON_INFOS_PATH
             headers = self._make_headers(PERSON_INFOS_PATH, body_str)
 
-            resp = requests.post(
+            resp = self._session.post(
                 url, headers=headers,
                 data=body_str.encode("utf-8"),
                 timeout=10,
@@ -253,6 +273,16 @@ class NameResolver:
     # ------------------------------------------------------------------
     # 内部实现
     # ------------------------------------------------------------------
+
+    def _evict_unnamed_users_no_lock(self) -> None:
+        """当未命名用户条目过多时，删除最早的空名条目，防止内存无限增长。"""
+        users = self._data.get("users", {})
+        unnamed = [uid for uid, name in users.items() if not name]
+        if len(unnamed) <= self._MAX_UNNAMED_USERS:
+            return
+        to_remove = unnamed[:len(unnamed) - self._MAX_UNNAMED_USERS]
+        for uid in to_remove:
+            users.pop(uid, None)
 
     def _get(self, category: str, id_val: str) -> str:
         if not id_val:

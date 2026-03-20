@@ -1,0 +1,206 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row" style="flex-wrap:wrap">
+            <span id="areaState" class="micro-status is-warning">等待同步</span>
+            <select id="areaPicker" class="m-area-select" onchange="onAreaChange()">
+              <option value="">加载中...</option>
+            </select>
+            <button class="btn btn-ghost" type="button" onclick="loadAreaManager()">刷新</button>
+          </div>
+        </article>
+
+        <!-- 域配置卡片 -->
+        <article class="table-card" id="areaConfigCard">
+          <div class="section-head">
+            <h3 class="section-title">域配置</h3>
+            <div class="action-row" style="gap:6px">
+              <button class="btn btn-primary btn-sm" type="button" onclick="saveAreaConfig()">保存配置</button>
+              <button class="btn btn-danger btn-sm" type="button" onclick="deleteAreaConfig()">删除配置</button>
+            </div>
+          </div>
+          <div class="field-grid" style="padding:16px 20px">
+            <div class="field field--wide"><label for="ac_name">域名称</label><input id="ac_name" type="text" placeholder="仅日志显示" /></div>
+            <div class="field"><label for="ac_default_channel">默认频道 ID</label><input id="ac_default_channel" type="text" /></div>
+            <div class="field"><label for="ac_auto_role_id">自动分配身份组 ID</label><input id="ac_auto_role_id" type="text" /></div>
+            <div class="field"><label for="ac_auto_role_name">自动分配身份组名称</label><input id="ac_auto_role_name" type="text" /></div>
+            <div class="field field--wide"><label for="ac_welcome">入域欢迎消息</label><input id="ac_welcome" type="text" placeholder="欢迎 {name} 加入～" /></div>
+            <div class="field field--wide"><label for="ac_leave">退域消息</label><input id="ac_leave" type="text" placeholder="{name} 已退出域" /></div>
+            <div class="field field--wide"><label for="ac_admin_uids">管理员 UID（逗号分隔）</label><input id="ac_admin_uids" type="text" placeholder="空则继承全局" /></div>
+            <div class="field field--wide"><label for="ac_plugins_enabled">启用插件（逗号分隔，空=全部）</label><input id="ac_plugins_enabled" type="text" /></div>
+            <div class="field field--wide"><label for="ac_plugins_disabled">禁用插件（逗号分隔）</label><input id="ac_plugins_disabled" type="text" /></div>
+            <div class="field field--check"><label><input id="ac_profanity" type="checkbox" checked /> 启用脏话检测</label></div>
+          </div>
+          <div id="areaConfigMsg" class="msg" style="padding:0 20px 12px"></div>
+        </article>
+
+        <!-- 频道列表 -->
+        <article class="table-card" id="channelsCard">
+          <div class="section-head">
+            <h3 class="section-title">频道列表</h3>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="showCreateChannel()">创建频道</button>
+          </div>
+          <div class="table-shell">
+            <table>
+              <thead>
+                <tr>
+                  <th>频道名称</th>
+                  <th>分组</th>
+                  <th>类型</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="channelRows">
+                <tr><td colspan="4" class="empty-state">暂无数据</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <!-- 语音频道在线 -->
+        <article class="table-card" id="voiceCard">
+          <div class="section-head">
+            <h3 class="section-title">语音频道监控</h3>
+            <button class="btn btn-ghost btn-sm" type="button" onclick="loadVoiceChannels()">刷新</button>
+          </div>
+          <div id="voiceList" class="a-voice-list">
+            <p class="empty-state">暂无语音频道数据</p>
+          </div>
+        </article>
+
+        <!-- 创建频道对话框 -->
+        <div id="chModalOverlay" class="m-modal-overlay" onclick="closeChModal()"></div>
+        <div id="chModalDialog" class="m-modal">
+          <header class="m-modal__head">
+            <h3 class="m-modal__title">创建频道</h3>
+            <button class="m-modal__close" onclick="closeChModal()" aria-label="关闭">&times;</button>
+          </header>
+          <div class="m-modal__body">
+            <div class="field"><label for="newChName">频道名称</label><input id="newChName" type="text" placeholder="输入频道名称" /></div>
+            <div class="field">
+              <label for="newChType">频道类型</label>
+              <select id="newChType">
+                <option value="text">文字频道</option>
+                <option value="voice">语音频道</option>
+              </select>
+            </div>
+            <div id="createChMsg" class="msg"></div>
+          </div>
+          <footer class="m-modal__foot">
+            <button class="btn btn-ghost" type="button" onclick="closeChModal()">取消</button>
+            <button class="btn btn-primary" type="button" onclick="doCreateChannel()">创建</button>
+          </footer>
+        </div>
+
+        <!-- 编辑频道对话框 -->
+        <div id="editChOverlay" class="m-modal-overlay" onclick="closeEditChannel()"></div>
+        <div id="editChDialog" class="m-modal" style="width:min(520px,92vw)">
+          <header class="m-modal__head">
+            <h3 id="editChTitle" class="m-modal__title">编辑频道</h3>
+            <button class="m-modal__close" onclick="closeEditChannel()" aria-label="关闭">&times;</button>
+          </header>
+          <div class="m-modal__body">
+            <input id="editChId" type="hidden" />
+            <div class="field-grid">
+              <div class="field field--wide">
+                <label for="editChName">频道名称</label>
+                <input id="editChName" type="text" placeholder="频道名称" />
+              </div>
+              <div class="field">
+                <label for="editChMaxMember">人数上限</label>
+                <input id="editChMaxMember" type="number" min="1" max="100000" />
+              </div>
+              <div class="field">
+                <label for="editChTextGap">慢速模式（秒）</label>
+                <input id="editChTextGap" type="number" min="0" max="3600" />
+              </div>
+              <div class="field" id="editChQualityWrap">
+                <label for="editChVoiceQuality">语音质量</label>
+                <select id="editChVoiceQuality">
+                  <option value="32k">32k</option>
+                  <option value="64k">64k</option>
+                  <option value="128k">128k</option>
+                </select>
+              </div>
+              <div class="field" id="editChDelayWrap">
+                <label for="editChVoiceDelay">语音延迟</label>
+                <select id="editChVoiceDelay">
+                  <option value="LOW">低</option>
+                  <option value="NORMAL">普通</option>
+                  <option value="HIGH">高</option>
+                </select>
+              </div>
+              <div class="field field--check">
+                <label><input id="editChSecret" type="checkbox" /> 私密频道</label>
+              </div>
+              <div class="field field--check">
+                <label><input id="editChHasPassword" type="checkbox" onchange="toggleEditPwd()" /> 启用密码</label>
+              </div>
+              <div class="field field--wide" id="editChPwdWrap" style="display:none">
+                <label for="editChPassword">频道密码</label>
+                <input id="editChPassword" type="text" placeholder="设置频道密码" />
+              </div>
+            </div>
+            <div id="editChMsg" class="msg" style="margin-top:12px"></div>
+          </div>
+          <footer class="m-modal__foot">
+            <button class="btn btn-ghost" type="button" onclick="closeEditChannel()">取消</button>
+            <button class="btn btn-primary" type="button" onclick="doSaveChannelSettings()">保存</button>
+          </footer>
+        </div>
+      </section>
+
+      <style>
+        .m-area-select {
+          min-height: 34px;
+          padding-top: 0;
+          padding-bottom: 0;
+          font-size: 13px;
+          font-weight: 600;
+          max-width: 200px;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .a-voice-list { padding: 16px 20px; }
+        .a-voice-ch {
+          padding: 12px 0;
+          border-bottom: 1px solid var(--line);
+        }
+        .a-voice-ch:last-child { border-bottom: none; }
+        .a-voice-ch__head {
+          display: flex; align-items: center; gap: 8px;
+          margin-bottom: 8px;
+        }
+        .a-voice-ch__name { font-weight: 700; font-size: 14px; }
+        .a-voice-ch__group { font-size: 12px; color: var(--ink-faint); }
+        .a-voice-ch__count {
+          font-size: 11px; font-weight: 600;
+          padding: 2px 8px; border-radius: 99px;
+          background: var(--bg-soft); color: var(--ink-soft);
+        }
+        .a-voice-users {
+          display: flex; flex-wrap: wrap; gap: 6px;
+        }
+        .a-voice-user {
+          display: inline-flex; align-items: center; gap: 4px;
+          font-size: 12px; padding: 4px 10px;
+          border-radius: 8px; background: var(--bg-soft);
+          border: 1px solid var(--line);
+        }
+        .a-voice-user__dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: #22c55e;
+        }
+        .a-ch-actions { display: flex; gap: 4px; }
+        .a-ch-actions .btn { padding: 2px 10px; font-size: 11px; min-height: 28px; border-radius: 7px; }
+        #channelRows tr { transition: background .12s ease; }
+        #channelRows tr:hover { background: var(--bg-soft); }
+        .a-ch-type {
+          display: inline-block; font-size: 11px; font-weight: 600;
+          padding: 2px 8px; border-radius: 6px;
+          background: var(--bg-soft); color: var(--ink-soft);
+          border: 1px solid var(--line);
+        }
+        .a-ch-type--voice { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
+        .a-ch-type--text { background: #dcfce7; color: #166534; border-color: #86efac; }
+      </style>

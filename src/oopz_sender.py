@@ -128,9 +128,10 @@ class OopzSender(UploadMixin, OopzApiMixin):
         self.signer = Signer()
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
-        self._area_members_cache: dict[tuple[str, int, int], dict] = {}
+        self._area_members_cache: dict[tuple[str, int, int], tuple[float, dict]] = {}
         self._area_members_cache_ttl = 15.0
         self._area_members_stale_ttl = 300.0
+        self._cache_max_entries = 200
         self._rate_lock = threading.Lock()
         self._last_request_time = 0.0
         # 代理：留空/不设=使用系统代理(HTTP_PROXY/HTTPS_PROXY)；False 或 "direct"=直连；或 "http://ip:port"
@@ -161,10 +162,18 @@ class OopzSender(UploadMixin, OopzApiMixin):
     def _request(self, method: str, url_path: str, body: dict | None = None) -> requests.Response:
         """统一处理带签名的 HTTP 请求（POST/PUT/DELETE）。"""
         self._throttle()
-        body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False) if body else "{}"
-        headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
+        if body is not None:
+            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
+            sign_str = body_str
+            data = body_str.encode("utf-8")
+        elif method.upper() in ("POST", "PUT"):
+            sign_str = "{}"
+            data = b"{}"
+        else:
+            sign_str = ""
+            data = None
+        headers = {**self.session.headers, **self.signer.oopz_headers(url_path, sign_str)}
         url = OOPZ_CONFIG["base_url"] + url_path
-        data = body_str.encode("utf-8") if body else None
         return self.session.request(method, url, headers=headers, data=data)
 
     def _post(self, url_path: str, body: dict) -> requests.Response:
@@ -430,6 +439,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
         body = {"target": target}
 
         try:
+            self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
             headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
             url = OOPZ_CONFIG["base_url"] + full_path
@@ -509,6 +519,7 @@ class OopzSender(UploadMixin, OopzApiMixin):
         url_path = "/im/session/v2/sendImMessage"
 
         try:
+            self._throttle()
             body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
             headers = {**self.session.headers, **self.signer.oopz_headers(url_path, body_str)}
             url = OOPZ_CONFIG["base_url"] + url_path

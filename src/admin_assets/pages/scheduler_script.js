@@ -4,14 +4,7 @@
       AdminShell.setMicroStatus(text, variant, "schedulerState");
     }
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
+    var escapeHtml = AdminShell.escapeHtml;
 
     var WEEKDAY_NAMES = ["一", "二", "三", "四", "五", "六", "日"];
 

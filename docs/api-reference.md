@@ -838,6 +838,16 @@ POST /area/v3/remove?area={area}&target={uid}
 
 **说明：** 将指定用户从当前域移出（踢出域），需管理员权限。
 
+### 封禁用户（加入域封禁列表）
+
+```
+DELETE /client/v1/area/v1/block?area={area}&target={uid}
+```
+
+**参数：** `area`（域 ID）、`target`（要封禁的用户 UID）。无请求体。
+
+**说明：** 将用户加入域封禁列表，同时踢出域。封禁后该用户无法再加入此域，直到解除封禁。
+
 ### 获取域封禁列表
 
 ```

@@ -1,180 +1,305 @@
       <section id="panel" class="hidden config-layout">
         <div class="surface-card">
-          <section id="section-access" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">Access & Security</p>
+          <div class="cfg-tabs" role="tablist">
+            <button class="cfg-tab is-active" data-tab="basic" type="button">基础设置</button>
+            <button class="cfg-tab" data-tab="bot" type="button">机器人</button>
+            <button class="cfg-tab" data-tab="music" type="button">音乐与平台</button>
+            <button class="cfg-tab" data-tab="ai" type="button">AI 服务</button>
+            <button class="cfg-tab" data-tab="schedule" type="button">定时与通知</button>
+          </div>
+
+          <!-- Tab: 基础设置 -->
+          <div class="cfg-panel is-active" data-panel="basic">
+            <section id="section-access" class="field-section">
+              <div class="section-head">
                 <h3 class="section-title">访问与安全</h3>
-                <p class="section-copy">播放器访问地址、会话时长、链接释放和 Cookie 安全策略。</p>
+                <p class="section-copy">播放器访问地址、会话时长、Cookie 安全策略。</p>
               </div>
-            </div>
-            <div class="field-grid">
-              <div class="field field--wide">
-                <label for="cfg_web_url">播放器 URL</label>
-                <input id="cfg_web_url" type="text" placeholder="http://127.0.0.1:8080" />
-              </div>
-              <div class="field">
-                <label for="cfg_web_token_ttl">播放器 Token TTL（秒）</label>
-                <input id="cfg_web_token_ttl" type="number" min="0" />
-              </div>
-              <div class="field">
-                <label for="cfg_web_cookie_age">播放器 Cookie MaxAge（秒）</label>
-                <input id="cfg_web_cookie_age" type="number" min="0" />
-              </div>
-              <div class="field">
-                <label for="cfg_admin_session_ttl">后台会话 TTL（秒）</label>
-                <input id="cfg_admin_session_ttl" type="number" min="0" />
-              </div>
-              <div class="field">
-                <label for="cfg_link_idle">空闲释放链接（秒）</label>
-                <input id="cfg_link_idle" type="number" min="0" />
-              </div>
-              <div class="field field--wide">
-                <label for="cfg_admin_password">后台新密码</label>
-                <div class="secret-input">
-                  <input id="cfg_admin_password" type="password" placeholder="留空表示不修改" />
-                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_admin_password', this)">显示</button>
+              <div class="field-grid">
+                <div class="field field--wide">
+                  <label for="cfg_web_url">播放器 URL</label>
+                  <input id="cfg_web_url" type="text" placeholder="http://127.0.0.1:8080" />
+                </div>
+                <div class="field">
+                  <label for="cfg_web_host">监听地址</label>
+                  <input id="cfg_web_host" type="text" placeholder="0.0.0.0" />
+                </div>
+                <div class="field">
+                  <label for="cfg_web_port">监听端口</label>
+                  <input id="cfg_web_port" type="number" min="1" max="65535" />
+                </div>
+                <div class="field">
+                  <label for="cfg_web_token_ttl">播放器 Token TTL（秒）</label>
+                  <input id="cfg_web_token_ttl" type="number" min="0" />
+                </div>
+                <div class="field">
+                  <label for="cfg_web_cookie_age">播放器 Cookie MaxAge（秒）</label>
+                  <input id="cfg_web_cookie_age" type="number" min="0" />
+                </div>
+                <div class="field">
+                  <label for="cfg_admin_session_ttl">后台会话 TTL（秒）</label>
+                  <input id="cfg_admin_session_ttl" type="number" min="0" />
+                </div>
+                <div class="field">
+                  <label for="cfg_link_idle">空闲释放链接（秒）</label>
+                  <input id="cfg_link_idle" type="number" min="0" />
+                </div>
+                <div class="field field--wide">
+                  <label for="cfg_admin_password">后台新密码</label>
+                  <div class="secret-input">
+                    <input id="cfg_admin_password" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_admin_password', this)">显示</button>
+                  </div>
+                </div>
+                <div class="field field--check">
+                  <label><input id="cfg_cookie_secure" type="checkbox" /> 播放器 Cookie Secure</label>
+                </div>
+                <div class="field field--check">
+                  <label><input id="cfg_admin_cookie_secure" type="checkbox" /> 后台 Cookie Secure</label>
                 </div>
               </div>
-              <div class="field field--check">
-                <label><input id="cfg_cookie_secure" type="checkbox" /> 播放器 Cookie Secure</label>
-              </div>
-              <div class="field field--check">
-                <label><input id="cfg_admin_cookie_secure" type="checkbox" /> 后台 Cookie Secure</label>
-              </div>
-            </div>
-          </section>
+            </section>
 
-          <section id="section-behavior" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">Bot Behaviors</p>
-                <h3 class="section-title">机器人行为</h3>
-                <p class="section-copy">自动撤回、进群通知、聊天与脏话检测相关参数。</p>
-              </div>
-            </div>
-            <div class="field-grid">
-              <div class="field field--check"><label><input id="cfg_auto_recall_enabled" type="checkbox" /> 启用自动撤回</label></div>
-              <div class="field"><label for="cfg_auto_recall_delay">自动撤回延迟（秒）</label><input id="cfg_auto_recall_delay" type="number" min="1" /></div>
-              <div class="field field--check"><label><input id="cfg_area_notify_enabled" type="checkbox" /> 启用区域加入通知</label></div>
-              <div class="field"><label for="cfg_area_poll">区域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2" /></div>
-              <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
-              <div class="field field--check"><label><input id="cfg_profanity_enabled" type="checkbox" /> 启用脏话检测</label></div>
-              <div class="field"><label for="cfg_mute_duration">禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1" /></div>
-              <div class="field field--check"><label><input id="cfg_warn_before_mute" type="checkbox" /> 先警告后禁言</label></div>
-              <div class="field field--check"><label><input id="cfg_skip_admins" type="checkbox" /> 跳过管理员检测</label></div>
-              <div class="field field--check"><label><input id="cfg_context_detection" type="checkbox" /> 启用上下文检测</label></div>
-              <div class="field"><label for="cfg_context_window">上下文窗口（秒）</label><input id="cfg_context_window" type="number" min="5" /></div>
-              <div class="field"><label for="cfg_context_max_messages">上下文最大消息数</label><input id="cfg_context_max_messages" type="number" min="1" /></div>
-              <div class="field field--check"><label><input id="cfg_ai_detection" type="checkbox" /> 启用 AI 检测</label></div>
-              <div class="field"><label for="cfg_ai_min_length">AI 检测最短长度</label><input id="cfg_ai_min_length" type="number" min="1" /></div>
-            </div>
-          </section>
-
-          <section id="section-oopz" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">OOPZ & Music</p>
-                <h3 class="section-title">OOPZ 与音乐</h3>
-                <p class="section-copy">默认区域、频道、代理和网易云相关配置。</p>
-              </div>
-            </div>
-            <div class="field-grid">
-              <div class="field"><label for="cfg_oopz_default_area">默认区域 ID</label><input id="cfg_oopz_default_area" type="text" /></div>
-              <div class="field"><label for="cfg_oopz_default_channel">默认频道 ID</label><input id="cfg_oopz_default_channel" type="text" /></div>
-              <div class="field field--wide"><label for="cfg_oopz_proxy">OOPZ 代理</label><input id="cfg_oopz_proxy" type="text" placeholder="direct / http://127.0.0.1:7890" /></div>
-              <div class="field field--wide field--check"><label><input id="cfg_oopz_announcement" type="checkbox" /> 使用公告样式消息</label></div>
-              <div class="field field--wide"><label for="cfg_netease_base_url">网易云 API 地址</label><input id="cfg_netease_base_url" type="text" placeholder="http://127.0.0.1:3000" /></div>
-              <div class="field"><label for="cfg_netease_timeout">网易云音频超时（秒）</label><input id="cfg_netease_timeout" type="number" min="5" /></div>
-              <div class="field"><label for="cfg_netease_retries">网易云音频重试次数</label><input id="cfg_netease_retries" type="number" min="0" /></div>
-              <div class="field"><label for="cfg_netease_quality">网易云音质</label><input id="cfg_netease_quality" type="text" placeholder="standard / exhigh" /></div>
-              <div class="field field--wide">
-                <label for="cfg_netease_cookie">网易云 Cookie</label>
-                <div class="secret-input">
-                  <input id="cfg_netease_cookie" type="password" placeholder="留空表示不修改" />
-                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_netease_cookie', this)">显示</button>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <section id="section-redis" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">Redis</p>
-                <h3 class="section-title">缓存与状态</h3>
+            <section id="section-redis" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">Redis 缓存与状态</h3>
                 <p class="section-copy">Redis 连接参数、数据库索引与密码。</p>
               </div>
-            </div>
-            <div class="field-grid">
-              <div class="field"><label for="cfg_redis_host">Redis Host</label><input id="cfg_redis_host" type="text" /></div>
-              <div class="field"><label for="cfg_redis_port">Redis Port</label><input id="cfg_redis_port" type="number" min="1" /></div>
-              <div class="field"><label for="cfg_redis_db">Redis DB</label><input id="cfg_redis_db" type="number" min="0" /></div>
-              <div class="field field--check"><label><input id="cfg_redis_decode" type="checkbox" /> decode_responses</label></div>
-              <div class="field field--wide">
-                <label for="cfg_redis_password">Redis 密码</label>
-                <div class="secret-input">
-                  <input id="cfg_redis_password" type="password" placeholder="留空表示不修改" />
-                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_redis_password', this)">显示</button>
+              <div class="field-grid">
+                <div class="field"><label for="cfg_redis_host">Redis Host</label><input id="cfg_redis_host" type="text" /></div>
+                <div class="field"><label for="cfg_redis_port">Redis Port</label><input id="cfg_redis_port" type="number" min="1" /></div>
+                <div class="field"><label for="cfg_redis_db">Redis DB</label><input id="cfg_redis_db" type="number" min="0" /></div>
+                <div class="field field--check"><label><input id="cfg_redis_decode" type="checkbox" /> decode_responses</label></div>
+                <div class="field field--wide">
+                  <label for="cfg_redis_password">Redis 密码</label>
+                  <div class="secret-input">
+                    <input id="cfg_redis_password" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_redis_password', this)">显示</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
 
-          <section id="section-doubao-chat" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">Doubao Chat</p>
+          <!-- Tab: 机器人 -->
+          <div class="cfg-panel" data-panel="bot">
+            <section id="section-behavior" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">机器人行为</h3>
+                <p class="section-copy">自动撤回、进群通知、聊天与脏话检测。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_auto_recall_enabled" type="checkbox" /> 启用自动撤回</label></div>
+                <div class="field"><label for="cfg_auto_recall_delay">自动撤回延迟（秒）</label><input id="cfg_auto_recall_delay" type="number" min="1" /></div>
+                <div class="field field--wide"><label for="cfg_auto_recall_exclude">撤回排除命令</label><input id="cfg_auto_recall_exclude" type="text" placeholder="ai_chat, ai_image（逗号分隔）" /></div>
+                <div class="field field--check"><label><input id="cfg_area_notify_enabled" type="checkbox" /> 启用区域加入通知</label></div>
+                <div class="field"><label for="cfg_area_poll">区域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2" /></div>
+                <div class="field"><label for="cfg_area_auto_role_id">新人自动分配身份组 ID</label><input id="cfg_area_auto_role_id" type="text" placeholder="留空不分配" /></div>
+                <div class="field"><label for="cfg_area_auto_role_name">或按名称匹配身份组</label><input id="cfg_area_auto_role_name" type="text" placeholder="优先使用 ID" /></div>
+                <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
+                <div class="field field--wide"><label for="cfg_chat_keywords">关键词回复（JSON）</label><textarea id="cfg_chat_keywords" rows="3" placeholder='{"你好": "你好呀！", "帮助": "输入 /help 查看命令"}'></textarea></div>
+                <div class="field field--check"><label><input id="cfg_profanity_enabled" type="checkbox" /> 启用脏话检测</label></div>
+                <div class="field field--check"><label><input id="cfg_profanity_recall" type="checkbox" /> 自动撤回脏话消息</label></div>
+                <div class="field"><label for="cfg_mute_duration">禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1" /></div>
+                <div class="field field--check"><label><input id="cfg_warn_before_mute" type="checkbox" /> 先警告后禁言</label></div>
+                <div class="field field--check"><label><input id="cfg_skip_admins" type="checkbox" /> 跳过管理员检测</label></div>
+                <div class="field field--check"><label><input id="cfg_context_detection" type="checkbox" /> 启用上下文检测</label></div>
+                <div class="field"><label for="cfg_context_window">上下文窗口（秒）</label><input id="cfg_context_window" type="number" min="5" /></div>
+                <div class="field"><label for="cfg_context_max_messages">上下文最大消息数</label><input id="cfg_context_max_messages" type="number" min="1" /></div>
+                <div class="field field--check"><label><input id="cfg_ai_detection" type="checkbox" /> 启用 AI 检测</label></div>
+                <div class="field"><label for="cfg_ai_min_length">AI 检测最短长度</label><input id="cfg_ai_min_length" type="number" min="1" /></div>
+              </div>
+            </section>
+
+            <section id="section-stats" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">消息统计</h3>
+                <p class="section-copy">消息计数与活跃度统计的全局开关。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_stats_enabled" type="checkbox" /> 启用消息统计</label></div>
+              </div>
+            </section>
+
+            <section id="section-cooldown" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">命令冷却</h3>
+                <p class="section-copy">全局命令冷却策略，限制用户指令发送频率。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_cooldown_enabled" type="checkbox" /> 启用命令冷却</label></div>
+                <div class="field"><label for="cfg_cooldown_seconds">默认冷却时间（秒）</label><input id="cfg_cooldown_seconds" type="number" min="0" max="300" /></div>
+                <div class="field field--check"><label><input id="cfg_cooldown_exempt_admins" type="checkbox" /> 管理员免冷却</label></div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Tab: 音乐与平台 -->
+          <div class="cfg-panel" data-panel="music">
+            <section id="section-oopz" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">OOPZ 与网易云</h3>
+                <p class="section-copy">默认区域、频道、代理和网易云 API。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field"><label for="cfg_oopz_default_area">默认区域 ID</label><input id="cfg_oopz_default_area" type="text" /></div>
+                <div class="field"><label for="cfg_oopz_default_channel">默认频道 ID</label><input id="cfg_oopz_default_channel" type="text" /></div>
+                <div class="field field--wide"><label for="cfg_oopz_proxy">OOPZ 代理</label><input id="cfg_oopz_proxy" type="text" placeholder="direct / http://127.0.0.1:7890" /></div>
+                <div class="field field--wide field--check"><label><input id="cfg_oopz_announcement" type="checkbox" /> 使用公告样式消息</label></div>
+                <div class="field field--wide"><label for="cfg_netease_base_url">网易云 API 地址</label><input id="cfg_netease_base_url" type="text" placeholder="http://127.0.0.1:3000" /></div>
+                <div class="field"><label for="cfg_netease_timeout">网易云音频超时（秒）</label><input id="cfg_netease_timeout" type="number" min="5" /></div>
+                <div class="field"><label for="cfg_netease_retries">网易云音频重试次数</label><input id="cfg_netease_retries" type="number" min="0" /></div>
+                <div class="field"><label for="cfg_netease_quality">网易云音质</label><input id="cfg_netease_quality" type="text" placeholder="standard / exhigh" /></div>
+                <div class="field field--wide">
+                  <label for="cfg_netease_cookie">网易云 Cookie</label>
+                  <div class="secret-input">
+                    <input id="cfg_netease_cookie" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_netease_cookie', this)">显示</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="section-music" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">音乐播放</h3>
+                <p class="section-copy">自动播放、默认音量等参数。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_music_auto_play" type="checkbox" /> 队列播完自动随机</label></div>
+                <div class="field"><label for="cfg_music_volume">默认音量 (0-100)</label><input id="cfg_music_volume" type="number" min="0" max="100" /></div>
+              </div>
+            </section>
+
+            <section id="section-agora" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">Agora 语音推流</h3>
+                <p class="section-copy">Agora RTC App ID 及浏览器启动超时。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--wide"><label for="cfg_agora_app_id">Agora App ID</label><input id="cfg_agora_app_id" type="text" /></div>
+                <div class="field"><label for="cfg_agora_timeout">浏览器启动超时（秒）</label><input id="cfg_agora_timeout" type="number" min="10" max="7200" /></div>
+              </div>
+            </section>
+
+            <section id="section-qq-music" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">QQ 音乐</h3>
+                <p class="section-copy">QQ 音乐 API 服务地址与登录凭据。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_qq_music_enabled" type="checkbox" /> 启用 QQ 音乐</label></div>
+                <div class="field field--wide"><label for="cfg_qq_music_base_url">API 地址</label><input id="cfg_qq_music_base_url" type="text" placeholder="http://localhost:3300" /></div>
+                <div class="field field--wide">
+                  <label for="cfg_qq_music_cookie">Cookie</label>
+                  <div class="secret-input">
+                    <input id="cfg_qq_music_cookie" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_qq_music_cookie', this)">显示</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+
+            <section id="section-bilibili" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">B 站音乐</h3>
+                <p class="section-copy">B 站音频解析与登录凭据。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_bilibili_enabled" type="checkbox" /> 启用 B 站音乐</label></div>
+                <div class="field field--wide">
+                  <label for="cfg_bilibili_cookie">Cookie</label>
+                  <div class="secret-input">
+                    <input id="cfg_bilibili_cookie" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_bilibili_cookie', this)">显示</button>
+                  </div>
+                </div>
+              </div>
+            </section>
+          </div>
+
+          <!-- Tab: AI 服务 -->
+          <div class="cfg-panel" data-panel="ai">
+            <section id="section-doubao-chat" class="field-section">
+              <div class="section-head">
                 <h3 class="section-title">豆包聊天</h3>
-                <p class="section-copy">聊天模型、提示词和密钥。</p>
+                <p class="section-copy">聊天模型、提示词、上下文记忆和密钥。</p>
               </div>
-            </div>
-            <div class="field-grid">
-              <div class="field field--check"><label><input id="cfg_doubao_enabled" type="checkbox" /> 启用豆包聊天</label></div>
-              <div class="field"><label for="cfg_doubao_model">模型</label><input id="cfg_doubao_model" type="text" /></div>
-              <div class="field field--wide"><label for="cfg_doubao_base_url">Base URL</label><input id="cfg_doubao_base_url" type="text" /></div>
-              <div class="field"><label for="cfg_doubao_max_tokens">max_tokens</label><input id="cfg_doubao_max_tokens" type="number" min="1" /></div>
-              <div class="field"><label for="cfg_doubao_temperature">temperature</label><input id="cfg_doubao_temperature" type="number" min="0" max="2" step="0.1" /></div>
-              <div class="field field--wide"><label for="cfg_doubao_system_prompt">系统提示词</label><input id="cfg_doubao_system_prompt" type="text" /></div>
-              <div class="field field--wide">
-                <label for="cfg_doubao_api_key">API Key</label>
-                <div class="secret-input">
-                  <input id="cfg_doubao_api_key" type="password" placeholder="留空表示不修改" />
-                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_api_key', this)">显示</button>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_doubao_enabled" type="checkbox" /> 启用豆包聊天</label></div>
+                <div class="field"><label for="cfg_doubao_model">模型</label><input id="cfg_doubao_model" type="text" /></div>
+                <div class="field field--wide"><label for="cfg_doubao_base_url">Base URL</label><input id="cfg_doubao_base_url" type="text" /></div>
+                <div class="field"><label for="cfg_doubao_max_tokens">max_tokens</label><input id="cfg_doubao_max_tokens" type="number" min="1" /></div>
+                <div class="field"><label for="cfg_doubao_temperature">temperature</label><input id="cfg_doubao_temperature" type="number" min="0" max="2" step="0.1" /></div>
+                <div class="field field--wide"><label for="cfg_doubao_system_prompt">系统提示词</label><input id="cfg_doubao_system_prompt" type="text" /></div>
+                <div class="field"><label for="cfg_doubao_context_rounds">上下文记忆轮数</label><input id="cfg_doubao_context_rounds" type="number" min="0" max="50" /></div>
+                <div class="field"><label for="cfg_doubao_context_ttl">上下文记忆过期（秒）</label><input id="cfg_doubao_context_ttl" type="number" min="0" /></div>
+                <div class="field field--wide">
+                  <label for="cfg_doubao_api_key">API Key</label>
+                  <div class="secret-input">
+                    <input id="cfg_doubao_api_key" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_api_key', this)">显示</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
 
-          <section id="section-doubao-image" class="field-section">
-            <div class="section-head">
-              <div>
-                <p class="section-eyebrow">Doubao Image</p>
+            <section id="section-doubao-image" class="field-section">
+              <div class="section-head">
                 <h3 class="section-title">豆包文生图</h3>
                 <p class="section-copy">图像模型、尺寸、水印和密钥。</p>
               </div>
-            </div>
-            <div class="field-grid">
-              <div class="field field--check"><label><input id="cfg_doubao_img_enabled" type="checkbox" /> 启用豆包文生图</label></div>
-              <div class="field field--check"><label><input id="cfg_doubao_img_watermark" type="checkbox" /> 图片水印</label></div>
-              <div class="field field--wide"><label for="cfg_doubao_img_base_url">Base URL</label><input id="cfg_doubao_img_base_url" type="text" /></div>
-              <div class="field"><label for="cfg_doubao_img_model">模型</label><input id="cfg_doubao_img_model" type="text" /></div>
-              <div class="field"><label for="cfg_doubao_img_size">尺寸</label><input id="cfg_doubao_img_size" type="text" placeholder="1920x1920" /></div>
-              <div class="field field--wide">
-                <label for="cfg_doubao_img_api_key">API Key</label>
-                <div class="secret-input">
-                  <input id="cfg_doubao_img_api_key" type="password" placeholder="留空表示不修改" />
-                  <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_img_api_key', this)">显示</button>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_doubao_img_enabled" type="checkbox" /> 启用豆包文生图</label></div>
+                <div class="field field--check"><label><input id="cfg_doubao_img_watermark" type="checkbox" /> 图片水印</label></div>
+                <div class="field field--wide"><label for="cfg_doubao_img_base_url">Base URL</label><input id="cfg_doubao_img_base_url" type="text" /></div>
+                <div class="field"><label for="cfg_doubao_img_model">模型</label><input id="cfg_doubao_img_model" type="text" /></div>
+                <div class="field"><label for="cfg_doubao_img_size">尺寸</label><input id="cfg_doubao_img_size" type="text" placeholder="1920x1920" /></div>
+                <div class="field field--wide">
+                  <label for="cfg_doubao_img_api_key">API Key</label>
+                  <div class="secret-input">
+                    <input id="cfg_doubao_img_api_key" type="password" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" onclick="toggleSecret('cfg_doubao_img_api_key', this)">显示</button>
+                  </div>
                 </div>
               </div>
-            </div>
-          </section>
+            </section>
+          </div>
+
+          <!-- Tab: 定时与通知 -->
+          <div class="cfg-panel" data-panel="schedule">
+            <section id="section-scheduler" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">定时任务与提醒</h3>
+                <p class="section-copy">定时消息调度和用户提醒的全局参数。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_scheduler_enabled" type="checkbox" /> 启用定时消息</label></div>
+                <div class="field"><label for="cfg_scheduler_interval">定时检查间隔（秒）</label><input id="cfg_scheduler_interval" type="number" min="10" /></div>
+                <div class="field field--check"><label><input id="cfg_reminder_enabled" type="checkbox" /> 启用用户提醒</label></div>
+                <div class="field"><label for="cfg_reminder_max_per_user">每用户最大提醒数</label><input id="cfg_reminder_max_per_user" type="number" min="1" /></div>
+                <div class="field"><label for="cfg_reminder_max_delay">最大提醒延迟（小时）</label><input id="cfg_reminder_max_delay" type="number" min="1" /></div>
+                <div class="field"><label for="cfg_reminder_interval">提醒检查间隔（秒）</label><input id="cfg_reminder_interval" type="number" min="5" /></div>
+              </div>
+            </section>
+
+            <section id="section-notify-tpl" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">通知模板</h3>
+                <p class="section-copy">进/退域消息模板，支持 {name} {uid} 占位符。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--wide"><label for="cfg_notify_join_tpl">入域消息模板</label><input id="cfg_notify_join_tpl" type="text" placeholder="欢迎 {name} 加入～" /></div>
+                <div class="field field--wide"><label for="cfg_notify_leave_tpl">退域消息模板</label><input id="cfg_notify_leave_tpl" type="text" placeholder="{name} 已退出域" /></div>
+              </div>
+            </section>
+          </div>
         </div>
 
         <aside class="sticky-rail">
           <div class="rail-block">
             <div id="railState" class="micro-status is-warning">等待操作</div>
-            <h3 class="rail-block__title">保存轨道</h3>
+            <h3 class="rail-block__title">保存操作</h3>
             <div class="action-row">
               <button class="btn btn-primary" type="button" onclick="saveConfig(true)">保存并持久化</button>
               <button class="btn btn-ghost" type="button" onclick="saveConfig(false)">仅当前进程生效</button>
@@ -182,18 +307,6 @@
               <button class="btn btn-danger" type="button" onclick="resetOverrides()">清除持久化覆盖</button>
             </div>
             <div id="msg" class="msg"></div>
-          </div>
-
-          <div class="rail-block">
-            <h3 class="rail-block__title">章节索引</h3>
-            <div class="index-list">
-              <a class="index-link" href="#section-access">访问与安全</a>
-              <a class="index-link" href="#section-behavior">机器人行为</a>
-              <a class="index-link" href="#section-oopz">OOPZ 与音乐</a>
-              <a class="index-link" href="#section-redis">缓存与状态</a>
-              <a class="index-link" href="#section-doubao-chat">豆包聊天</a>
-              <a class="index-link" href="#section-doubao-image">豆包文生图</a>
-            </div>
           </div>
         </aside>
       </section>

@@ -7,6 +7,7 @@
     { key: "activity", href: "/admin/activity", label: "活跃" },
     { key: "scheduler", href: "/admin/scheduler", label: "定时" },
     { key: "members", href: "/admin/members", label: "成员" },
+    { key: "areas", href: "/admin/areas", label: "域管理" },
     { key: "system", href: "/admin/system", label: "系统" },
   ];
 
@@ -337,18 +338,171 @@
     window.addEventListener("load", refreshMarker);
   }
 
+  // -------------------------------------------------------------------------
+  // Custom Select (replaces native <select> with styled dropdown)
+  // -------------------------------------------------------------------------
+
+  var _csInstances = new Map();
+
+  function _csClose(wrap) {
+    wrap.classList.remove("is-open");
+    var card = wrap.closest(".surface-card, .table-card, .action-row");
+    if (card) card.classList.remove("cs-elevated");
+  }
+
+  function _csCloseAll(except) {
+    _csInstances.forEach(function (inst) {
+      if (inst.wrap !== except) _csClose(inst.wrap);
+    });
+  }
+
+  document.addEventListener("click", function (e) {
+    _csInstances.forEach(function (inst) {
+      if (!inst.wrap.contains(e.target)) _csClose(inst.wrap);
+    });
+  });
+
+  document.addEventListener("keydown", function (e) {
+    if (e.key === "Escape") _csCloseAll();
+  });
+
+  function upgradeSelect(selectId) {
+    var sel = byId(selectId);
+    if (!sel || sel.tagName !== "SELECT") return null;
+
+    var existing = _csInstances.get(selectId);
+    if (existing) return existing;
+
+    var wrap = document.createElement("div");
+    wrap.className = "cs-wrap";
+    if (sel.classList.contains("m-area-select")) {
+      wrap.style.maxWidth = "200px";
+    }
+
+    var trigger = document.createElement("button");
+    trigger.type = "button";
+    trigger.className = "cs-trigger";
+    trigger.setAttribute("aria-haspopup", "listbox");
+
+    var dropdown = document.createElement("div");
+    dropdown.className = "cs-dropdown";
+    dropdown.setAttribute("role", "listbox");
+
+    sel.style.display = "none";
+    sel.parentNode.insertBefore(wrap, sel);
+    wrap.appendChild(trigger);
+    wrap.appendChild(dropdown);
+    wrap.appendChild(sel);
+
+    trigger.addEventListener("click", function (e) {
+      e.stopPropagation();
+      var isOpen = wrap.classList.contains("is-open");
+      _csCloseAll();
+      if (!isOpen) {
+        wrap.classList.add("is-open");
+        var card = wrap.closest(".surface-card, .table-card, .action-row");
+        if (card) card.classList.add("cs-elevated");
+        var selected = dropdown.querySelector(".is-selected");
+        if (selected) selected.scrollIntoView({ block: "nearest" });
+      }
+    });
+
+    function syncOptions() {
+      dropdown.innerHTML = "";
+      var opts = sel.options;
+      if (!opts.length) {
+        dropdown.innerHTML = '<span class="cs-empty">无选项</span>';
+        trigger.textContent = "请选择";
+        return;
+      }
+      var children = sel.children;
+      for (var c = 0; c < children.length; c++) {
+        var child = children[c];
+        if (child.tagName === "OPTGROUP") {
+          var groupLabel = document.createElement("div");
+          groupLabel.className = "cs-group-label";
+          groupLabel.textContent = child.label || "";
+          dropdown.appendChild(groupLabel);
+          for (var g = 0; g < child.children.length; g++) {
+            _appendOption(child.children[g]);
+          }
+        } else if (child.tagName === "OPTION") {
+          _appendOption(child);
+        }
+      }
+      _refreshSelected();
+    }
+
+    function _appendOption(opt) {
+      var idx = opt.index;
+      var btn = document.createElement("button");
+      btn.type = "button";
+      btn.className = "cs-option";
+      btn.setAttribute("role", "option");
+      btn.textContent = opt.text;
+      btn.dataset.value = opt.value;
+      btn.dataset.idx = idx;
+      if (idx === sel.selectedIndex) btn.classList.add("is-selected");
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        sel.selectedIndex = idx;
+        sel.dispatchEvent(new Event("change", { bubbles: true }));
+        _refreshSelected();
+        _csClose(wrap);
+      });
+      dropdown.appendChild(btn);
+    }
+
+    function _refreshSelected() {
+      var idx = sel.selectedIndex;
+      trigger.textContent = idx >= 0 && sel.options[idx] ? sel.options[idx].text : "请选择";
+      var btns = dropdown.querySelectorAll(".cs-option");
+      btns.forEach(function (b) {
+        b.classList.toggle("is-selected", parseInt(b.dataset.idx, 10) === idx);
+      });
+    }
+
+    var observer = new MutationObserver(function () {
+      syncOptions();
+    });
+    observer.observe(sel, { childList: true, subtree: true, attributes: true });
+
+    syncOptions();
+
+    var inst = { wrap: wrap, trigger: trigger, dropdown: dropdown, sel: sel, sync: syncOptions };
+    _csInstances.set(selectId, inst);
+    return inst;
+  }
+
+  function refreshCustomSelect(selectId) {
+    var inst = _csInstances.get(selectId);
+    if (inst) inst.sync();
+  }
+
+  function escapeHtml(value) {
+    return String(value ?? "")
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#39;");
+  }
+
   window.AdminShell = {
     animateNumber,
     animatePanel,
     byId,
     copyText,
+    escapeHtml,
     flashUpdate,
     init,
+    refreshCustomSelect,
     req,
     setAuthState,
     setMicroStatus,
     setStatus,
     showMessage,
     updateNavMarker,
+    upgradeSelect,
   };
 })();

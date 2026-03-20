@@ -28,12 +28,20 @@ _HEADERS = {
 }
 
 
+_cached_config: dict | None = None
+
+
 def _load_config() -> dict:
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
     try:
         from config import BILIBILI_MUSIC_CONFIG
-        return BILIBILI_MUSIC_CONFIG
+        _cached_config = BILIBILI_MUSIC_CONFIG
+        return _cached_config
     except (ImportError, AttributeError):
-        return {}
+        _cached_config = {}
+        return _cached_config
 
 
 class BilibiliMusic:
@@ -46,16 +54,13 @@ class BilibiliMusic:
         cfg = _load_config()
         self.enabled = cfg.get("enabled", False)
         self.cookie = cfg.get("cookie", "")
-
-    def _headers(self) -> dict:
-        h = dict(_HEADERS)
-        if self.cookie:
-            h["Cookie"] = self.cookie
-        return h
+        self._session = requests.Session()
+        self._session.headers.update(_HEADERS)
 
     def _get(self, url: str, params: dict | None = None) -> Optional[dict]:
         try:
-            resp = requests.get(url, params=params, headers=self._headers(), timeout=10)
+            headers = {"Cookie": self.cookie} if self.cookie else {}
+            resp = self._session.get(url, params=params, headers=headers, timeout=10)
             resp.raise_for_status()
             return resp.json()
         except Exception as e:

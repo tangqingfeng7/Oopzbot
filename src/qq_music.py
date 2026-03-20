@@ -12,12 +12,20 @@ from logger_config import get_logger
 logger = get_logger("QQMusic")
 
 
+_cached_config: dict | None = None
+
+
 def _load_config() -> dict:
+    global _cached_config
+    if _cached_config is not None:
+        return _cached_config
     try:
         from config import QQ_MUSIC_CONFIG
-        return QQ_MUSIC_CONFIG
+        _cached_config = QQ_MUSIC_CONFIG
+        return _cached_config
     except (ImportError, AttributeError):
-        return {}
+        _cached_config = {}
+        return _cached_config
 
 
 class QQMusic:
@@ -31,6 +39,7 @@ class QQMusic:
         self.enabled = cfg.get("enabled", False)
         self.base_url = str(cfg.get("base_url", "")).rstrip("/")
         self.cookie = cfg.get("cookie", "")
+        self._session = requests.Session()
         if self.enabled and not self.base_url:
             logger.warning("QQ 音乐 API 地址未配置 (QQ_MUSIC_CONFIG.base_url)")
 
@@ -41,7 +50,7 @@ class QQMusic:
             headers = {}
             if self.cookie:
                 headers["Cookie"] = self.cookie
-            resp = requests.get(
+            resp = self._session.get(
                 f"{self.base_url}{path}",
                 params=params,
                 headers=headers,

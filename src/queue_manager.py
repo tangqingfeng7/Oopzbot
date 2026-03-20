@@ -10,10 +10,18 @@ from logger_config import get_logger
 
 logger = get_logger("QueueManager")
 
-# Redis 键名
+# Redis 键名（全局，用于向后兼容无 area 场景）
 KEY_QUEUE = "music:queue"
 KEY_CURRENT = "music:current"
 KEY_DEFAULT_CHANNEL = "music:default_channel"
+KEY_PLAY_STATE = "music:play_state"
+
+
+def _area_key(base: str, area: str) -> str:
+    """生成域隔离的 Redis 键。area 为空时回退到全局键。"""
+    if not area:
+        return base
+    return f"music:{area}:{base.split(':', 1)[1]}"
 
 _redis_client = None
 _redis_lock = threading.Lock()
@@ -29,6 +37,7 @@ class _InMemoryRedis:
         self._kv: dict[str, object] = {}
         self._lists: dict[str, list] = {}
         self._expires_at: dict[str, float] = {}
+        self._condition = threading.Condition()
 
     # --- 兼容性方法 ---
     def ping(self):
@@ -48,10 +57,14 @@ class _InMemoryRedis:
 
     # 列表操作
     def rpush(self, key: str, value):
-        self._get_list(key).append(value)
+        with self._condition:
+            self._get_list(key).append(value)
+            self._condition.notify_all()
 
     def lpush(self, key: str, value):
-        self._get_list(key).insert(0, value)
+        with self._condition:
+            self._get_list(key).insert(0, value)
+            self._condition.notify_all()
 
     def lrange(self, key: str, start: int, end: int):
         lst = self._lists.get(key, [])
@@ -127,33 +140,50 @@ class _InMemoryRedis:
         self._expires_at.pop(key, None)
 
     def blpop(self, key: str, timeout: int = 0):
-        """
-        简化版阻塞弹出：
-        - timeout <= 0 时立即返回
-        - timeout > 0 时在超时时间内轮询，避免忙等
-        """
-        end_time = time.monotonic() + max(timeout, 0)
-        while True:
-            lst = self._lists.get(key, [])
-            if lst:
-                return key, lst.pop(0)
-            if timeout <= 0 or time.monotonic() >= end_time:
-                return None
-            # 轻量 sleep，避免 CPU 空转
-            time.sleep(0.1)
+        """阻塞弹出：使用 Condition 等待，避免 CPU 空转。"""
+        deadline = time.monotonic() + max(timeout, 0)
+        with self._condition:
+            while True:
+                lst = self._lists.get(key, [])
+                if lst:
+                    return key, lst.pop(0)
+                if timeout <= 0:
+                    return None
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    return None
+                self._condition.wait(timeout=remaining)
 
 
 class QueueManager:
-    """基于 Redis 的播放队列管理器（Redis 不可用时自动回退到内存队列）"""
+    """基于 Redis 的播放队列管理器（Redis 不可用时自动回退到内存队列）。
+    支持域隔离：传入 area 后 Redis 键自动加域前缀。"""
 
-    def __init__(self):
+    def __init__(self, area: str = ""):
         self._redis = get_redis_client()
+        self._area = area
+
+    @property
+    def area(self) -> str:
+        return self._area
 
     @property
     def redis(self):
-        # Long-lived handlers should observe runtime Redis resets.
-        self._redis = get_redis_client()
+        if self._redis is None:
+            self._redis = get_redis_client()
         return self._redis
+
+    def _qkey(self) -> str:
+        return _area_key(KEY_QUEUE, self._area)
+
+    def _ckey(self) -> str:
+        return _area_key(KEY_CURRENT, self._area)
+
+    def _dkey(self) -> str:
+        return _area_key(KEY_DEFAULT_CHANNEL, self._area)
+
+    def _pskey(self) -> str:
+        return _area_key(KEY_PLAY_STATE, self._area)
 
     # ------------------------------------------------------------------
     # 队列操作
@@ -161,14 +191,23 @@ class QueueManager:
 
     def add_to_queue(self, song_data: dict) -> int:
         """添加歌曲到队列尾部，返回队列中的位置（0-based）"""
-        self.redis.rpush(KEY_QUEUE, json.dumps(song_data, ensure_ascii=False))
-        pos = self.redis.llen(KEY_QUEUE) - 1
+        r = self.redis
+        key = self._qkey()
+        if hasattr(r, "pipeline"):
+            pipe = r.pipeline(transaction=False)
+            pipe.rpush(key, json.dumps(song_data, ensure_ascii=False))
+            pipe.llen(key)
+            _, length = pipe.execute()
+            pos = int(length) - 1
+        else:
+            r.rpush(key, json.dumps(song_data, ensure_ascii=False))
+            pos = r.llen(key) - 1
         logger.info(f"添加到队列: {song_data.get('name')} (位置 {pos})")
         return pos
 
     def play_next(self) -> Optional[dict]:
         """从队列头取出下一首"""
-        data = self.redis.lpop(KEY_QUEUE)
+        data = self.redis.lpop(self._qkey())
         if data:
             song = json.loads(data)
             logger.info(f"队列弹出: {song.get('name')}")
@@ -177,33 +216,34 @@ class QueueManager:
 
     def peek_next(self) -> Optional[dict]:
         """查看队首下一首（不弹出），用于预加载"""
-        data = self.redis.lindex(KEY_QUEUE, 0)
+        data = self.redis.lindex(self._qkey(), 0)
         if data:
             return json.loads(data)
         return None
 
     def get_queue(self, start: int = 0, end: int = -1) -> list:
         """获取队列列表"""
-        items = self.redis.lrange(KEY_QUEUE, start, end)
+        items = self.redis.lrange(self._qkey(), start, end)
         return [json.loads(item) for item in items]
 
     def get_queue_length(self) -> int:
-        return self.redis.llen(KEY_QUEUE)
+        return self.redis.llen(self._qkey())
 
     def clear_queue(self):
         """清空队列"""
-        self.redis.delete(KEY_QUEUE)
+        self.redis.delete(self._qkey())
         logger.info("队列已清空")
 
     def remove_from_queue(self, index: int) -> bool:
         """移除队列中指定位置的歌曲"""
         try:
             placeholder = "__REMOVED__"
-            self.redis.lset(KEY_QUEUE, index, placeholder)
-            self.redis.lrem(KEY_QUEUE, 1, placeholder)
+            self.redis.lset(self._qkey(), index, placeholder)
+            self.redis.lrem(self._qkey(), 1, placeholder)
             logger.info(f"移除队列位置 {index}")
             return True
-        except Exception:
+        except Exception as e:
+            logger.warning("移除队列位置 %d 失败: %s", index, e)
             return False
 
     # ------------------------------------------------------------------
@@ -212,28 +252,46 @@ class QueueManager:
 
     def set_current(self, song_data: dict):
         """设置当前播放歌曲"""
-        self.redis.set(KEY_CURRENT, json.dumps(song_data, ensure_ascii=False))
+        self.redis.set(self._ckey(), json.dumps(song_data, ensure_ascii=False))
 
     def get_current(self) -> Optional[dict]:
         """获取当前播放歌曲"""
-        data = self.redis.get(KEY_CURRENT)
+        data = self.redis.get(self._ckey())
         if data:
             return json.loads(data)
         return None
 
     def clear_current(self):
         """清除当前播放"""
-        self.redis.delete(KEY_CURRENT)
+        self.redis.delete(self._ckey())
+
+    # ------------------------------------------------------------------
+    # 默认频道
+    # ------------------------------------------------------------------
+
+    # ------------------------------------------------------------------
+    # 播放状态（域隔离）
+    # ------------------------------------------------------------------
+
+    def set_play_state(self, state: dict):
+        self.redis.set(self._pskey(), json.dumps(state))
+
+    def get_play_state(self) -> Optional[dict]:
+        raw = self.redis.get(self._pskey())
+        return json.loads(raw) if raw else None
+
+    def clear_play_state(self):
+        self.redis.delete(self._pskey())
 
     # ------------------------------------------------------------------
     # 默认频道
     # ------------------------------------------------------------------
 
     def set_default_channel(self, channel: str):
-        self.redis.set(KEY_DEFAULT_CHANNEL, channel)
+        self.redis.set(self._dkey(), channel)
 
     def get_default_channel(self) -> Optional[str]:
-        val = self.redis.get(KEY_DEFAULT_CHANNEL)
+        val = self.redis.get(self._dkey())
         if isinstance(val, bytes):
             return val.decode("utf-8", errors="ignore")
         return val

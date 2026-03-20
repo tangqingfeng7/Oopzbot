@@ -48,6 +48,10 @@ class OopzApiMixin:
 
     def _set_cached_area_members(self, cache_key: tuple[str, int, int], data: dict) -> None:
         store = self._get_area_members_cache_store()
+        max_entries = int(getattr(self, "_cache_max_entries", 200))
+        if len(store) >= max_entries:
+            oldest = min(store, key=lambda k: store[k].get("ts", 0) if isinstance(store[k], dict) else 0)
+            store.pop(oldest, None)
         store[cache_key] = {"ts": time.time(), "data": copy.deepcopy(data)}
 
     def get_area_members(self, area: Optional[str] = None, offset_start: int = 0, offset_end: int = 49, quiet: bool = False) -> dict:
@@ -303,6 +307,160 @@ class OopzApiMixin:
             return None
         return fallback
 
+    def create_channel(
+        self,
+        area: Optional[str] = None,
+        name: str = "",
+        channel_type: str = "text",
+        group_id: str = "",
+    ) -> dict:
+        """
+        创建频道（通用方法）。
+
+        Args:
+            area: 域 ID
+            name: 频道名称
+            channel_type: 频道类型 (text/voice)
+            group_id: 频道分组 ID，留空自动选择第一个分组
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        name = str(name or "").strip()
+        if not name:
+            return {"error": "频道名称不能为空"}
+
+        if not group_id:
+            group_id = self._pick_channel_group(area) or ""
+            if not group_id:
+                return {"error": "未找到可用频道分组"}
+
+        type_map = {"text": "TEXT", "voice": "VOICE", "audio": "VOICE"}
+        resolved_type = type_map.get(channel_type.lower(), channel_type.upper())
+        body: dict = {
+            "area": area,
+            "group": group_id,
+            "name": name,
+            "type": resolved_type,
+            "secret": False,
+            "maxMember": 100,
+        }
+        if resolved_type == "VOICE":
+            body["isTemp"] = False
+
+        try:
+            resp = self._post("/client/v1/area/v1/channel/v1/create", body)
+        except Exception as e:
+            logger.error("创建频道异常: %s", e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        if not result.get("status"):
+            msg = result.get("message") or "创建频道失败"
+            code = result.get("code") or result.get("errorCode") or ""
+            logger.warning("创建频道被拒: %s (code=%s), body=%s", msg, code, body)
+            hint = "（可能需要域主/管理员权限）" if "服务" in msg or "权限" in msg else ""
+            return {"error": f"{msg}{hint}"}
+
+        data = result.get("data", {})
+        channel_id = self._extract_channel_id(data) or self._extract_channel_id(result)
+        return {
+            "status": True,
+            "channel": channel_id or "",
+            "name": name,
+            "message": "频道已创建",
+        }
+
+    def update_channel(
+        self,
+        area: Optional[str] = None,
+        channel_id: str = "",
+        overrides: Optional[dict] = None,
+        *,
+        name: str = "",
+    ) -> dict:
+        """
+        修改频道设置。先拉取当前设置，再合并 *overrides* 中提供的字段后提交。
+
+        API: POST /area/v3/channel/setting/edit
+
+        Args:
+            overrides: 要覆盖的字段字典，可包含 name / maxMember /
+                       textGapSecond / secret / voiceQuality / voiceDelay 等。
+            name: 仅修改名称的快捷参数（向后兼容）。
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        channel_id = str(channel_id or "").strip()
+        if not channel_id:
+            return {"error": "缺少 channel_id"}
+
+        setting = self.get_channel_setting_info(channel_id)
+        if isinstance(setting, dict) and "error" in setting:
+            return {"error": f"获取频道设置失败: {setting['error']}"}
+
+        edit_body = {
+            "channel": channel_id,
+            "area": area,
+            "name": str(setting.get("name") or ""),
+            "textGapSecond": int(setting.get("textGapSecond", 0) or 0),
+            "voiceQuality": str(setting.get("voiceQuality") or "64k"),
+            "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
+            "maxMember": int(setting.get("maxMember", 30000) or 30000),
+            "voiceControlEnabled": bool(setting.get("voiceControlEnabled", False)),
+            "textControlEnabled": bool(setting.get("textControlEnabled", False)),
+            "textRoles": list(setting.get("textRoles") or []),
+            "voiceRoles": list(setting.get("voiceRoles") or []),
+            "accessControlEnabled": bool(setting.get("accessControlEnabled", False)),
+            "accessible": list(setting.get("accessible") or []),
+            "accessibleMembers": list(setting.get("accessibleMembers") or []),
+            "secret": bool(setting.get("secret", False)),
+            "hasPassword": bool(setting.get("hasPassword", False)),
+            "password": str(setting.get("password") or ""),
+        }
+
+        if name:
+            edit_body["name"] = name
+        if overrides:
+            _INT_KEYS = ("textGapSecond", "maxMember")
+            _BOOL_KEYS = ("secret", "hasPassword", "voiceControlEnabled",
+                          "textControlEnabled", "accessControlEnabled")
+            _STR_KEYS = ("name", "voiceQuality", "voiceDelay", "password")
+            for k, v in overrides.items():
+                if k in _INT_KEYS:
+                    edit_body[k] = int(v or 0)
+                elif k in _BOOL_KEYS:
+                    edit_body[k] = bool(v)
+                elif k in _STR_KEYS:
+                    edit_body[k] = str(v or "")
+                elif k in edit_body:
+                    edit_body[k] = v
+
+        try:
+            resp = self._post("/area/v3/channel/setting/edit", edit_body)
+        except Exception as e:
+            logger.error("更新频道异常: %s", e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+
+        if not result.get("status"):
+            return {"error": result.get("message") or "更新频道失败"}
+
+        return {"status": True, "message": "频道已更新"}
+
     def create_restricted_text_channel(
         self,
         target_uid: str,
@@ -434,20 +592,16 @@ class OopzApiMixin:
         if not channel:
             return {"error": "缺少 channel"}
 
-        url_path = "/client/v1/area/v1/channel/v1/delete"
-        query = f"?channel={channel}&area={area}"
-        full_path = url_path + query
+        url_path = f"/client/v1/area/v1/channel/v1/delete?channel={channel}&area={area}"
 
         try:
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, "")}
-            url = OOPZ_CONFIG["base_url"] + full_path
-            resp = self.session.delete(url, headers=headers)
+            resp = self._delete(url_path)
         except Exception as e:
-            logger.error(f"删除频道异常: {e}")
+            logger.error("删除频道异常: %s", e)
             return {"error": str(e)}
 
         raw = resp.text or ""
-        logger.info(f"删除频道 DELETE {full_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
+        logger.info("删除频道 DELETE %s -> HTTP %d, body: %s", url_path, resp.status_code, raw[:300])
         if resp.status_code != 200:
             return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
 
@@ -460,7 +614,7 @@ class OopzApiMixin:
             return {"status": True, "message": result.get("message") or "已删除频道"}
 
         err = result.get("message") or result.get("error") or str(result)
-        logger.error(f"删除频道失败: {err}")
+        logger.error("删除频道失败: %s", err)
         return {"error": err}
 
     # ---- 已加入的域列表 ----
@@ -854,8 +1008,8 @@ class OopzApiMixin:
         groups = self.get_area_channels(area)
         voice_ids = []
         for g in groups:
-            for ch in g.get("channels", []):
-                if ch.get("type") == "VOICE":
+            for ch in g.get("channels") or []:
+                if str(ch.get("type", "")).upper() in ("VOICE", "AUDIO"):
                     voice_ids.append(ch["id"])
         if not voice_ids:
             return {}
@@ -1186,44 +1340,63 @@ class OopzApiMixin:
         将用户移出当前域（踢出域）。
 
         API: POST /area/v3/remove?area={area}&target={uid}
-
-        Args:
-            uid:  目标用户 UID
-            area: 域 ID（默认取配置）
         """
         area = area or OOPZ_CONFIG["default_area"]
-        url_path = "/area/v3/remove"
-        query = f"?area={area}&target={uid}"
-        full_path = url_path + query
+        url_path = f"/area/v3/remove?area={area}&target={uid}"
         body = {"area": area, "target": uid}
-
         try:
-            self._throttle()
-            body_str = json.dumps(body, separators=(",", ":"), ensure_ascii=False)
-            headers = {**self.session.headers, **self.signer.oopz_headers(full_path, body_str)}
-            url = OOPZ_CONFIG["base_url"] + full_path
-            resp = self.session.post(url, headers=headers, data=body_str.encode("utf-8"))
+            resp = self._post(url_path, body)
         except Exception as e:
-            logger.error(f"移出域请求异常: {e}")
+            logger.error("移出域请求异常: %s", e)
             return {"error": str(e)}
 
         raw = resp.text or ""
-        logger.info(f"移出域 POST {full_path} -> HTTP {resp.status_code}, body: {raw[:300]}")
-
+        logger.info("移出域 POST %s -> HTTP %s, body: %s", url_path, resp.status_code, raw[:300])
         if resp.status_code != 200:
             return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
-
         try:
             result = resp.json()
         except Exception:
             return {"error": f"响应非 JSON: {raw[:200]}"}
-
         if result.get("status") is True:
             logger.info("移出域成功")
             return {"status": True, "message": "已移出域"}
-
         err = result.get("message") or result.get("error") or str(result)
-        logger.error(f"移出域失败: {err}")
+        logger.error("移出域失败: %s", err)
+        return {"error": err}
+
+    def block_user_in_area(
+        self,
+        uid: str,
+        area: Optional[str] = None,
+    ) -> dict:
+        """
+        封禁用户（加入域封禁列表，用户被踢出且无法再加入）。
+
+        API: DELETE /client/v1/area/v1/block?area={area}&target={uid}
+        """
+        area = area or OOPZ_CONFIG["default_area"]
+        url_path = f"/client/v1/area/v1/block?area={area}&target={uid}"
+        try:
+            resp = self._delete(url_path)
+        except Exception as e:
+            logger.error("封禁请求异常: %s", e)
+            return {"error": str(e)}
+
+        raw = resp.text or ""
+        logger.info("封禁 DELETE %s -> HTTP %s, body: %s", url_path, resp.status_code, raw[:300])
+        if resp.status_code != 200:
+            return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
+        try:
+            result = resp.json()
+        except Exception:
+            return {"error": f"响应非 JSON: {raw[:200]}"}
+        if result.get("status") is True:
+            msg = result.get("message") or "已封禁"
+            logger.info("封禁成功: %s", msg)
+            return {"status": True, "message": msg}
+        err = result.get("message") or result.get("error") or str(result)
+        logger.error("封禁失败: %s", err)
         return {"error": err}
 
     def get_area_blocks(self, area: Optional[str] = None, name: str = "") -> dict:

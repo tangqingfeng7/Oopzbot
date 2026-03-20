@@ -19,7 +19,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, StreamingResponse
 from database import DB_PATH, MessageStatsDB, ReminderDB, ScheduledMessageDB, SongCache, Statistics, db_connection
 from logger_config import get_logger
 from name_resolver import get_resolver
-from queue_manager import get_redis_client
+from queue_manager import get_redis_client, _area_key, KEY_QUEUE, KEY_CURRENT, KEY_PLAY_STATE
 from web_link_token import clear_token, ensure_token, get_token, set_token
 
 import web_player_config as cfg
@@ -67,7 +67,7 @@ def _resolve_area() -> str:
                 _resolved_area_cache.update(value=resolved, ts=now)
                 return resolved
     except Exception:
-        pass
+        logger.debug("自动解析默认域失败", exc_info=True)
     return ""
 
 
@@ -207,6 +207,16 @@ _ADMIN_PAGES: dict[str, dict[str, str]] = {
         "login_copy": "登录后管理域成员。",
         "login_button": "进入成员管理",
     },
+    "areas": {
+        "page_title": "域管理",
+        "page_id": "areas",
+        "brand_title": "域管理",
+        "brand_copy": "域配置、频道管理与语音频道监控。",
+        "topbar_actions": '<button class="btn btn-ghost" type="button" onclick="loadAreaManager().catch(() => {})">刷新</button>',
+        "login_title": "登录域管理",
+        "login_copy": "登录后管理域配置与频道。",
+        "login_button": "进入域管理",
+    },
 }
 
 
@@ -252,7 +262,7 @@ def _clear_admin_session_token(token: str) -> None:
     try:
         _get_redis().delete(cfg.admin_session_key(token))
     except Exception:
-        pass
+        logger.debug("清除管理后台会话令牌失败", exc_info=True)
 
 
 def _overview_payload() -> dict:
@@ -262,9 +272,9 @@ def _overview_payload() -> dict:
     try:
         r = _get_redis()
         r.ping()
-        queue_len = int(r.llen("music:queue") or 0)
-        current_raw = r.get("music:current")
-        play_state_raw = r.get("music:play_state")
+        queue_len = int(r.llen(KEY_QUEUE) or 0)
+        current_raw = r.get(KEY_CURRENT)
+        play_state_raw = r.get(KEY_PLAY_STATE)
         playing = {
             "current": json.loads(current_raw) if current_raw else None,
             "play_state": json.loads(play_state_raw) if play_state_raw else None,
@@ -336,12 +346,13 @@ def _top_songs_from_play_history(page: int = 1, page_size: int = 10) -> tuple[li
 
 
 def _queue_snapshot(redis_client) -> list[dict]:
-    items = redis_client.lrange("music:queue", 0, -1)
+    items = redis_client.lrange(KEY_QUEUE, 0, -1)
     queue: list[dict] = []
     for i, item in enumerate(items):
         try:
             song = json.loads(item)
-        except Exception:
+        except Exception as e:
+            logger.debug("解析队列项 %d 失败: %s", i, e)
             song = {}
         queue.append({
             "index": i,
@@ -356,7 +367,7 @@ def _queue_snapshot(redis_client) -> list[dict]:
 
 def _current_song_snapshot(redis_client) -> Optional[dict]:
     try:
-        raw = redis_client.get("music:current")
+        raw = redis_client.get(KEY_CURRENT)
         if not raw:
             return None
         song = json.loads(raw)
@@ -368,6 +379,7 @@ def _current_song_snapshot(redis_client) -> Optional[dict]:
             "durationText": song.get("durationText") or song.get("duration", ""),
         }
     except Exception:
+        logger.debug("读取当前播放信息失败", exc_info=True)
         return None
 
 
@@ -423,6 +435,11 @@ def admin_activity_page():
 @admin_router.get("/admin/scheduler", response_class=HTMLResponse)
 def admin_scheduler_page():
     return _render_admin_page("scheduler")
+
+
+@admin_router.get("/admin/areas", response_class=HTMLResponse)
+def admin_areas_page():
+    return _render_admin_page("areas")
 
 
 # ---------------------------------------------------------------------------
@@ -961,13 +978,13 @@ def admin_members_list(
         try:
             person_map = sender.get_person_infos_batch(uids)
         except Exception:
-            pass
+            logger.debug("批量获取用户信息失败", exc_info=True)
 
     area_info = None
     try:
         area_info = sender.get_area_info(area=resolved_area)
     except Exception:
-        pass
+        logger.debug("获取域信息失败 (area=%s)", resolved_area[:8] if resolved_area else "")
     role_name_map: dict[int, str] = {}
     if area_info and isinstance(area_info, dict) and "error" not in area_info:
         for r in area_info.get("roleList") or []:
@@ -1182,7 +1199,7 @@ async def admin_member_block(uid: str, request: Request):
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
     body = await request.json()
     area = _extract_area(body)
-    result = sender.remove_from_area(uid, area=area)
+    result = sender.block_user_in_area(uid, area=area)
     if "error" in result:
         return JSONResponse({"ok": False, "error": result["error"]})
     _invalidate_members_cache()
@@ -1319,5 +1336,210 @@ async def admin_send_announcement(request: Request):
         return JSONResponse({"ok": True, "message": "公告已发送"})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# 域配置管理 API (area_configs CRUD)
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/area-configs")
+def admin_area_configs_list():
+    """返回所有域的独立配置。"""
+    from area_config import get_area_registry
+    reg = get_area_registry()
+    configs = reg.export_all()
+    return JSONResponse({"ok": True, "configs": configs})
+
+
+@admin_router.get("/admin/api/area-configs/{area_id}")
+def admin_area_config_get(area_id: str):
+    from area_config import get_area_registry, AreaConfigRegistry
+    reg = get_area_registry()
+    if not reg.is_configured(area_id):
+        return JSONResponse({"ok": True, "configured": False, "config": {}})
+    c = reg.get(area_id)
+    return JSONResponse({"ok": True, "configured": True, "config": AreaConfigRegistry.config_to_dict(c)})
+
+
+@admin_router.post("/admin/api/area-configs/{area_id}")
+async def admin_area_config_save(area_id: str, request: Request):
+    """创建或更新域配置并持久化。"""
+    body = await request.json()
+    area_id = area_id.strip()
+    if not area_id:
+        return JSONResponse({"ok": False, "error": "area_id 不能为空"}, status_code=400)
+
+    from area_config import get_area_registry, AreaConfigRegistry
+    reg = get_area_registry()
+    reg.update_config(area_id, body)
+
+    saved = cfg.read_area_overrides()
+    saved[area_id] = body
+    cfg.write_area_overrides(saved)
+
+    return JSONResponse({"ok": True, "config": AreaConfigRegistry.config_to_dict(reg.get(area_id))})
+
+
+@admin_router.delete("/admin/api/area-configs/{area_id}")
+def admin_area_config_delete(area_id: str):
+    """删除域的独立配置。"""
+    area_id = area_id.strip()
+    from area_config import get_area_registry
+    reg = get_area_registry()
+    removed = reg.remove_config(area_id)
+
+    saved = cfg.read_area_overrides()
+    saved.pop(area_id, None)
+    cfg.write_area_overrides(saved)
+
+    return JSONResponse({"ok": True, "removed": removed})
+
+
+# ---------------------------------------------------------------------------
+# 频道管理 API (创建 / 删除 / 修改)
+# ---------------------------------------------------------------------------
+
+@admin_router.post("/admin/api/channels/create")
+async def admin_channel_create(request: Request):
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    body = await request.json()
+    area = (body.get("area") or "").strip() or _resolve_area()
+    name = (body.get("name") or "").strip()
+    ch_type = body.get("type", "text")
+    group_id = (body.get("group_id") or "").strip()
+    if not area or not name:
+        return JSONResponse({"ok": False, "error": "area 和 name 不能为空"}, status_code=400)
+    try:
+        result = sender.create_channel(area=area, name=name, channel_type=ch_type, group_id=group_id)
+        if isinstance(result, dict) and "error" in result:
+            return JSONResponse({"ok": False, "error": result["error"]})
+        _channels_cache.update(data=None, ts=0.0, area="")
+        return JSONResponse({"ok": True, "message": "频道已创建", "result": result if isinstance(result, dict) else {}})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@admin_router.delete("/admin/api/channels/{channel_id}")
+async def admin_channel_delete(channel_id: str, request: Request):
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    body = await request.json()
+    area = (body.get("area") or "").strip() or _resolve_area()
+    if not area:
+        return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
+    try:
+        result = sender.delete_channel(channel=channel_id, area=area)
+        if isinstance(result, dict) and "error" in result:
+            return JSONResponse({"ok": False, "error": result["error"]})
+        _channels_cache.update(data=None, ts=0.0, area="")
+        return JSONResponse({"ok": True, "message": "频道已删除"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+@admin_router.put("/admin/api/channels/{channel_id}")
+async def admin_channel_update(channel_id: str, request: Request):
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    body = await request.json()
+    area = (body.get("area") or "").strip() or _resolve_area()
+    name = (body.get("name") or "").strip()
+    if not area:
+        return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
+    try:
+        result = sender.update_channel(area=area, channel_id=channel_id, name=name)
+        if isinstance(result, dict) and "error" in result:
+            return JSONResponse({"ok": False, "error": result["error"]})
+        _channels_cache.update(data=None, ts=0.0, area="")
+        return JSONResponse({"ok": True, "message": "频道已更新"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# 频道设置 API (读取 / 编辑)
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/channels/{channel_id}/settings")
+def admin_channel_settings(channel_id: str, area: str = Query("")):
+    """获取频道的详细设置信息。"""
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    data = sender.get_channel_setting_info(channel_id)
+    if isinstance(data, dict) and "error" in data:
+        return JSONResponse({"ok": False, "error": data["error"]})
+    return JSONResponse({"ok": True, "settings": data})
+
+
+@admin_router.post("/admin/api/channels/{channel_id}/settings")
+async def admin_channel_settings_edit(channel_id: str, request: Request):
+    """编辑频道设置（名称、人数上限、慢速模式等）。"""
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    body = await request.json()
+    area = (body.pop("area", "") or "").strip() or _resolve_area()
+    if not area:
+        return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
+    try:
+        result = sender.update_channel(area=area, channel_id=channel_id, overrides=body)
+        if isinstance(result, dict) and "error" in result:
+            return JSONResponse({"ok": False, "error": result["error"]})
+        _channels_cache.update(data=None, ts=0.0, area="")
+        return JSONResponse({"ok": True, "message": "频道设置已保存"})
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)})
+
+
+# ---------------------------------------------------------------------------
+# 语音频道监控 API
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/voice-channels")
+def admin_voice_channels(area: str = Query("")):
+    """返回域内语音频道及其在线用户。"""
+    resolved_area = area.strip() or _resolve_area()
+    if not resolved_area:
+        return JSONResponse({"ok": False, "error": "未找到可用域 ID"})
+
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+
+    groups = sender.get_area_channels(area=resolved_area, quiet=True)
+    voice_info = {}
+    for g in groups:
+        for ch in g.get("channels") or []:
+            ch_type = str(ch.get("type", "")).upper()
+            if ch_type in ("VOICE", "AUDIO"):
+                voice_info[ch.get("id", "")] = {
+                    "name": ch.get("name", ""),
+                    "group": g.get("name", ""),
+                }
+
+    channel_members = sender.get_voice_channel_members(area=resolved_area)
+
+    resolver = get_resolver()
+    voice_channels = []
+    for ch_id, info in voice_info.items():
+        raw_members = channel_members.get(ch_id, [])
+        users = []
+        for m in raw_members:
+            uid = m.get("uid", m.get("id", "")) if isinstance(m, dict) else str(m)
+            if uid:
+                users.append({"uid": uid, "name": resolver.user(uid) or uid[:8]})
+        voice_channels.append({
+            "id": ch_id,
+            "name": info["name"],
+            "group": info["group"],
+            "users": users,
+        })
+
+    return JSONResponse({"ok": True, "voice_channels": voice_channels})
 
 

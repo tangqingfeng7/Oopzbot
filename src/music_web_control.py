@@ -58,7 +58,7 @@ class WebControlExecutor:
         self.h.queue.clear_current()
         self.h.queue.clear_queue()
         try:
-            self.h.queue.redis.delete("music:play_state")
+            self.h.queue.clear_play_state()
         except Exception as e:
             logger.debug(f"执行 stop 时清理 play_state 失败: {e}")
         self._stop_voice_audio("执行 stop 时")
@@ -73,10 +73,9 @@ class WebControlExecutor:
         if not (self.h.voice and self.h.voice.available and self.h.voice.resume_audio()):
             return
         try:
-            ps_raw = self.h.queue.redis.get("music:play_state")
-            if not ps_raw:
+            ps = self.h.queue.get_play_state()
+            if not ps:
                 return
-            ps = json.loads(ps_raw)
             elapsed = ps.get("pause_elapsed", 0)
             self.h._play_start_time = time.time() - elapsed
             self.h._update_play_state_redis(

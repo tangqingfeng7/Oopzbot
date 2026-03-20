@@ -11,6 +11,8 @@ from name_resolver import get_resolver
 
 logger = get_logger("OopzClient")
 
+_json_loads = json.loads
+
 OOPZ_WS_URL = "wss://ws.oopz.cn"
 
 # Oopz WebSocket 事件类型
@@ -54,17 +56,20 @@ class OopzClient:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._consecutive_failures = 0
+        self._fail_lock = threading.Lock()
+        self._hb_body = json.dumps({"person": self._person_id})
 
     # ------------------------------------------------------------------
     # 公共接口
     # ------------------------------------------------------------------
 
     def _next_reconnect_delay(self) -> float:
-        delay = min(
-            self._base_reconnect * (2 ** self._consecutive_failures),
-            self._max_reconnect,
-        )
-        self._consecutive_failures += 1
+        with self._fail_lock:
+            delay = min(
+                self._base_reconnect * (2 ** self._consecutive_failures),
+                self._max_reconnect,
+            )
+            self._consecutive_failures += 1
         return delay
 
     def start(self):
@@ -123,26 +128,27 @@ class OopzClient:
 
     def _on_open(self, ws):
         logger.info("WebSocket 连接已建立")
-        self._consecutive_failures = 0
+        with self._fail_lock:
+            self._consecutive_failures = 0
         self._send_auth(ws)
         threading.Thread(target=self._heartbeat_loop, args=(ws,), daemon=True).start()
 
     def _on_message(self, ws, message: str):
         try:
-            data = json.loads(message)
-        except json.JSONDecodeError:
+            data = _json_loads(message)
+        except (json.JSONDecodeError, ValueError):
             logger.warning(f"无法解析消息: {message[:200]}")
             return
 
         event = data.get("event")
 
-        # 心跳响应
+        # 心跳响应 -- 最高频事件，优先处理
         if event == EVENT_HEARTBEAT:
             body_raw = data.get("body", {})
             if isinstance(body_raw, str):
                 try:
-                    body = json.loads(body_raw)
-                except json.JSONDecodeError:
+                    body = _json_loads(body_raw)
+                except (json.JSONDecodeError, ValueError):
                     body = {}
             elif isinstance(body_raw, dict):
                 body = body_raw
@@ -198,13 +204,12 @@ class OopzClient:
     # -- 心跳 --
 
     def _send_heartbeat(self, ws):
-        payload = {
-            "time": str(int(time.time() * 1000)),
-            "body": json.dumps({"person": self._person_id}),
-            "event": EVENT_HEARTBEAT,
-        }
         try:
-            ws.send(json.dumps(payload))
+            ws.send(json.dumps({
+                "time": str(int(time.time() * 1000)),
+                "body": self._hb_body,
+                "event": EVENT_HEARTBEAT,
+            }))
         except Exception as e:
             logger.debug("发送心跳失败（连接可能已关闭）: %s", e)
 
@@ -219,23 +224,21 @@ class OopzClient:
 
     # -- 聊天消息处理 --
 
+    @staticmethod
+    def _safe_json_parse(raw, fallback=None):
+        if isinstance(raw, dict):
+            return raw
+        if isinstance(raw, str):
+            try:
+                return _json_loads(raw)
+            except (json.JSONDecodeError, ValueError):
+                return fallback if fallback is not None else {}
+        return fallback if fallback is not None else {}
+
     def _handle_chat(self, data: dict):
         try:
-            body_raw = data.get("body", {})
-            if isinstance(body_raw, str):
-                body = json.loads(body_raw)
-            elif isinstance(body_raw, dict):
-                body = body_raw
-            else:
-                body = {}
-
-            msg_raw = body.get("data", {})
-            if isinstance(msg_raw, str):
-                msg_data = json.loads(msg_raw)
-            elif isinstance(msg_raw, dict):
-                msg_data = msg_raw
-            else:
-                msg_data = {}
+            body = self._safe_json_parse(data.get("body", {}))
+            msg_data = self._safe_json_parse(body.get("data", {}))
             if not msg_data:
                 return
 
@@ -249,15 +252,9 @@ class OopzClient:
             channel_id = msg_data.get("channel", "")
             area_id = msg_data.get("area", "")
 
-            # 注册新发现的 ID（自动保存到 names.json）
-            if area_id:
-                resolver.register_id("areas", area_id)
-            if channel_id:
-                resolver.register_id("channels", channel_id)
+            resolver.register_ids(areas=area_id, channels=channel_id, users=person_id)
             if person_id:
-                resolver.register_id("users", person_id)
-
-            resolver.batch_resolve_users([person_id] if person_id else [])
+                resolver.batch_resolve_users([person_id])
             user_display = resolver.user_cached(person_id)
             area_display = resolver.area(area_id)
             channel_display = resolver.channel(channel_id)

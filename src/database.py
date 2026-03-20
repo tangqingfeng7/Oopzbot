@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import json
 import sqlite3
+import threading
 from contextlib import contextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Generator, Optional
@@ -14,8 +15,19 @@ logger = get_logger("Database")
 _PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 DB_PATH = os.path.join(_PROJECT_ROOT, "data", "oopz_cache.db")
 
-# 中国时区 (UTC+8)
 CN_TZ = timezone(timedelta(hours=8))
+
+_thread_local = threading.local()
+
+
+def _safe_json_loads(raw: str | None, fallback=None):
+    """json.loads 安全包装，解析失败返回 fallback。"""
+    if not raw:
+        return fallback if fallback is not None else {}
+    try:
+        return json.loads(raw)
+    except (json.JSONDecodeError, ValueError, TypeError):
+        return fallback if fallback is not None else {}
 
 
 def cn_now() -> str:
@@ -29,9 +41,17 @@ def cn_today() -> str:
 
 
 def get_connection() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH)
+    conn = getattr(_thread_local, "conn", None)
+    if conn is not None:
+        try:
+            conn.execute("SELECT 1")
+            return conn
+        except sqlite3.ProgrammingError:
+            pass
+    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    _thread_local.conn = conn
     return conn
 
 
@@ -44,8 +64,6 @@ def db_connection() -> Generator[sqlite3.Connection, None, None]:
     except Exception:
         conn.rollback()
         raise
-    finally:
-        conn.close()
 
 
 # ---------------------------------------------------------------------------
@@ -189,6 +207,18 @@ def init_database() -> None:
             "CREATE INDEX IF NOT EXISTS idx_message_stats_date ON message_stats (date)"
         )
         cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_message_stats_area_date "
+            "ON message_stats (area_id, date)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_play_history_played_at "
+            "ON play_history (played_at)"
+        )
+        cursor.execute(
+            "CREATE INDEX IF NOT EXISTS idx_play_history_user "
+            "ON play_history (user_id, played_at)"
+        )
+        cursor.execute(
             "CREATE INDEX IF NOT EXISTS idx_reminders_fire_at ON reminders (fire_at, fired)"
         )
 
@@ -213,7 +243,7 @@ class ImageCache:
         if row:
             result = dict(row)
             if result.get("attachment_data"):
-                result["attachment_data"] = json.loads(result["attachment_data"])
+                result["attachment_data"] = _safe_json_loads(result["attachment_data"])
             return result
         return None
 
@@ -414,7 +444,7 @@ class Statistics:
         with db_connection() as conn:
             row = conn.execute("SELECT * FROM statistics WHERE date=?", (today,)).fetchone()
             if row:
-                breakdown = json.loads(row["platform_breakdown"] or "{}")
+                breakdown = _safe_json_loads(row["platform_breakdown"], {})
                 breakdown[platform] = breakdown.get(platform, 0) + 1
 
                 conn.execute(
@@ -441,7 +471,7 @@ class Statistics:
             row = conn.execute("SELECT * FROM statistics WHERE date=?", (today,)).fetchone()
         if row:
             result = dict(row)
-            result["platform_breakdown"] = json.loads(result.get("platform_breakdown") or "{}")
+            result["platform_breakdown"] = _safe_json_loads(result.get("platform_breakdown"), {})
             return result
         return None
 
@@ -454,7 +484,7 @@ class Statistics:
         results = []
         for r in rows:
             d = dict(r)
-            d["platform_breakdown"] = json.loads(d.get("platform_breakdown") or "{}")
+            d["platform_breakdown"] = _safe_json_loads(d.get("platform_breakdown"), {})
             results.append(d)
         return results
 

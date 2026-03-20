@@ -8,14 +8,7 @@
       AdminShell.setMicroStatus(text, variant, "activityState");
     }
 
-    function escapeHtml(value) {
-      return String(value ?? "")
-        .replaceAll("&", "&amp;")
-        .replaceAll("<", "&lt;")
-        .replaceAll(">", "&gt;")
-        .replaceAll('"', "&quot;")
-        .replaceAll("'", "&#39;");
-    }
+    var escapeHtml = AdminShell.escapeHtml;
 
     function loadChartJs() {
       if (chartJsLoaded) return Promise.resolve();
@@ -155,15 +148,18 @@
     async function loadActivity() {
       await loadChartJs();
 
-      var overview = await AdminShell.req("/admin/api/message-stats/overview");
+      var [overview, dailyData, rankingData] = await Promise.all([
+        AdminShell.req("/admin/api/message-stats/overview"),
+        AdminShell.req("/admin/api/message-stats/daily?days=14"),
+        AdminShell.req("/admin/api/message-stats/ranking?days=7&limit=10"),
+      ]);
+
       AdminShell.animateNumber("todayMsgValue", overview.today_messages || 0);
       AdminShell.animateNumber("weekMsgValue", overview.week_messages || 0);
       AdminShell.animateNumber("activeUsersValue", overview.active_users_today || 0);
 
-      var dailyData = await AdminShell.req("/admin/api/message-stats/daily?days=14");
       renderDailyChart(dailyData.daily || []);
 
-      var rankingData = await AdminShell.req("/admin/api/message-stats/ranking?days=7&limit=10");
       var ranking = rankingData.ranking || [];
       renderRankingChart(ranking);
       renderRankingTable(ranking);

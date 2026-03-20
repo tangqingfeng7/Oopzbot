@@ -81,6 +81,8 @@ DOUBAO_CONFIG = {
     "system_prompt": "你是 Oopz Bot，一个活泼有趣的聊天机器人。回复简洁友好，不超过100字。",
     "max_tokens": 256,
     "temperature": 0.7,
+    "context_max_rounds": 10,          # 每个用户+频道最多保留的对话轮数（0=不保留上下文）
+    "context_ttl_seconds": 1800,       # 对话上下文过期时间（秒），0=不过期
 }
 
 # 豆包图片生成配置（Seedream 文生图）
@@ -269,6 +271,37 @@ REMINDER_CONFIG = {
 # 消息统计配置
 MESSAGE_STATS_CONFIG = {
     "enabled": True,
+}
+
+# 音乐播放配置
+MUSIC_CONFIG = {
+    "auto_play_enabled": True,          # 队列播完是否自动随机播放喜欢列表
+    "default_volume": 50,               # 默认音量 (0-100)
+}
+
+# 命令冷却配置
+COMMAND_COOLDOWN_CONFIG = {
+    "enabled": False,
+    "default_seconds": 3,              # 默认命令冷却时间（秒）
+    "exempt_admins": True,             # 管理员是否免冷却
+}
+
+# 多域配置（可选）
+# 为每个域配置独立的参数，不配或留空则所有域共享全局配置
+# 键为域 ID，值为该域的个性化配置
+AREA_CONFIGS = {
+    # "域ID": {
+    #     "name": "域名称（仅供日志显示）",
+    #     "default_channel": "该域默认发送频道 ID",
+    #     "welcome_message": "欢迎 {name} 加入～",      # 占位符: {name} {uid}
+    #     "leave_message": "{name} 已退出域",
+    #     "auto_assign_role_id": "",                      # 新人自动分配的身份组 ID
+    #     "auto_assign_role_name": "",                    # 或用身份组名称匹配
+    #     "admin_uids": [],                               # 该域独立管理员，空则继承全局 ADMIN_UIDS
+    #     "plugins_enabled": [],                          # 空=全部启用
+    #     "plugins_disabled": [],                         # 禁用的插件名列表
+    #     "profanity_enabled": True,                      # 是否启用脏话检测
+    # },
 }
 
 # Bot 管理员列表（只有这些用户可以执行指令，其他用户无权限）
