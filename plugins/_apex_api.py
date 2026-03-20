@@ -50,8 +50,7 @@ class ApexApiClient:
         self._api_key = str(self._config.get("api_key") or "").strip()
         self._timeout = max(1, int(self._config.get("request_timeout_sec", 15) or 15))
         self._retries = max(1, int(self._config.get("request_retries", 2) or 2))
-        proxy = str(self._config.get("proxy") or "").strip()
-        self._proxies: dict[str, str] | None = {"http": proxy, "https": proxy} if proxy else None
+        self._proxies = None
         self._session = session or requests.Session()
 
     @property

@@ -1,3 +1,4 @@
+import signal
 from typing import Optional
 
 from logger_config import setup_logger
@@ -27,11 +28,22 @@ class BotApplication:
         self._voice_runtime = VoiceRuntimeBuilder()
         self._context: Optional[AppContext] = None
 
+    def _install_signal_handlers(self) -> None:
+        def _graceful_stop(signum, _frame):
+            name = signal.Signals(signum).name
+            logger.info("收到 %s，正在停止...", name)
+            if self._context:
+                self._context.client.stop()
+
+        signal.signal(signal.SIGTERM, _graceful_stop)
+        signal.signal(signal.SIGINT, _graceful_stop)
+
     def run(self) -> None:
         logger.info("=" * 50)
         logger.info("Oopz Bot 正在启动...")
         logger.info("=" * 50)
 
+        self._install_signal_handlers()
         self._netease_runtime.start()
         self._context = self._build_context()
         self._background_services.start(self._context)
@@ -39,8 +51,7 @@ class BotApplication:
         try:
             self._context.client.start()
         except KeyboardInterrupt:
-            logger.info("收到退出信号，正在停止...")
-            self._context.client.stop()
+            pass
         finally:
             self.stop()
 

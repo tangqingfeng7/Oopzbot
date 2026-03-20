@@ -47,7 +47,7 @@ class UploadMixin:
         cdn_url = data["url"]
 
         with open(file_path, "rb") as f:
-            put_resp = requests.put(
+            put_resp = self.session.put(
                 upload_url,
                 data=f,
                 headers={"Content-Type": "application/octet-stream"},
@@ -61,7 +61,7 @@ class UploadMixin:
     def upload_file_from_url(self, image_url: str) -> dict:
         """从网络 URL 下载图片并上传到 Oopz（不落地磁盘）"""
         try:
-            resp = requests.get(image_url, stream=True, timeout=15)
+            resp = self.session.get(image_url, stream=True, timeout=15)
             resp.raise_for_status()
             image_bytes = resp.content
 
@@ -81,7 +81,7 @@ class UploadMixin:
             file_key = data["file"]
             cdn_url = data["url"]
 
-            put_resp = requests.put(
+            put_resp = self.session.put(
                 signed_url,
                 data=image_bytes,
                 headers={"Content-Type": "application/octet-stream"},
@@ -111,9 +111,7 @@ class UploadMixin:
     ) -> dict:
         """从网络 URL 下载音频并上传到 Oopz（AUDIO 类型）"""
         try:
-            resp = requests.get(audio_url, timeout=30, headers={
-                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                              "AppleWebKit/537.36 Chrome/140.0.0.0 Safari/537.36",
+            resp = self.session.get(audio_url, timeout=30, headers={
                 "Referer": "https://music.163.com/",
             })
             resp.raise_for_status()
@@ -140,7 +138,7 @@ class UploadMixin:
             file_key = data["file"]
             cdn_url = data["url"]
 
-            put_resp = requests.put(
+            put_resp = self.session.put(
                 signed_url,
                 data=audio_bytes,
                 headers={"Content-Type": "application/octet-stream"},
@@ -184,7 +182,7 @@ class UploadMixin:
         cdn_url = data["url"]
 
         with open(file_path, "rb") as f:
-            requests.put(
+            self.session.put(
                 signed_url,
                 data=f,
                 headers={"Content-Type": "application/octet-stream"},
@@ -224,7 +222,7 @@ class UploadMixin:
             cdn_url = data["url"]
 
             with open(file_path, "rb") as f:
-                requests.put(
+                self.session.put(
                     signed_url,
                     data=f,
                     headers={"Content-Type": "application/octet-stream"},

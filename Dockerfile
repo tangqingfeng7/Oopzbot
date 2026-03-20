@@ -17,6 +17,8 @@ COPY requirements.txt /app/requirements.txt
 RUN pip install --no-cache-dir -r /app/requirements.txt
 RUN python -m playwright install --with-deps --no-shell chromium
 
+RUN groupadd -r bot && useradd -r -g bot -d /app -s /sbin/nologin bot
+
 COPY main.py /app/main.py
 COPY config.example.py /app/config.example.py
 COPY private_key.example.py /app/private_key.example.py
@@ -27,6 +29,8 @@ COPY tools /app/tools
 COPY docs /app/docs
 COPY config /app/config
 
-RUN mkdir -p /app/data /app/logs
+RUN mkdir -p /app/data /app/logs && chown -R bot:bot /app/data /app/logs
+
+USER bot
 
 CMD ["python", "main.py"]

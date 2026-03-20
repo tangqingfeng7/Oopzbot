@@ -4,6 +4,7 @@ import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
 from logger_config import get_logger
+from proxy_utils import resolve_requests_proxies
 
 logger = get_logger("LolQuery")
 
@@ -25,9 +26,7 @@ class LolQueryHandler:
 
         self._api_url = self._config.get("api_url", "")
         self._token = self._config.get("token", "")
-        proxy = self._config.get("proxy", "")
-        # 指定了代理则使用指定的，否则传 None 让 requests 自动读取系统代理
-        self._proxies = {"http": proxy, "https": proxy} if proxy else None
+        self._proxies = resolve_requests_proxies(self._config.get("proxy"))
 
     _MAX_RETRIES = 2
     _RETRY_DELAY = 1  # seconds

@@ -1,20 +1,50 @@
-.git
+# Git
+.git/
 .gitignore
-.cursor
-.vscode
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.pytest_cache/
-.mypy_cache/
+.gitattributes
 
-logs/
-data/
-NeteaseAPI_tmp/
-.oopz_capture_credentials/
-
+# Sensitive config (mounted at runtime)
 config.py
 private_key.py
+.env
+.env.local
 
+# Runtime data (mounted at runtime)
+data/
+logs/
+
+# Python artifacts
+__pycache__/
+*.py[cod]
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+
+# IDE
+.vscode/
+.idea/
+.cursor/
+
+# External dependencies
+NeteaseAPI_tmp/
+NeteaseAPI_tmp.zip
+NeteaseCloudMusicApi/
+Webintosh/
+
+# System files
+Thumbs.db
+.DS_Store
+
+# Tests
 tests/
+
+# Docs (local only)
+docs_local/
+
+# Docker files
+Dockerfile
+docker-compose.yml
+docker.env.example

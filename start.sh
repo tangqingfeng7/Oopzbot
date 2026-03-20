@@ -204,19 +204,26 @@ fi
 
 if [ ! -d "$VENV_DIR" ]; then
   "$PYTHON_BIN" -m venv "$VENV_DIR"
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
+  python -m pip install --upgrade pip
+else
+  # shellcheck disable=SC1091
+  source "$VENV_DIR/bin/activate"
 fi
-
-# shellcheck disable=SC1091
-source "$VENV_DIR/bin/activate"
-
-python -m pip install --upgrade pip
 
 if [ "$SKIP_INSTALL" != "1" ]; then
   pip install -r requirements.txt
 fi
 
 if [ "$SKIP_PLAYWRIGHT_INSTALL" != "1" ]; then
-  python -m playwright install chromium
+  _PW_MARKER="$VENV_DIR/.playwright_chromium_installed"
+  if [ -f "$_PW_MARKER" ]; then
+    echo "Playwright chromium already installed, skipping. (delete $_PW_MARKER to force reinstall)"
+  else
+    python -m playwright install --with-deps chromium
+    touch "$_PW_MARKER"
+  fi
 fi
 
 if [ ! -f config.py ] && [ -f config.example.py ]; then

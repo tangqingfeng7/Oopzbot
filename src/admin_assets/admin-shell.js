@@ -8,6 +8,7 @@
     { key: "scheduler", href: "/admin/scheduler", label: "定时" },
     { key: "members", href: "/admin/members", label: "成员" },
     { key: "areas", href: "/admin/areas", label: "域管理" },
+    { key: "plugins", href: "/admin/plugins", label: "插件" },
     { key: "system", href: "/admin/system", label: "系统" },
   ];
 
@@ -180,53 +181,60 @@
     if (!window.gsap || prefersReducedMotion()) {
       return;
     }
-    const topbar = document.querySelector(".shell-topbar");
-    const mobileNav = document.querySelector(".mobile-nav-shell");
-    const hero = document.querySelector(".page-hero");
-    const cards = document.querySelectorAll(
+    var topbar = document.querySelector(".shell-topbar");
+    var mobileNav = document.querySelector(".mobile-nav-shell");
+    var hero = document.querySelector(".page-hero");
+    var cards = document.querySelectorAll(
       ".auth-card, .surface-card, .metric-card, .summary-card, .table-card, .console-card, .sticky-rail"
     );
-    const timeline = window.gsap.timeline({ defaults: { ease: "power3.out" } });
+    var timeline = window.gsap.timeline({ defaults: { ease: "power3.out" } });
 
     if (topbar) {
       timeline.from(topbar, {
-        y: -8,
+        y: -16,
         opacity: 0,
-        duration: 0.28,
+        scale: 0.98,
+        duration: 0.45,
+        clearProps: "transform,opacity",
       });
     }
     if (mobileNav) {
       timeline.from(
         mobileNav,
         {
-          y: -6,
+          y: -10,
           opacity: 0,
-          duration: 0.2,
+          duration: 0.3,
+          clearProps: "transform,opacity",
         },
-        "-=0.12"
+        "-=0.25"
       );
     }
     if (hero) {
       timeline.from(
         hero,
         {
-          y: 8,
+          y: 16,
           opacity: 0,
-          duration: 0.22,
+          scale: 0.98,
+          duration: 0.35,
+          clearProps: "transform,opacity",
         },
-        "-=0.08"
+        "-=0.15"
       );
     }
     if (cards.length) {
       timeline.from(
         cards,
         {
-          y: 8,
+          y: 20,
           opacity: 0,
-          duration: 0.2,
-          stagger: 0.03,
+          scale: 0.97,
+          duration: 0.35,
+          stagger: 0.05,
+          clearProps: "transform,opacity",
         },
-        "-=0.04"
+        "-=0.1"
       );
     }
   }
@@ -244,12 +252,13 @@
     }
     window.gsap.fromTo(
       cards,
-      { y: 8, opacity: 0 },
+      { y: 18, opacity: 0, scale: 0.97 },
       {
         y: 0,
         opacity: 1,
-        duration: 0.22,
-        stagger: 0.02,
+        scale: 1,
+        duration: 0.35,
+        stagger: 0.04,
         ease: "power2.out",
         clearProps: "transform,opacity",
       }

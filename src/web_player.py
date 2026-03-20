@@ -85,6 +85,8 @@ def reset_netease() -> None:
 
 
 _sender = None
+_plugin_runtime = None
+_plugin_host = None
 
 
 def set_sender(sender) -> None:
@@ -94,6 +96,20 @@ def set_sender(sender) -> None:
 
 def get_sender():
     return _sender
+
+
+def set_plugin_runtime(runtime, host) -> None:
+    global _plugin_runtime, _plugin_host
+    _plugin_runtime = runtime
+    _plugin_host = host
+
+
+def get_plugin_runtime():
+    return _plugin_runtime
+
+
+def get_plugin_host():
+    return _plugin_host
 
 
 # ---------------------------------------------------------------------------
