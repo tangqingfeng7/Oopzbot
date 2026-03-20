@@ -56,6 +56,36 @@ python main.py
 
 Bot 启动时会自动连接 Redis、启动网易云 API（若已配置 `auto_start_path`）、启动 Web 播放器。
 
+### Linux 一键启动
+
+Linux 可直接使用 `start.sh`：
+
+```bash
+./start.sh
+```
+
+也可以把启动参数写到项目根目录的 `.env` 中：
+
+```bash
+cp .env.example .env
+```
+
+如果希望自动下载 Clash 订阅、启动 Mihomo/Clash 内核并让 Bot 复用代理，可使用：
+
+```bash
+CLASH_SUBSCRIPTION_URL="https://example.com/clash.yaml" CLASH_AUTO_START=1 ./start.sh
+```
+
+常用环境变量：
+
+- `CLASH_SUBSCRIPTION_URL`：Clash/Mihomo 订阅地址
+- `CLASH_KERNEL_BIN`：内核命令或绝对路径，默认自动查找 `mihomo`、`clash-meta`、`clash`
+- `CLASH_MIXED_PORT`：本地 mixed 代理端口，默认 `7890`
+- `CLASH_SOCKS_PORT`：本地 socks 代理端口，默认 `7891`
+- `CLASH_PROXY` / `BOT_OOPZ_PROXY`：Bot 使用的代理地址；未设置时默认指向 `http://127.0.0.1:$CLASH_MIXED_PORT`
+
+`start.sh` 会依次读取 `.env`、`.env.local`，后者可覆盖前者。如果订阅内容不是 Clash YAML，而是常见的 base64 通用订阅（`vmess://`、`vless://`、`trojan://`、`ss://`），脚本会先在本地转换为 Mihomo 配置再启动。
+
 ### Docker 部署
 
 项目提供 `docker-compose.yml`，一键启动 Redis、Bot、网易云 API 三个服务，无需手动安装任何依赖：
@@ -74,6 +104,19 @@ docker-compose up -d
 | bot | 8080 | 主程序 + Web 播放器 |
 | netease-api | 3000 | 网易云音乐 API |
 | redis | — | 内部通信，不暴露 |
+
+默认会同时拉起 `bot`、`redis`、`netease-api`，并自动通过环境变量适配容器环境：
+
+- `BOT_REDIS_HOST=redis`
+- `BOT_NETEASE_BASE_URL=http://netease-api:3000`
+
+补充说明：
+
+- Docker 默认启用完整能力：Redis、网易云 API、Web 播放器，以及在已配置 `agora_app_id` 时的 Agora 语音推流
+- `netease-api` 服务带健康检查，`bot` 会等待其就绪后再启动，避免启动顺序导致音乐功能异常
+- 如需改用外部网易云 API，可覆盖 `BOT_NETEASE_BASE_URL`
+- 排障时才建议额外设置 `BOT_DISABLE_AUTO_START_NETEASE=1` 或 `BOT_DISABLE_VOICE=1`
+- 运行时会挂载 `./config.py`、`./private_key.py`、`./config/`、`./data/`、`./logs/`
 
 ## 配置说明
 

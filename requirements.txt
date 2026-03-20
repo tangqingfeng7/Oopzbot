@@ -1,8 +1,9 @@
-requests>=2.32,<3
+requests[socks]>=2.32,<3
 brotli>=1.1,<2
 zstandard>=0.23,<1
 cryptography>=42,<48
 websocket-client>=1.8,<2
+python-socks>=2.5,<3
 pillow>=10,<13
 redis>=5.0,<8
 fastapi>=0.110,<1

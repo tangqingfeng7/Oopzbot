@@ -8,6 +8,7 @@ import websocket
 from config import OOPZ_CONFIG, DEFAULT_HEADERS
 from logger_config import get_logger
 from name_resolver import get_resolver
+from proxy_utils import get_websocket_proxy_kwargs
 
 logger = get_logger("OopzClient")
 
@@ -122,7 +123,11 @@ class OopzClient:
         )
 
         logger.info(f"正在连接 {OOPZ_WS_URL} ...")
-        self._ws.run_forever(ping_interval=0, ping_timeout=None)
+        self._ws.run_forever(
+            ping_interval=0,
+            ping_timeout=None,
+            **get_websocket_proxy_kwargs(OOPZ_CONFIG.get("proxy")),
+        )
 
     # -- WebSocket 回调 --
 
