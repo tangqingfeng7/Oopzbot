@@ -1,0 +1,43 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "apex",
+  "description": "Apex Legends 玩家战绩与游戏信息查询插件配置",
+  "type": "object",
+  "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "是否启用插件"
+    },
+    "api_key": {
+      "type": "string",
+      "default": "",
+      "description": "Apex Legends API Key (在 https://portal.apexlegendsapi.com/ 免费申请)"
+    },
+    "proxy": {
+      "type": "string",
+      "default": "",
+      "description": "HTTP 代理地址"
+    },
+    "default_platform": {
+      "type": "string",
+      "default": "PC",
+      "enum": ["PC", "PS4", "X1", "SWITCH"],
+      "description": "默认查询平台"
+    },
+    "request_timeout_sec": {
+      "type": "integer",
+      "default": 15,
+      "minimum": 1,
+      "description": "API 请求超时秒数"
+    },
+    "request_retries": {
+      "type": "integer",
+      "default": 2,
+      "minimum": 1,
+      "maximum": 5,
+      "description": "API 请求重试次数"
+    }
+  },
+  "additionalProperties": false
+}

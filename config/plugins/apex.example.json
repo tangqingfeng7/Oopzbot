@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "api_key": "",
+  "proxy": "",
+  "default_platform": "PC",
+  "request_timeout_sec": 15,
+  "request_retries": 2
+}
