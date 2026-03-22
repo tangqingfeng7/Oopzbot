@@ -96,11 +96,18 @@ def load_plugin(
 
     try:
         module, module_name = load_plugin_module(plugin_name, plugins_dir, _PROJECT_ROOT)
-    except ImportError:
+    except ImportError as exc:
+        logger.warning("PluginLoader: 模块 spec 无效 %s: %s", plugin_name, exc)
         return PluginOperationResult.failure(
             f"无法创建模块 spec: {plugin_name}",
             plugin_name=plugin_name,
             code=PluginOperationCode.INVALID_SPEC,
+        )
+    except FileNotFoundError:
+        return PluginOperationResult.failure(
+            f"插件不存在: {plugin_name}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.NOT_FOUND,
         )
     except Exception as exc:
         logger.exception("PluginLoader: 加载 %s 失败", plugin_name)

@@ -52,7 +52,9 @@ class _InMemoryRedis:
             return False
         if time.time() < expires_at:
             return False
-        self.delete(key)
+        self._kv.pop(key, None)
+        self._lists.pop(key, None)
+        self._expires_at.pop(key, None)
         return True
 
     # 列表操作
@@ -67,77 +69,88 @@ class _InMemoryRedis:
             self._condition.notify_all()
 
     def lrange(self, key: str, start: int, end: int):
-        lst = self._lists.get(key, [])
-        if end == -1:
-            end = len(lst) - 1
-        # redis lrange 是包含 end 的切片
-        return lst[start : end + 1] if lst else []
+        with self._condition:
+            lst = self._lists.get(key, [])
+            if end == -1:
+                end = len(lst) - 1
+            return list(lst[start : end + 1]) if lst else []
 
     def llen(self, key: str) -> int:
-        return len(self._lists.get(key, []))
+        with self._condition:
+            return len(self._lists.get(key, []))
 
     def lpop(self, key: str):
-        lst = self._lists.get(key, [])
-        if not lst:
-            return None
-        return lst.pop(0)
+        with self._condition:
+            lst = self._lists.get(key, [])
+            if not lst:
+                return None
+            return lst.pop(0)
 
     def lindex(self, key: str, index: int):
-        lst = self._lists.get(key, [])
-        try:
-            return lst[index]
-        except IndexError:
-            return None
+        with self._condition:
+            lst = self._lists.get(key, [])
+            try:
+                return lst[index]
+            except IndexError:
+                return None
 
     def lset(self, key: str, index: int, value):
-        lst = self._get_list(key)
-        if index < 0 or index >= len(lst):
-            # 与 redis 行为保持一致，抛出错误，由上层捕获
-            raise IndexError("list index out of range")
-        lst[index] = value
+        with self._condition:
+            lst = self._get_list(key)
+            if index < 0 or index >= len(lst):
+                raise IndexError("list index out of range")
+            lst[index] = value
 
     def lrem(self, key: str, count: int, value):
-        lst = self._lists.get(key, [])
-        if not lst:
-            return 0
-        removed = 0
-        if count >= 0:
-            new = []
-            for item in lst:
-                if removed < count and item == value:
-                    removed += 1
-                    continue
-                new.append(item)
-            self._lists[key] = new
-        else:
-            new = []
-            for item in reversed(lst):
-                if removed < -count and item == value:
-                    removed += 1
-                    continue
-                new.append(item)
-            self._lists[key] = list(reversed(new))
-        return removed
+        with self._condition:
+            lst = self._lists.get(key, [])
+            if not lst:
+                return 0
+            removed = 0
+            if count > 0:
+                new = []
+                for item in lst:
+                    if removed < count and item == value:
+                        removed += 1
+                        continue
+                    new.append(item)
+                self._lists[key] = new
+            elif count < 0:
+                new = []
+                for item in reversed(lst):
+                    if removed < -count and item == value:
+                        removed += 1
+                        continue
+                    new.append(item)
+                self._lists[key] = list(reversed(new))
+            else:
+                new = [item for item in lst if item != value]
+                removed = len(lst) - len(new)
+                self._lists[key] = new
+            return removed
 
     # 字符串 / 通用键
     def set(self, key: str, value, ex: Optional[int] = None, px: Optional[int] = None, **kwargs):
-        self._kv[key] = value
-        if px is not None:
-            self._expires_at[key] = time.time() + (float(px) / 1000.0)
-        elif ex is not None:
-            self._expires_at[key] = time.time() + float(ex)
-        else:
-            self._expires_at.pop(key, None)
+        with self._condition:
+            self._kv[key] = value
+            if px is not None:
+                self._expires_at[key] = time.time() + (float(px) / 1000.0)
+            elif ex is not None:
+                self._expires_at[key] = time.time() + float(ex)
+            else:
+                self._expires_at.pop(key, None)
 
     def get(self, key: str):
-        if self._is_expired(key):
-            return None
-        return self._kv.get(key)
+        with self._condition:
+            if self._is_expired(key):
+                return None
+            return self._kv.get(key)
 
     def delete(self, key: str):
-        self._kv.pop(key, None)
-        self._lists.pop(key, None)
-        self._expires_at.pop(key, None)
+        with self._condition:
+            self._kv.pop(key, None)
+            self._lists.pop(key, None)
+            self._expires_at.pop(key, None)
 
     def blpop(self, key: str, timeout: int = 0):
         """阻塞弹出：使用 Condition 等待，避免 CPU 空转。"""

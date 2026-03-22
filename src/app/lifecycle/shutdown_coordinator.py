@@ -20,6 +20,12 @@ class ShutdownCoordinator:
             except Exception as exc:
                 logger.warning("停止定时服务时出现异常: %s", exc)
 
+        try:
+            from database import MessageStatsDB
+            MessageStatsDB.stop()
+        except Exception as exc:
+            logger.warning("刷入消息统计缓冲区时出现异常: %s", exc)
+
         if not context or not context.voice:
             return
 

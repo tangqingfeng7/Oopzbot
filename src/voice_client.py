@@ -45,8 +45,8 @@ class VoiceClient:
         self._playing = False
         self._play_thread: Optional[threading.Thread] = None
         self._stop_event = threading.Event()
+        self._preload_stop = threading.Event()
         self._identity_stop = threading.Event()
-        # 下一首预加载缓存：url -> (bytes, content_type)，仅保留一份以减少切歌间隙
         self._preloaded: dict = {}
         self._preload_lock = threading.Lock()
         self._identity_thread: Optional[threading.Thread] = None
@@ -368,10 +368,14 @@ class VoiceClient:
         """后台预加载指定 URL 的音频，供下次 play_audio 直接使用，减少切歌时的下载延迟。"""
         if not url or not self._available:
             return
+        self._preload_stop.set()
+        self._preload_stop = threading.Event()
+        stop = self._preload_stop
+
         def _task():
             try:
-                data, content_type = self._download_audio_with_retry(url)
-                if data and not self._stop_event.is_set():
+                data, content_type = self._download_audio_with_retry(url, stop_event=stop)
+                if data and not stop.is_set():
                     with self._preload_lock:
                         self._preloaded.clear()
                         self._preloaded[url] = (data, content_type)
@@ -542,8 +546,12 @@ class VoiceClient:
         finally:
             self._playing = False
 
-    def _download_audio_with_retry(self, url: str) -> Tuple[Optional[bytes], str]:
+    def _download_audio_with_retry(
+        self, url: str, stop_event: Optional[threading.Event] = None,
+    ) -> Tuple[Optional[bytes], str]:
         """流式下载音频，弱网时使用更长超时与重试。返回 (音频数据, content_type)。"""
+        if stop_event is None:
+            stop_event = self._stop_event
         try:
             from config import NETEASE_CLOUD
             connect_timeout = 15
@@ -555,7 +563,7 @@ class VoiceClient:
         last_error = None
         content_type = "audio/mpeg"
         for attempt in range(max_retries + 1):
-            if self._stop_event.is_set():
+            if stop_event.is_set():
                 return None, content_type
             try:
                 logger.info(f"正在下载音频 ({attempt + 1}/{max_retries + 1}): {url[:80]}...")
@@ -569,9 +577,9 @@ class VoiceClient:
                 content_type = resp.headers.get("Content-Type") or "audio/mpeg"
 
                 chunks = []
-                chunk_size = 262144  # 256KB，减少读次数、弱网下更稳
+                chunk_size = 262144
                 for chunk in resp.iter_content(chunk_size=chunk_size):
-                    if self._stop_event.is_set():
+                    if stop_event.is_set():
                         return None, content_type
                     if chunk:
                         chunks.append(chunk)

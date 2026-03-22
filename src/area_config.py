@@ -86,9 +86,10 @@ class AreaConfigRegistry:
         area_id = str(area_id or "").strip()
         if area_id in self._configs:
             return self._configs[area_id]
+        resolved = area_id or self._global_default_area
         return AreaConfig(
-            area_id=area_id or self._global_default_area,
-            default_channel=self._global_default_channel if area_id == self._global_default_area else "",
+            area_id=resolved,
+            default_channel=self._global_default_channel if resolved == self._global_default_area else "",
         )
 
     def get_all_area_ids(self) -> list[str]:

@@ -94,20 +94,24 @@ def _detect_ip() -> str:
     # 回退内网 IPv4
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
+        try:
+            s.connect(("8.8.8.8", 80))
+            ip = s.getsockname()[0]
+            return ip
+        finally:
+            s.close()
     except Exception as e:
         logger.debug(f"内网 IPv4 探测失败: {e}")
 
     # 回退内网 IPv6
     try:
         s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-        s.connect(("2001:4860:4860::8888", 80))
-        ip = s.getsockname()[0]
-        s.close()
-        return ip
+        try:
+            s.connect(("2001:4860:4860::8888", 80))
+            ip = s.getsockname()[0]
+            return ip
+        finally:
+            s.close()
     except Exception as e:
         logger.debug(f"内网 IPv6 探测失败: {e}")
     return ""
@@ -139,78 +143,80 @@ class PlaybackMixin:
                 is_playing = self._is_playing()
 
                 if not is_playing:
-                    current = self.queue.get_current()
-
-                    if current is not None:
-                        logger.info("自动播放监控: 歌曲已播完，清理 current 状态")
-                        self.queue.clear_current()
-                        try:
-                            self.queue.clear_play_state()
-                        except Exception as e:
-                            logger.debug(f"自动播放监控清理 play_state 失败: {e}")
-                        current = None
-
-                    # 队列有歌 → 自动切下一首（仅当 Bot 在语音频道时才真正播放，否则只从队列移除）
-                    queue_length = self.queue.get_queue_length()
-                    if queue_length > 0 and current is None:
-                        if not self._voice_channel_id:
-                            # Bot 不在语音频道时不应丢歌，保留队列等待下一次可播放时机
-                            time.sleep(2)
+                    with self._playback_lock:
+                        if self._is_playing():
+                            time.sleep(_AUTO_PLAY_CHECK_INTERVAL)
                             continue
-                        next_song = self.queue.play_next()
-                        if next_song:
-                            ch = next_song.get("channel") or self._voice_channel_id
-                            ar = next_song.get("area") or self._voice_channel_area
-                            next_song["channel"] = ch
-                            next_song["area"] = ar
 
-                            if not ch:
-                                logger.warning("自动播放: 未获取到语音频道，歌曲保留在队列")
-                                try:
-                                    self.queue.redis.lpush(self.queue._qkey(), json.dumps(next_song, ensure_ascii=False))
-                                except Exception as e:
-                                    logger.error(f"自动播放回退入队失败，歌曲可能丢失: {e}")
+                        current = self.queue.get_current()
+
+                        if current is not None:
+                            logger.info("自动播放监控: 歌曲已播完，清理 current 状态")
+                            self.queue.clear_current()
+                            try:
+                                self.queue.clear_play_state()
+                            except Exception as e:
+                                logger.debug(f"自动播放监控清理 play_state 失败: {e}")
+                            current = None
+
+                        queue_length = self.queue.get_queue_length()
+                        if queue_length > 0 and current is None:
+                            if not self._voice_channel_id:
                                 time.sleep(2)
                                 continue
+                            next_song = self.queue.play_next()
+                            if next_song:
+                                ch = next_song.get("channel") or self._voice_channel_id
+                                ar = next_song.get("area") or self._voice_channel_area
+                                next_song["channel"] = ch
+                                next_song["area"] = ar
 
-                            play_uuid = str(uuid.uuid4())
-                            next_song["play_uuid"] = play_uuid
-                            self._start_playing(next_song.get("duration_ms", 0))
-                            self.queue.set_current(next_song)
+                                if not ch:
+                                    logger.warning("自动播放: 未获取到语音频道，歌曲保留在队列")
+                                    try:
+                                        self.queue.redis.lpush(self.queue._qkey(), json.dumps(next_song, ensure_ascii=False))
+                                    except Exception as e:
+                                        logger.error(f"自动播放回退入队失败，歌曲可能丢失: {e}")
+                                    time.sleep(2)
+                                    continue
 
-                            SongCache.record_play(
-                                song_id=next_song.get("song_id"),
-                                platform=next_song.get("platform"),
-                                data=next_song,
-                                channel_id=ch,
-                                user_id=next_song.get("user", ""),
-                            )
-                            Statistics.update_today(next_song.get("platform", "netease"), cache_hit=False)
-                            logger.info(f"自动播放: {next_song.get('name')}")
+                                play_uuid = str(uuid.uuid4())
+                                next_song["play_uuid"] = play_uuid
+                                self._start_playing(next_song.get("duration_ms", 0))
+                                self.queue.set_current(next_song)
 
-                            threading.Thread(
-                                target=self._stream_to_voice_channel,
-                                args=(next_song["url"], next_song.get("name", "music"), ch, ar,
-                                      str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
-                                daemon=True,
-                            ).start()
-                            # 预加载队首下一首，减少切歌时的下载延迟与卡顿
-                            self._preload_next_song_if_any()
+                                SongCache.record_play(
+                                    song_id=next_song.get("song_id"),
+                                    platform=next_song.get("platform"),
+                                    data=next_song,
+                                    channel_id=ch,
+                                    user_id=next_song.get("user", ""),
+                                )
+                                Statistics.update_today(next_song.get("platform", "netease"), cache_hit=False)
+                                logger.info(f"自动播放: {next_song.get('name')}")
 
-                            text = self._build_now_playing_text("自动播放", next_song)
-                            self.sender.send_message(
-                                text=text,
-                                attachments=next_song.get("attachments", []),
-                                channel=ch,
-                                area=ar,
-                            )
+                                threading.Thread(
+                                    target=self._stream_to_voice_channel,
+                                    args=(next_song["url"], next_song.get("name", "music"), ch, ar,
+                                          str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
+                                    daemon=True,
+                                ).start()
+                                self._preload_next_song_if_any()
 
-                            time.sleep(_PLAY_FADE_DELAY)
-                    elif queue_length == 0 and current is None and self._voice_channel_id:
-                        grace = time.time() - self._voice_enter_time < 30
-                        if not grace:
-                            logger.info("队列已空，Bot 自动退出语音频道")
-                            self._leave_current_voice_channel()
+                                text = self._build_now_playing_text("自动播放", next_song)
+                                self.sender.send_message(
+                                    text=text,
+                                    attachments=next_song.get("attachments", []),
+                                    channel=ch,
+                                    area=ar,
+                                )
+
+                                time.sleep(_PLAY_FADE_DELAY)
+                        elif queue_length == 0 and current is None and self._voice_channel_id:
+                            grace = time.time() - self._voice_enter_time < 30
+                            if not grace:
+                                logger.info("队列已空，Bot 自动退出语音频道")
+                                self._leave_current_voice_channel()
 
                 self._release_web_link_if_needed()
                 time.sleep(_AUTO_PLAY_CHECK_INTERVAL)

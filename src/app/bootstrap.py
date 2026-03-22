@@ -34,6 +34,8 @@ class BotApplication:
             logger.info("收到 %s，正在停止...", name)
             if self._context:
                 self._context.client.stop()
+            else:
+                raise KeyboardInterrupt
 
         signal.signal(signal.SIGTERM, _graceful_stop)
         signal.signal(signal.SIGINT, _graceful_stop)
@@ -44,11 +46,10 @@ class BotApplication:
         logger.info("=" * 50)
 
         self._install_signal_handlers()
-        self._netease_runtime.start()
-        self._context = self._build_context()
-        self._background_services.start(self._context)
-
         try:
+            self._netease_runtime.start()
+            self._context = self._build_context()
+            self._background_services.start(self._context)
             self._context.client.start()
         except KeyboardInterrupt:
             pass

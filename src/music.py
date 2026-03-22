@@ -67,6 +67,7 @@ class MusicHandler(PlaybackMixin):
         self.netease = NeteaseCloud()
         self._queue_cache: dict[str, QueueManager] = {}
         self.names = NameResolver()
+        self._playback_lock = threading.Lock()
         self._liked_cache: list = []
         self._liked_ids_cache: list = []
         self._play_start_time: float = 0
@@ -160,6 +161,35 @@ class MusicHandler(PlaybackMixin):
     # 公共命令
     # ------------------------------------------------------------------
 
+    def _do_enter_voice(self, voice_channel_id: str, area: str) -> dict:
+        """执行语音频道进入的核心流程：退出旧频道、API 进入、Agora 连接、更新状态。
+        成功返回 enter_channel 的响应 dict，失败返回含 "error" 键的 dict。"""
+        from_channel = self._voice_channel_id or ""
+        from_area = self._voice_channel_area or ""
+
+        if self._voice_channel_id and self._voice_channel_id != voice_channel_id:
+            self._leave_current_voice_channel()
+
+        agora_pid = self.voice.agora_uid if self.voice and self.voice.available else ""
+        self.sender.enter_area(area=area)
+        data = self.sender.enter_channel(
+            channel=voice_channel_id, area=area,
+            channel_type="VOICE",
+            from_channel=from_channel,
+            from_area=from_area,
+            pid=agora_pid,
+        )
+        if "error" in data:
+            logger.warning(f"Bot 进入语音频道失败: {data['error']}")
+            return data
+
+        logger.info(f"Bot 已进入语音频道: {self.names.channel(voice_channel_id)}")
+        self._join_agora_room(data)
+        self._voice_channel_id = voice_channel_id
+        self._voice_channel_area = area
+        self._voice_enter_time = time.time()
+        return data
+
     def _check_and_enter_voice_channel(self, user: str, channel: str, area: str) -> bool:
         """
         检查用户是否在语音频道，若在则 Bot 进入该频道。
@@ -183,46 +213,20 @@ class MusicHandler(PlaybackMixin):
 
         if (self._voice_channel_id and self._voice_channel_id != voice_ch_id
                 and self._is_playing()):
-            from name_resolver import NameResolver
-            names = NameResolver()
-            cur_ch_name = names.channel(self._voice_channel_id)
+            cur_ch_name = self.names.channel(self._voice_channel_id)
             self.sender.send_message(
                 f"Bot 正在 {cur_ch_name} 播放中，请等播完或到该频道使用 /st 停止。",
                 channel=channel, area=area,
             )
             return False
 
-        # 记录切换前的频道（用于 fromChannel/fromArea）
-        from_channel = self._voice_channel_id or ""
-        from_area = self._voice_channel_area or ""
-
-        # 如果 Bot 已在另一个语音频道，先退出
-        if self._voice_channel_id and self._voice_channel_id != voice_ch_id:
-            self._leave_current_voice_channel()
-
-        # 进入域和目标语音频道（获取 Agora 凭证）
-        agora_pid = self.voice.agora_uid if self.voice and self.voice.available else ""
-        self.sender.enter_area(area=area)
-        data = self.sender.enter_channel(
-            channel=voice_ch_id, area=area,
-            channel_type="VOICE",
-            from_channel=from_channel,
-            from_area=from_area,
-            pid=agora_pid,
-        )
+        data = self._do_enter_voice(voice_ch_id, area)
         if "error" in data:
-            logger.warning(f"Bot 进入语音频道失败: {data['error']}")
             self.sender.send_message(
                 f"进入语音频道失败: {data['error']}，请稍后再试。",
                 channel=channel, area=area,
             )
             return False
-
-        logger.info(f"Bot 已进入语音频道: {self.names.channel(voice_ch_id)}")
-        self._join_agora_room(data)
-        self._voice_channel_id = voice_ch_id
-        self._voice_channel_area = area
-        self._voice_enter_time = time.time()
         return True
 
     def enter_voice_channel(self, voice_channel_id: str, area: str) -> dict:
@@ -233,32 +237,7 @@ class MusicHandler(PlaybackMixin):
         if not voice_channel_id:
             return {"error": "missing_channel"}
 
-        from_channel = self._voice_channel_id or ""
-        from_area = self._voice_channel_area or ""
-
-        if self._voice_channel_id and self._voice_channel_id != voice_channel_id:
-            self._leave_current_voice_channel()
-
-        agora_pid = self.voice.agora_uid if self.voice and self.voice.available else ""
-        self.sender.enter_area(area=area)
-        data = self.sender.enter_channel(
-            channel=voice_channel_id,
-            area=area,
-            channel_type="VOICE",
-            from_channel=from_channel,
-            from_area=from_area,
-            pid=agora_pid,
-        )
-        if "error" in data:
-            logger.warning(f"Bot 进入语音频道失败: {data['error']}")
-            return data
-
-        logger.info(f"Bot 已进入语音频道 {self.names.channel(voice_channel_id)}")
-        self._join_agora_room(data)
-        self._voice_channel_id = voice_channel_id
-        self._voice_channel_area = area
-        self._voice_enter_time = time.time()
-        return data
+        return self._do_enter_voice(voice_channel_id, area)
 
     def _join_agora_room(self, channel_data: dict):
         """使用 enter_channel 返回的凭证连接 Agora RTC。"""
@@ -330,36 +309,43 @@ class MusicHandler(PlaybackMixin):
                 area=area,
             )
             return
-        q = self._get_queue(area)
-        next_song = q.play_next()
-        if not next_song:
-            self.sender.send_message("队列为空，没有下一首了", channel=channel, area=area)
-            return
 
-        next_song["channel"] = channel
-        next_song["area"] = area
+        with self._playback_lock:
+            q = self._get_queue(area)
+            next_song = q.play_next()
+            if not next_song:
+                self.sender.send_message("队列为空，没有下一首了", channel=channel, area=area)
+                return
 
-        play_uuid = str(uuid.uuid4())
-        next_song["play_uuid"] = play_uuid
-        self._start_playing(next_song.get("duration_ms", 0))
-        q.set_current(next_song)
+            next_song["channel"] = channel
+            next_song["area"] = area
 
-        SongCache.record_play(
-            song_id=next_song.get("song_id"),
-            platform=next_song.get("platform"),
-            data=next_song,
-            channel_id=channel,
-            user_id=user,
-        )
-        Statistics.update_today(next_song.get("platform", _PLATFORM_NETEASE), cache_hit=False)
+            if self.voice and self.voice.available:
+                self.voice.stop_audio()
+            self._play_start_time = 0
+            self._play_duration = 0
 
-        threading.Thread(
-            target=self._stream_to_voice_channel,
-            args=(next_song["url"], next_song.get("name", "music"), channel, area,
-                  str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
-            daemon=True,
-        ).start()
-        self._preload_next_song_if_any()
+            play_uuid = str(uuid.uuid4())
+            next_song["play_uuid"] = play_uuid
+            self._start_playing(next_song.get("duration_ms", 0))
+            q.set_current(next_song)
+
+            SongCache.record_play(
+                song_id=next_song.get("song_id"),
+                platform=next_song.get("platform"),
+                data=next_song,
+                channel_id=channel,
+                user_id=user,
+            )
+            Statistics.update_today(next_song.get("platform", _PLATFORM_NETEASE), cache_hit=False)
+
+            threading.Thread(
+                target=self._stream_to_voice_channel,
+                args=(next_song["url"], next_song.get("name", "music"), channel, area,
+                      str(next_song.get("song_id", "")), next_song.get("duration_ms", 0)),
+                daemon=True,
+            ).start()
+            self._preload_next_song_if_any()
 
         text = self._build_now_playing_text("切换到下一首", next_song)
         attachments = next_song.get("attachments", [])
@@ -497,17 +483,18 @@ class MusicHandler(PlaybackMixin):
 
     def stop_play(self, channel: str, area: str) -> None:
         """停止播放并退出语音频道"""
-        self._play_start_time = 0
-        self._play_duration = 0
-        q = self._get_queue(area)
-        q.clear_current()
-        try:
-            q.clear_play_state()
-        except Exception as e:
-            logger.debug(f"停止播放时清理 play_state 失败: {e}")
-        if self.voice and self.voice.available:
-            self.voice.stop_audio()
-        self._leave_current_voice_channel()
+        with self._playback_lock:
+            self._play_start_time = 0
+            self._play_duration = 0
+            q = self._get_queue(area)
+            q.clear_current()
+            try:
+                q.clear_play_state()
+            except Exception as e:
+                logger.debug(f"停止播放时清理 play_state 失败: {e}")
+            if self.voice and self.voice.available:
+                self.voice.stop_audio()
+            self._leave_current_voice_channel()
         self.sender.send_message("已停止播放，Bot 已退出语音频道", channel=channel, area=area)
 
     # ------------------------------------------------------------------
@@ -677,50 +664,52 @@ class MusicHandler(PlaybackMixin):
         song_data["attachments"] = attachments
 
         q = self._get_queue(song_data.get("area", ""))
-        is_playing = self._is_playing()
-        current_song = q.get_current()
-        queue_length = q.get_queue_length()
 
-        if not is_playing and current_song is not None:
-            logger.info("检测到残留状态: 歌曲已播完但 current 存在, 自动清理")
-            q.clear_current()
-            current_song = None
+        with self._playback_lock:
+            is_playing = self._is_playing()
+            current_song = q.get_current()
+            queue_length = q.get_queue_length()
 
-        if not is_playing and current_song is None and queue_length == 0:
-            song_data = dict(song_data)
-            play_uuid = str(uuid.uuid4())
-            song_data["play_uuid"] = play_uuid
-            self._start_playing(song_data.get("duration_ms", 0))
-            q.set_current(song_data)
+            if not is_playing and current_song is not None:
+                logger.info("检测到残留状态: 歌曲已播完但 current 存在, 自动清理")
+                q.clear_current()
+                current_song = None
 
-            threading.Thread(
-                target=self._stream_to_voice_channel,
-                args=(
-                    song_data["url"],
-                    song_data["name"],
+            if not is_playing and current_song is None and queue_length == 0:
+                song_data = dict(song_data)
+                play_uuid = str(uuid.uuid4())
+                song_data["play_uuid"] = play_uuid
+                self._start_playing(song_data.get("duration_ms", 0))
+                q.set_current(song_data)
+
+                threading.Thread(
+                    target=self._stream_to_voice_channel,
+                    args=(
+                        song_data["url"],
+                        song_data["name"],
+                        song_data.get("channel", ""),
+                        song_data.get("area", ""),
+                        str(song_data.get("song_id", "")),
+                        song_data.get("duration_ms", 0),
+                    ),
+                    daemon=True,
+                ).start()
+                self._preload_next_song_if_any()
+
+                SongCache.record_play(
+                    song_data.get("song_id"),
+                    song_data.get("platform", _PLATFORM_NETEASE),
+                    song_data,
+                    image_cache_id,
                     song_data.get("channel", ""),
-                    song_data.get("area", ""),
-                    str(song_data.get("song_id", "")),
-                    song_data.get("duration_ms", 0),
-                ),
-                daemon=True,
-            ).start()
-            self._preload_next_song_if_any()
-
-            SongCache.record_play(
-                song_data.get("song_id"),
-                song_data.get("platform", _PLATFORM_NETEASE),
-                song_data,
-                image_cache_id,
-                song_data.get("channel", ""),
-                song_data.get("user", ""),
-            )
-            Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
-            text = self._build_song_request_text(song_data, prefix=prefix)
-        else:
-            pos = q.add_to_queue(song_data)
-            actual = pos + 1 + (1 if current_song or is_playing else 0)
-            text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
+                    song_data.get("user", ""),
+                )
+                Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
+                text = self._build_song_request_text(song_data, prefix=prefix)
+            else:
+                pos = q.add_to_queue(song_data)
+                actual = pos + 1 + (1 if current_song or is_playing else 0)
+                text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
 
         return {"code": "success", "message": text, "attachments": attachments}
 

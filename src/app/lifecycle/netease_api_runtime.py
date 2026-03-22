@@ -91,6 +91,9 @@ class NeteaseApiRuntime:
 
         for _ in range(30):
             time.sleep(0.5)
+            if self._process and self._process.poll() is not None:
+                logger.warning("网易云 API 子进程已退出 (code=%s)，放弃等待。", self._process.returncode)
+                return
             try:
                 response = requests.get(url, timeout=2)
             except requests.RequestException:

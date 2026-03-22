@@ -14,3 +14,4 @@ psutil>=5.9,<8
 playwright>=1.40,<2
 selenium>=4.20,<5
 webdriver-manager>=4.0,<5
+pydantic>=2.0,<3

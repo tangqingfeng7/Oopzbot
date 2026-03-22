@@ -50,21 +50,21 @@ def get_token(redis_client=None) -> str:
 def set_token(token: str, redis_client=None, ttl_seconds=None):
     """设置访问令牌。"""
     global _memory_token
+    val = token or ""
     with _lock:
-        _memory_token = token or ""
+        _memory_token = val
     if redis_client is not None:
         ttl = _normalize_ttl(ttl_seconds)
         try:
             if ttl > 0:
                 try:
-                    redis_client.set(KEY_WEB_ACCESS_TOKEN, _memory_token, ex=ttl)
+                    redis_client.set(KEY_WEB_ACCESS_TOKEN, val, ex=ttl)
                 except TypeError:
-                    # 兼容少数不支持 ex 参数的客户端
-                    redis_client.set(KEY_WEB_ACCESS_TOKEN, _memory_token)
+                    redis_client.set(KEY_WEB_ACCESS_TOKEN, val)
                     if hasattr(redis_client, "expire"):
                         redis_client.expire(KEY_WEB_ACCESS_TOKEN, ttl)
             else:
-                redis_client.set(KEY_WEB_ACCESS_TOKEN, _memory_token)
+                redis_client.set(KEY_WEB_ACCESS_TOKEN, val)
         except Exception as e:
             logger.debug(f"Redis 写入 Web 令牌失败，已仅写内存: {e}")
 

@@ -56,9 +56,11 @@ class ConversationMemory:
             history = history[-max_messages:]
 
         try:
-            self._redis.set(key, json.dumps(history, ensure_ascii=False))
+            payload = json.dumps(history, ensure_ascii=False)
             if self._ttl > 0:
-                self._redis.expire(key, self._ttl)
+                self._redis.set(key, payload, ex=self._ttl)
+            else:
+                self._redis.set(key, payload)
         except Exception as e:
             logger.debug("保存对话历史失败 (user=%s, ch=%s): %s", user[:8], channel[:8], e)
 

@@ -10,6 +10,8 @@ class MessageRecallScheduler:
 
     def __init__(self, runtime: CommandRuntimeView):
         self._sender = sender_of(runtime)
+        self._pending_timers: list[threading.Timer] = []
+        self._lock = threading.Lock()
 
     @staticmethod
     def should_skip_auto_recall(command_type: str) -> Optional[bool]:
@@ -37,15 +39,27 @@ class MessageRecallScheduler:
         if delay <= 0:
             return
 
-        timer = threading.Timer(
-            delay,
-            self._sender.recall_message,
-            kwargs={
-                "message_id": message_id,
-                "area": area,
-                "channel": channel,
-                "timestamp": timestamp,
-            },
-        )
+        def _do_recall():
+            self._sender.recall_message(
+                message_id=message_id, area=area,
+                channel=channel, timestamp=timestamp,
+            )
+            with self._lock:
+                self._pending_timers = [t for t in self._pending_timers if t.is_alive()]
+
+        timer = threading.Timer(delay, _do_recall)
         timer.daemon = True
+        with self._lock:
+            self._pending_timers.append(timer)
         timer.start()
+
+    def cancel_all(self) -> int:
+        """取消所有待执行的撤回计时器，返回取消数量。"""
+        with self._lock:
+            count = 0
+            for t in self._pending_timers:
+                if t.is_alive():
+                    t.cancel()
+                    count += 1
+            self._pending_timers.clear()
+        return count

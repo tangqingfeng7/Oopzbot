@@ -1,6 +1,7 @@
 import time
 import threading
 import requests
+from collections import OrderedDict
 from typing import Optional
 
 from config import NETEASE_CLOUD
@@ -10,10 +11,10 @@ logger = get_logger("Netease")
 
 
 class _SearchCache:
-    """简单的线程安全短期搜索缓存，避免重复搜索同一关键词反复请求外部 API。"""
+    """线程安全的 LRU + TTL 搜索缓存，基于 OrderedDict 实现 O(1) 淘汰。"""
 
     def __init__(self, max_size: int = 128, ttl: int = 300):
-        self._data: dict[str, tuple[float, object]] = {}
+        self._data: OrderedDict[str, tuple[float, object]] = OrderedDict()
         self._max_size = max_size
         self._ttl = ttl
         self._lock = threading.Lock()
@@ -27,13 +28,15 @@ class _SearchCache:
             if time.time() - ts > self._ttl:
                 self._data.pop(key, None)
                 return None
+            self._data.move_to_end(key)
             return val
 
     def put(self, key: str, val):
         with self._lock:
-            if len(self._data) >= self._max_size:
-                oldest_key = min(self._data, key=lambda k: self._data[k][0])
-                self._data.pop(oldest_key, None)
+            if key in self._data:
+                self._data.move_to_end(key)
+            elif len(self._data) >= self._max_size:
+                self._data.popitem(last=False)
             self._data[key] = (time.time(), val)
 
 

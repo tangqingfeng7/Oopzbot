@@ -76,10 +76,9 @@ class ScheduledMessageService:
                     area=task["area_id"],
                 )
                 logger.info("定时消息已发送: [%s] %s", task["name"], task["message_text"][:40])
+                ScheduledMessageDB.mark_fired(task["id"], today)
             except Exception:
                 logger.exception("定时消息发送失败: id=%s", task["id"])
-            finally:
-                ScheduledMessageDB.mark_fired(task["id"], today)
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +144,9 @@ class ReminderService:
                     mentionList=mention_list,
                 )
                 logger.info("提醒已发送: user=%s, text=%s", uid, r["message_text"][:40])
+                ReminderDB.mark_fired(r["id"])
             except Exception:
                 logger.exception("提醒发送失败: id=%s", r["id"])
-            finally:
-                ReminderDB.mark_fired(r["id"])
 
         self._cleanup_counter += 1
         if self._cleanup_counter >= 240:  # ~1 hour at 15s interval

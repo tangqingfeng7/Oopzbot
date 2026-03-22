@@ -202,10 +202,10 @@ class OopzSender(UploadMixin, OopzApiMixin):
         bases = [OOPZ_CONFIG["api_url"], OOPZ_CONFIG["base_url"]] if use_api \
             else [OOPZ_CONFIG["base_url"], OOPZ_CONFIG["api_url"]]
 
-        self._throttle()
         last_error = None
         resp = None
         for base in bases:
+            self._throttle()
             try:
                 headers = {**self.session.headers, **self.signer.oopz_headers(sign_path, "")}
                 url = base + url_path

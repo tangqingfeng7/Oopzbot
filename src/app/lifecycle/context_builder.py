@@ -12,6 +12,7 @@ class AppContextBuilder:
     def build(self, sender: OopzSender, voice=None) -> AppContext:
         notifier_callback = start_area_join_notifier(sender=sender)
         handler = CommandHandler(sender, voice_client=voice)
+
         client = OopzClient(
             on_chat_message=handler.handle_message,
             on_other_event=notifier_callback,

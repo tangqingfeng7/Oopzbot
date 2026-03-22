@@ -5,7 +5,6 @@ from app.services.runtime import CommandRuntimeView, plugins_of, sender_of
 
 from .plugin_capability_formatter import format_plugin_status_lines
 from .plugin_operation_formatter import (
-    format_invalid_plugin_name_message,
     format_plugin_operation_message,
 )
 
@@ -32,22 +31,20 @@ class PluginManagementService:
         available = [name for name in discovered if name not in loaded_names]
 
         lines = ["插件状态", "---"]
-        lines.append(f"已加载: {len(loaded)} 个")
+
+        lines.append(f"**插件** (已加载 {len(loaded)}, 可加载 {len(available)})")
         if loaded:
             for item in loaded:
                 lines.extend(format_plugin_status_lines(item))
         else:
             lines.append("  （无）")
 
-        lines.append("")
-        lines.append(f"可加载: {len(available)} 个")
         if available:
-            lines.append("  " + ", ".join(available))
-        else:
-            lines.append("  （无）")
+            lines.append(f"  可加载: {', '.join(available)}")
 
         lines.append("")
-        lines.append("用法: /loadplugin <名>  /unloadplugin <名>")
+        lines.append("用法:")
+        lines.append("  /loadplugin <名>  /unloadplugin <名>")
         self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     def load(self, raw_name: str, channel: str, area: str) -> None:
@@ -55,7 +52,7 @@ class PluginManagementService:
         name = self.normalize_plugin_name(raw_name)
         if not name:
             self._sender.send_message(
-                format_invalid_plugin_name_message(),
+                "[x] 插件名不合法，仅支持字母/数字/下划线",
                 channel=channel,
                 area=area,
             )
@@ -72,7 +69,7 @@ class PluginManagementService:
         name = self.normalize_plugin_name(raw_name)
         if not name:
             self._sender.send_message(
-                format_invalid_plugin_name_message(),
+                "[x] 插件名不合法，仅支持字母/数字/下划线",
                 channel=channel,
                 area=area,
             )
@@ -89,7 +86,7 @@ class PluginManagementService:
         name = self.normalize_plugin_name(raw_name)
         if not name:
             self._sender.send_message(
-                format_invalid_plugin_name_message(),
+                "[x] 插件名不合法，仅支持字母/数字/下划线",
                 channel=channel,
                 area=area,
             )
@@ -100,3 +97,4 @@ class PluginManagementService:
             channel=channel,
             area=area,
         )
+

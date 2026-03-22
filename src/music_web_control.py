@@ -96,11 +96,18 @@ class WebControlExecutor:
             return
         if not self.h.voice.seek_audio(seek_time):
             return
+        was_paused = False
+        try:
+            ps = self.h.queue.get_play_state()
+            if ps:
+                was_paused = bool(ps.get("paused"))
+        except Exception:
+            pass
         self.h._play_start_time = time.time() - seek_time
         self.h._update_play_state_redis(
             start_time=self.h._play_start_time,
-            paused=False,
-            pause_elapsed=None,
+            paused=was_paused,
+            pause_elapsed=seek_time if was_paused else None,
         )
 
     def _handle_volume(self, cmd: str):

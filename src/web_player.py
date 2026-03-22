@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import json
 import os
+import secrets
 import time
+from collections import defaultdict
 from threading import Lock
 from typing import Optional
 
@@ -22,6 +24,50 @@ from web_link_token import ensure_token, get_token, set_token
 import web_player_config as cfg
 
 logger = get_logger("WebPlayer")
+
+
+# ---------------------------------------------------------------------------
+# IP 速率限制器
+# ---------------------------------------------------------------------------
+
+class _RateLimiter:
+    """基于滑动窗口的简易内存速率限制器。"""
+
+    _MAX_TRACKED_IPS = 2000
+
+    def __init__(self, max_requests: int = 60, window_seconds: int = 60):
+        self._max = max_requests
+        self._window = window_seconds
+        self._hits: dict[str, list[float]] = defaultdict(list)
+        self._lock = Lock()
+        self._last_cleanup = 0.0
+
+    def is_allowed(self, key: str) -> bool:
+        now = time.monotonic()
+        cutoff = now - self._window
+        with self._lock:
+            bucket = self._hits[key]
+            bucket[:] = [t for t in bucket if t > cutoff]
+            if len(bucket) >= self._max:
+                return False
+            bucket.append(now)
+            if now - self._last_cleanup > self._window:
+                self._evict_stale(cutoff)
+                self._last_cleanup = now
+        return True
+
+    def _evict_stale(self, cutoff: float) -> None:
+        stale = [k for k, v in self._hits.items() if not v or v[-1] <= cutoff]
+        for k in stale:
+            del self._hits[k]
+        if len(self._hits) > self._MAX_TRACKED_IPS:
+            by_recent = sorted(self._hits.items(), key=lambda x: x[1][-1] if x[1] else 0)
+            for k, _ in by_recent[: len(by_recent) - self._MAX_TRACKED_IPS]:
+                del self._hits[k]
+
+
+_api_limiter = _RateLimiter(max_requests=60, window_seconds=60)
+_search_limiter = _RateLimiter(max_requests=15, window_seconds=60)
 
 # ---------------------------------------------------------------------------
 # FastAPI 应用
@@ -124,13 +170,31 @@ cfg.bootstrap_area_overrides()
 # ---------------------------------------------------------------------------
 
 
+def _client_ip(request: Request) -> str:
+    forwarded = request.headers.get("x-forwarded-for", "")
+    if forwarded:
+        return forwarded.split(",")[0].strip()
+    return (request.client.host if request.client else "unknown")
+
+
 @app.middleware("http")
 async def _auth_web_api(request: Request, call_next):
     path = request.url.path or ""
+
+    if path.startswith(("/api/", "/admin/api/")):
+        ip = _client_ip(request)
+        limiter = _search_limiter if path == "/api/search" else _api_limiter
+        if not limiter.is_allowed(ip):
+            return JSONResponse(
+                {"ok": False, "error": "请求过于频繁，请稍后再试"},
+                status_code=429,
+                headers={"Retry-After": "60"},
+            )
+
     if path.startswith("/api/"):
         active = get_token(redis_client=get_redis())
         client_token = request.cookies.get("web_token", "")
-        if not active or client_token != active:
+        if not active or not secrets.compare_digest(client_token, active):
             return JSONResponse({"ok": False, "error": "未授权或链接已失效"}, status_code=403)
     if path.startswith("/admin/api/") and path not in {"/admin/api/login"}:
         if not cfg.admin_enabled():
@@ -179,26 +243,47 @@ def execute_control_action(action: str, body: dict, redis_client: redis.Redis, a
     return {"ok": False, "error": f"未知操作: {action}"}
 
 
+_QUEUE_REMOVE_LUA = """
+local key = KEYS[1]
+local idx = tonumber(ARGV[1])
+if idx < 0 or idx >= redis.call('llen', key) then
+    return -1
+end
+redis.call('lset', key, idx, '__REMOVED__')
+redis.call('lrem', key, 1, '__REMOVED__')
+return 0
+"""
+
+_QUEUE_TOP_LUA = """
+local key = KEYS[1]
+local idx = tonumber(ARGV[1])
+local len = redis.call('llen', key)
+if idx < 0 or idx >= len then
+    return -1
+end
+local item = redis.call('lindex', key, idx)
+redis.call('lset', key, idx, '__REMOVED__')
+redis.call('lrem', key, 1, '__REMOVED__')
+redis.call('lpush', key, item)
+return 0
+"""
+
+
 def execute_queue_action(action: str, index, redis_client: redis.Redis, area: str = "") -> dict:
     try:
         idx = int(index)
     except (TypeError, ValueError):
         return {"ok": False, "error": "索引无效"}
     queue_key = _area_key(KEY_QUEUE, area)
-    queue_items = redis_client.lrange(queue_key, 0, -1)
-    if idx < 0 or idx >= len(queue_items):
-        return {"ok": False, "error": "索引无效"}
     if action == "remove":
-        placeholder = "__REMOVED__"
-        redis_client.lset(queue_key, idx, placeholder)
-        redis_client.lrem(queue_key, 1, placeholder)
+        ret = redis_client.eval(_QUEUE_REMOVE_LUA, 1, queue_key, idx)
+        if ret == -1:
+            return {"ok": False, "error": "索引无效"}
         return {"ok": True}
     if action == "top":
-        item = queue_items[idx]
-        placeholder = "__REMOVED__"
-        redis_client.lset(queue_key, idx, placeholder)
-        redis_client.lrem(queue_key, 1, placeholder)
-        redis_client.lpush(queue_key, item)
+        ret = redis_client.eval(_QUEUE_TOP_LUA, 1, queue_key, idx)
+        if ret == -1:
+            return {"ok": False, "error": "索引无效"}
         return {"ok": True}
     return {"ok": False, "error": f"未知操作: {action}"}
 
@@ -438,7 +523,7 @@ def api_debug(area: str = Query("", description="域 ID")):
 def api_liked(
     page: int = Query(1, ge=1),
     limit: int = Query(30, ge=1, le=50),
-    keyword: Optional[str] = Query(None),
+    keyword: Optional[str] = Query(None, max_length=200),
 ):
     """获取喜欢的音乐列表（分页）。若传 keyword 则在全部喜欢中搜索后分页返回。"""
     global liked_ids_cache
@@ -490,7 +575,7 @@ def api_liked_refresh():
 
 @app.get("/api/search")
 def api_search(
-    keyword: str = Query(..., min_length=1),
+    keyword: str = Query(..., min_length=1, max_length=200),
     limit: int = Query(10, ge=1, le=30),
     platform: str = Query("netease"),
 ):
@@ -613,7 +698,7 @@ def index():
 @app.get("/w/{token}", response_class=HTMLResponse)
 def index_with_token(token: str):
     active = get_token(redis_client=get_redis())
-    if not active or token != active:
+    if not active or not secrets.compare_digest(token, active):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
     set_token(token, redis_client=get_redis(), ttl_seconds=cfg.token_ttl_seconds())
     html_path = os.path.join(os.path.dirname(__file__), "player.html")

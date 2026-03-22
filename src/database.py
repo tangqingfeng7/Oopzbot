@@ -254,10 +254,19 @@ class ImageCache:
         now = cn_now()
         with db_connection() as conn:
             cursor = conn.execute(
-                """INSERT OR REPLACE INTO image_cache
+                """INSERT INTO image_cache
                    (source_id, source_type, source_url, file_key, oopz_url,
                     attachment_data, width, height, use_count, created_at, last_used_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+                   ON CONFLICT(source_id, source_type) DO UPDATE SET
+                       source_url=excluded.source_url,
+                       file_key=excluded.file_key,
+                       oopz_url=excluded.oopz_url,
+                       attachment_data=excluded.attachment_data,
+                       width=excluded.width,
+                       height=excluded.height,
+                       use_count=use_count+1,
+                       last_used_at=excluded.last_used_at""",
                 (
                     str(source_id),
                     source_type,
@@ -271,7 +280,10 @@ class ImageCache:
                     now,
                 ),
             )
-            row_id = cursor.lastrowid
+            row_id = cursor.lastrowid or conn.execute(
+                "SELECT id FROM image_cache WHERE source_id=? AND source_type=?",
+                (str(source_id), source_type),
+            ).fetchone()["id"]
         return row_id
 
     @staticmethod
@@ -444,27 +456,27 @@ class Statistics:
     def update_today(platform: str, cache_hit: bool = False) -> None:
         today = cn_today()
         with db_connection() as conn:
-            row = conn.execute("SELECT * FROM statistics WHERE date=?", (today,)).fetchone()
-            if row:
-                breakdown = _safe_json_loads(row["platform_breakdown"], {})
-                breakdown[platform] = breakdown.get(platform, 0) + 1
-
-                conn.execute(
-                    """UPDATE statistics SET
+            conn.execute(
+                """INSERT INTO statistics (date, total_plays, cache_hits, cache_misses, platform_breakdown)
+                   VALUES (?, 1, ?, ?, ?)
+                   ON CONFLICT(date) DO UPDATE SET
                        total_plays=total_plays+1,
                        cache_hits=cache_hits+?,
-                       cache_misses=cache_misses+?,
-                       platform_breakdown=?
-                       WHERE date=?""",
-                    (1 if cache_hit else 0, 0 if cache_hit else 1, json.dumps(breakdown), today),
-                )
-            else:
-                breakdown = {platform: 1}
-                conn.execute(
-                    """INSERT INTO statistics (date, total_plays, cache_hits, cache_misses, platform_breakdown)
-                       VALUES (?, 1, ?, ?, ?)""",
-                    (today, 1 if cache_hit else 0, 0 if cache_hit else 1, json.dumps(breakdown)),
-                )
+                       cache_misses=cache_misses+?""",
+                (today,
+                 1 if cache_hit else 0, 0 if cache_hit else 1,
+                 json.dumps({platform: 1}),
+                 1 if cache_hit else 0, 0 if cache_hit else 1),
+            )
+            row = conn.execute(
+                "SELECT platform_breakdown FROM statistics WHERE date=?", (today,),
+            ).fetchone()
+            breakdown = _safe_json_loads(row["platform_breakdown"], {})
+            breakdown[platform] = breakdown.get(platform, 0) + 1
+            conn.execute(
+                "UPDATE statistics SET platform_breakdown=? WHERE date=?",
+                (json.dumps(breakdown), today),
+            )
 
     @staticmethod
     def get_today() -> Optional[dict]:
@@ -586,14 +598,15 @@ class ScheduledMessageDB:
 
     @staticmethod
     def get_due_tasks(hour: int, minute: int, weekday: int, today_str: str) -> list[dict]:
-        """返回当前时刻应触发且今日尚未触发的任务。"""
+        """返回当前时刻（含之前已错过的分钟）应触发且今日尚未触发的任务。"""
+        current_minutes = hour * 60 + minute
         with db_connection() as conn:
             rows = conn.execute(
                 """SELECT * FROM scheduled_messages
                    WHERE enabled=1
-                     AND cron_hour=? AND cron_minute=?
+                     AND (cron_hour * 60 + cron_minute) <= ?
                      AND last_fired_date != ?""",
-                (hour, minute, today_str),
+                (current_minutes, today_str),
             ).fetchall()
         results = []
         wd_str = str(weekday)
@@ -693,19 +706,94 @@ class ReminderDB:
 # MessageStatsDB
 # ---------------------------------------------------------------------------
 
+class _MessageStatsBatcher:
+    """将高频的 increment 调用缓冲到内存，定时批量刷入 SQLite，减少磁盘 I/O。"""
+
+    _FLUSH_INTERVAL = 30
+    _MAX_BUFFER_SIZE = 500
+
+    def __init__(self) -> None:
+        self._buffer: dict[tuple[str, str, str, str], int] = {}
+        self._lock = threading.Lock()
+        self._thread: threading.Thread | None = None
+        self._stop = threading.Event()
+
+    def _ensure_started_locked(self) -> None:
+        """在持有 self._lock 的情况下调用，确保后台 flush 线程已启动。"""
+        if self._thread is not None and self._thread.is_alive():
+            return
+        self._stop.clear()
+        self._thread = threading.Thread(
+            target=self._flush_loop, name="MsgStatsBatcher", daemon=True,
+        )
+        self._thread.start()
+
+    def increment(self, date: str, channel_id: str, area_id: str, user_id: str) -> None:
+        with self._lock:
+            key = (date, channel_id, area_id, user_id)
+            self._buffer[key] = self._buffer.get(key, 0) + 1
+            need_flush = len(self._buffer) >= self._MAX_BUFFER_SIZE
+            self._ensure_started_locked()
+        if need_flush:
+            self.flush()
+
+    def flush(self) -> None:
+        with self._lock:
+            if not self._buffer:
+                return
+            snapshot = self._buffer
+            self._buffer = {}
+        try:
+            with db_connection() as conn:
+                conn.executemany(
+                    """INSERT INTO message_stats (date, channel_id, area_id, user_id, message_count)
+                       VALUES (?, ?, ?, ?, ?)
+                       ON CONFLICT(date, channel_id, area_id, user_id)
+                       DO UPDATE SET message_count = message_count + ?""",
+                    [
+                        (date, ch, area, user, count, count)
+                        for (date, ch, area, user), count in snapshot.items()
+                    ],
+                )
+        except Exception:
+            logger.exception("MessageStats 批量刷入失败，数据回填缓冲区")
+            with self._lock:
+                for key, count in snapshot.items():
+                    self._buffer[key] = self._buffer.get(key, 0) + count
+
+    def _flush_loop(self) -> None:
+        while not self._stop.wait(self._FLUSH_INTERVAL):
+            try:
+                self.flush()
+            except Exception:
+                logger.exception("MessageStats flush_loop 异常")
+
+    def stop(self) -> None:
+        self._stop.set()
+        if self._thread and self._thread.is_alive():
+            self._thread.join(timeout=3)
+        self.flush()
+
+
+_msg_stats_batcher = _MessageStatsBatcher()
+
+
 class MessageStatsDB:
     """频道消息统计（按日、频道、用户聚合）"""
 
     @staticmethod
     def increment(date: str, channel_id: str, area_id: str, user_id: str) -> None:
-        with db_connection() as conn:
-            conn.execute(
-                """INSERT INTO message_stats (date, channel_id, area_id, user_id, message_count)
-                   VALUES (?, ?, ?, ?, 1)
-                   ON CONFLICT(date, channel_id, area_id, user_id)
-                   DO UPDATE SET message_count = message_count + 1""",
-                (date, channel_id, area_id, user_id),
-            )
+        _msg_stats_batcher.increment(date, channel_id, area_id, user_id)
+
+    @staticmethod
+    def flush() -> None:
+        """手动刷入缓冲区。"""
+        _msg_stats_batcher.flush()
+
+    @staticmethod
+    def stop() -> None:
+        """停止后台线程并刷入缓冲区（关闭时调用）。"""
+        _msg_stats_batcher.stop()
 
     @staticmethod
     def get_channel_daily(channel_id: str, area_id: str, days: int = 14) -> list[dict]:

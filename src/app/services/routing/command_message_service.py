@@ -23,11 +23,11 @@ class MessageContext:
         return cls(
             raw=msg_data,
             content=(msg_data.get("content") or "").strip(),
-            channel=msg_data.get("channel"),
-            area=msg_data.get("area"),
-            user=msg_data.get("person"),
-            message_id=msg_data.get("messageId"),
-            timestamp=msg_data.get("timestamp", ""),
+            channel=msg_data.get("channel") or "",
+            area=msg_data.get("area") or "",
+            user=msg_data.get("person") or "",
+            message_id=msg_data.get("messageId") or "",
+            timestamp=msg_data.get("timestamp") or "",
         )
 
     def is_slash_command(self) -> bool:

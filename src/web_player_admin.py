@@ -355,8 +355,8 @@ def _top_songs_from_play_history(page: int = 1, page_size: int = 10) -> tuple[li
     return [dict(r) for r in rows], total
 
 
-def _queue_snapshot(redis_client) -> list[dict]:
-    items = redis_client.lrange(KEY_QUEUE, 0, -1)
+def _queue_snapshot(redis_client, area: str = "") -> list[dict]:
+    items = redis_client.lrange(_area_key(KEY_QUEUE, area), 0, -1)
     queue: list[dict] = []
     for i, item in enumerate(items):
         try:
@@ -455,6 +455,7 @@ def admin_areas_page():
 @admin_router.get("/admin/plugins", response_class=HTMLResponse)
 def admin_plugins_page():
     return _render_admin_page("plugins")
+
 
 
 # ---------------------------------------------------------------------------
@@ -562,11 +563,22 @@ def admin_overview():
 
 @admin_router.get("/admin/api/overview/stream")
 async def admin_overview_stream(request: Request):
+    cookie_token = request.cookies.get(cfg.admin_cookie_name(), "")
+
     async def _event_stream():
         last_payload = ""
+        check_counter = 0
         while True:
             if await request.is_disconnected():
                 break
+            check_counter += 1
+            if check_counter % 30 == 0 and cookie_token:
+                try:
+                    alive = _get_redis().get(cfg.admin_session_key(cookie_token))
+                except Exception:
+                    alive = None
+                if not alive:
+                    break
             payload = _overview_payload()
             payload_text = json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
             if payload_text != last_payload:
@@ -650,7 +662,8 @@ def admin_liked_refresh():
 
 @admin_router.post("/admin/api/queue/clear")
 def admin_queue_clear():
-    _get_redis().delete("music:queue")
+    area = _resolve_area()
+    _get_redis().delete(_area_key(KEY_QUEUE, area))
     return JSONResponse({"ok": True})
 
 
@@ -660,7 +673,7 @@ def admin_queue(
     page_size: int = Query(10, ge=1, le=100),
 ):
     r = _get_redis()
-    full_queue = _queue_snapshot(r)
+    full_queue = _queue_snapshot(r, area=_resolve_area())
     total = len(full_queue)
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
     page = min(page, pages)
@@ -688,7 +701,7 @@ async def admin_queue_action(request: Request):
         redis_client=_get_redis(),
     )
     if result.get("ok"):
-        result["queue"] = _queue_snapshot(_get_redis())
+        result["queue"] = _queue_snapshot(_get_redis(), area=_resolve_area())
     return JSONResponse(result)
 
 
@@ -826,8 +839,11 @@ def admin_scheduled_messages_list():
 async def admin_scheduled_messages_create(request: Request):
     body = await request.json()
     name = str(body.get("name") or "").strip()
-    hour = int(body.get("cron_hour", 0))
-    minute = int(body.get("cron_minute", 0))
+    try:
+        hour = int(body.get("cron_hour", 0))
+        minute = int(body.get("cron_minute", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "cron_hour/cron_minute 必须为整数"}, status_code=400)
     weekdays = str(body.get("weekdays", "0,1,2,3,4,5,6"))
     channel_id = str(body.get("channel_id") or "").strip()
     area_id = str(body.get("area_id") or "").strip()
@@ -1017,6 +1033,7 @@ def admin_members_list(
             if kw in name.lower() or kw in uid.lower() or kw in (pi.get("pid") or "").lower():
                 filtered.append(m)
         members = filtered
+        total = len(filtered)
 
     items = []
     for m in members:
@@ -1142,7 +1159,10 @@ async def admin_member_mute(uid: str, request: Request):
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
     body = await request.json()
     area = _extract_area(body)
-    duration = int(body.get("duration", 5))
+    try:
+        duration = int(body.get("duration", 5))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
     result = sender.mute_user(uid, area=area, duration=duration)
     if "error" in result:
         return JSONResponse({"ok": False, "error": result["error"]})
@@ -1171,7 +1191,10 @@ async def admin_member_mute_mic(uid: str, request: Request):
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
     body = await request.json()
     area = _extract_area(body)
-    duration = int(body.get("duration", 10))
+    try:
+        duration = int(body.get("duration", 10))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
     result = sender.mute_mic(uid, area=area, duration=duration)
     if "error" in result:
         return JSONResponse({"ok": False, "error": result["error"]})
@@ -1242,7 +1265,10 @@ async def admin_member_role(uid: str, request: Request):
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
     body = await request.json()
     area = _extract_area(body)
-    role_id = int(body.get("role_id", 0))
+    try:
+        role_id = int(body.get("role_id", 0))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "role_id 必须为整数"}, status_code=400)
     action = str(body.get("action", "add"))
     if not role_id:
         return JSONResponse({"ok": False, "error": "role_id 不能为空"}, status_code=400)

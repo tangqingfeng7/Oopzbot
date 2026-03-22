@@ -30,17 +30,22 @@ class ProfanityGuardService:
     })
     _MAX_TRACKED_USERS = 500
 
+    _WARN_EXPIRE_SECONDS = 300
+
     def __init__(self, runtime: CommandRuntimeView):
         self._sender = sender_of(runtime)
-        self._keywords = [keyword.lower() for keyword in PROFANITY_CONFIG.get("keywords", [])]
         self._user_msg_buffer: dict[str, list[dict]] = {}
-        self._warnings: dict[str, int] = {}
+        self._warnings: dict[str, tuple[int, float]] = {}
         self._last_cleanup: float = 0.0
+
+    @property
+    def _keywords(self) -> list[str]:
+        return [kw.lower() for kw in PROFANITY_CONFIG.get("keywords", [])]
 
     @classmethod
     def clean_text(cls, content: str) -> str:
         """清理文本，用于脏话匹配。"""
-        text = re.sub(r"\(met\)\w+\(met\)", "", content)
+        text = re.sub(r"\(met\)[A-Za-z0-9_\-]+\(met\)", "", content)
         text = re.sub(r"[\s\u200b\u200c\u200d\ufeff.,!?，。！？~·、\-_+=]+", "", text)
         text = text.translate(cls._CHAR_NORMALIZE)
         return text.lower()
@@ -81,17 +86,20 @@ class ProfanityGuardService:
             self._last_cleanup = now
 
     def _evict_stale_users(self, cutoff: float) -> None:
-        """清理长时间不活跃的用户缓冲和警告计数，防止内存无限增长。"""
+        """清理长时间不活跃的用户缓冲，防止内存无限增长。"""
+        now = time.time()
         stale = [u for u, buf in self._user_msg_buffer.items()
                  if not buf or buf[-1]["time"] < cutoff]
         for u in stale:
             self._user_msg_buffer.pop(u, None)
-            self._warnings.pop(u, None)
         if len(self._user_msg_buffer) > self._MAX_TRACKED_USERS:
             by_time = sorted(self._user_msg_buffer.items(), key=lambda x: x[1][-1]["time"] if x[1] else 0)
             for u, _ in by_time[:len(by_time) - self._MAX_TRACKED_USERS]:
                 self._user_msg_buffer.pop(u, None)
-                self._warnings.pop(u, None)
+        warn_stale = [u for u, (_, ts) in self._warnings.items()
+                      if now - ts > self._WARN_EXPIRE_SECONDS]
+        for u in warn_stale:
+            self._warnings.pop(u, None)
 
     def check_context_profanity(self, user: str) -> Optional[tuple[str, list[dict]]]:
         """检测用户上下文拼接后是否命中违禁词。"""
@@ -147,8 +155,10 @@ class ProfanityGuardService:
                 )
 
         if PROFANITY_CONFIG.get("warn_before_mute"):
-            count = self._warnings.get(user, 0) + 1
-            self._warnings[user] = count
+            now = time.time()
+            prev_count, _ = self._warnings.get(user, (0, 0.0))
+            count = prev_count + 1
+            self._warnings[user] = (count, now)
             if count < 2:
                 self._sender.send_message(
                     f"[!] {name} 请文明发言，再犯将被禁言 {display}",
@@ -156,7 +166,7 @@ class ProfanityGuardService:
                     area=area,
                 )
                 return
-            self._warnings[user] = 0
+            self._warnings[user] = (0, now)
 
         result = self._sender.mute_user(user, area=area, duration=duration)
         if "error" in result:
