@@ -6,18 +6,33 @@
     "link_idle_release_seconds": 1800,
     "cookie_secure": false,
     "admin_session_ttl_seconds": 43200,
-    "admin_cookie_secure": false
+    "admin_cookie_secure": false,
+    "host": "0.0.0.0",
+    "port": 8080
   },
   "auto_recall": {
     "enabled": true,
-    "delay": 30
+    "delay": 30,
+    "exclude_commands": [
+      "ai_chat",
+      "ai_image"
+    ]
   },
   "area_join_notify": {
     "enabled": true,
-    "poll_interval_seconds": 60
+    "poll_interval_seconds": 60,
+    "message_template": "欢迎 {name} 加入域～",
+    "message_template_leave": "{name} 已退出域",
+    "auto_assign_role_id": "",
+    "auto_assign_role_name": ""
   },
   "chat": {
-    "enabled": true
+    "enabled": true,
+    "keyword_replies": {
+      "你好": "你好呀！我是 Oopz Bot ~",
+      "帮助": "输入 /help 查看可用命令",
+      "ping": "pong!"
+    }
   },
   "profanity": {
     "enabled": true,
@@ -25,16 +40,19 @@
     "warn_before_mute": true,
     "skip_admins": true,
     "context_detection": true,
-    "context_window": 30,
+    "context_window": 60,
     "context_max_messages": 10,
     "ai_detection": true,
-    "ai_min_length": 2
+    "ai_min_length": 2,
+    "recall_message": true
   },
   "oopz": {
     "default_area": "",
     "default_channel": "",
     "proxy": "",
-    "use_announcement_style": true
+    "use_announcement_style": true,
+    "agora_app_id": "358eebceadb94c2a9fd91ecd7b341602",
+    "agora_init_timeout": 1800
   },
   "netease": {
     "base_url": "http://localhost:3000",
@@ -56,7 +74,9 @@
     "max_tokens": 256,
     "temperature": 0.7,
     "system_prompt": "你是 Oopz Bot，一个活泼有趣的聊天机器人。回复简洁友好，不超过100字。",
-    "api_key": "63c98107-906a-41b2-919b-f5f562f7a6d0"
+    "api_key": "63c98107-906a-41b2-919b-f5f562f7a6d0",
+    "context_max_rounds": 10,
+    "context_ttl_seconds": 1800
   },
   "doubao_image": {
     "enabled": true,
@@ -65,5 +85,34 @@
     "size": "1920x1920",
     "watermark": false,
     "api_key": "f73dff00-2fc1-499e-add0-fb47740c7186"
+  },
+  "music": {
+    "auto_play_enabled": true,
+    "default_volume": 50
+  },
+  "command_cooldown": {
+    "enabled": false,
+    "default_seconds": 3,
+    "exempt_admins": true
+  },
+  "qq_music": {
+    "enabled": false,
+    "base_url": "http://localhost:3300"
+  },
+  "bilibili_music": {
+    "enabled": false
+  },
+  "message_stats": {
+    "enabled": true
+  },
+  "scheduler": {
+    "enabled": true,
+    "check_interval_seconds": 30
+  },
+  "reminder": {
+    "enabled": true,
+    "max_per_user": 5,
+    "max_delay_hours": 72,
+    "check_interval_seconds": 15
   }
 }

@@ -294,5 +294,39 @@ class CommandRouterTest(unittest.TestCase):
         self.recall_scheduler.schedule_user_message_recall.assert_not_called()
 
 
+class MentionCommandRouterTest(unittest.TestCase):
+    def test_unknown_command_prefers_hint_over_ai_fallback(self) -> None:
+        from app.services.routing.mention_command_router import MentionCommandRouter
+
+        sender = Mock()
+        plugins = Mock()
+        plugins.try_dispatch_mention.return_value = False
+        chat = Mock()
+        music = Mock()
+        music.handle_mention.return_value = False
+        help_service = Mock()
+        help_service.suggest_commands.return_value = ["@bot 播放<歌名>"]
+
+        runtime = SimpleNamespace(
+            sender=sender,
+            infrastructure=SimpleNamespace(sender=sender, plugins=plugins),
+            plugins=plugins,
+            plugin_host=object(),
+            services=SimpleNamespace(
+                interaction=SimpleNamespace(help=help_service, chat=chat, music=music),
+                community=SimpleNamespace(member=Mock(), role=Mock(), target_resolution=Mock()),
+                safety=SimpleNamespace(moderation=Mock(), recall=Mock()),
+                scheduler=Mock(),
+                plugins=SimpleNamespace(management=Mock()),
+            ),
+        )
+
+        router = MentionCommandRouter(runtime)
+        router.dispatch("播发 稻香", "channel", "area", "user-1")
+
+        chat.send_unknown_mention_command.assert_called_once()
+        chat.handle_mention_fallback.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

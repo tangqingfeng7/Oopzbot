@@ -165,12 +165,14 @@
 
     async function loadChannels() {
       if (!currentArea) return;
+      var areaIdEl = AdminShell.byId("areaIdDisplay");
+      if (areaIdEl) areaIdEl.textContent = currentArea;
       const tbody = AdminShell.byId("channelRows");
       try {
         const data = await AdminShell.req(`/admin/api/channels?area=${encodeURIComponent(currentArea)}`);
         channelsData = data.channels || [];
         if (!channelsData.length) {
-          tbody.innerHTML = '<tr><td colspan="4" class="empty-state">暂无频道</td></tr>';
+          tbody.innerHTML = '<tr><td colspan="5" class="empty-state">暂无频道</td></tr>';
           return;
         }
         tbody.innerHTML = channelsData.map((ch) => {
@@ -178,10 +180,15 @@
           const typeClass = t === "VOICE" || t === "AUDIO"
             ? "a-ch-type--voice" : "a-ch-type--text";
           const typeLabel = typeClass.includes("voice") ? "语音" : "文字";
+          var badges = `<span class="a-ch-type ${typeClass}">${typeLabel}</span>`;
+          if (ch.secret) badges += ' <span class="a-ch-type a-ch-type--secret">私密</span>';
           return `<tr>
-            <td style="font-weight:600">${esc(ch.name)}</td>
+            <td>
+              <div style="font-weight:600">${esc(ch.name)}</div>
+              <div class="a-ch-id">${esc(ch.id)}</div>
+            </td>
             <td style="color:var(--ink-soft);font-size:12px">${esc(ch.group)}</td>
-            <td><span class="a-ch-type ${typeClass}">${typeLabel}</span></td>
+            <td>${badges}</td>
             <td>
               <div class="a-ch-actions">
                 <button class="btn btn-ghost" onclick="showEditChannel('${esc(ch.id)}','${esc(ch.type)}')">编辑</button>
@@ -191,7 +198,7 @@
           </tr>`;
         }).join("");
       } catch (e) {
-        tbody.innerHTML = `<tr><td colspan="4" class="empty-state">加载失败: ${esc(e.message)}</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="empty-state">加载失败: ${esc(e.message)}</td></tr>`;
       }
     }
 
@@ -235,9 +242,13 @@
     // ---- Edit channel ----
 
     var _editChType = "TEXT";
+    var _selectedUids = new Set();
+    var _onlineMembers = [];
 
     async function showEditChannel(id, chType) {
       _editChType = (chType || "TEXT").toUpperCase();
+      _selectedUids = new Set();
+      _onlineMembers = [];
       AdminShell.byId("editChId").value = id;
       AdminShell.showMessage("editChMsg", "加载中...");
       AdminShell.byId("editChOverlay").classList.add("is-open");
@@ -260,6 +271,15 @@
         AdminShell.byId("editChHasPassword").checked = !!s.hasPassword;
         AdminShell.byId("editChPassword").value = s.password || "";
         toggleEditPwd();
+
+        var [amData, olData] = await Promise.all([
+          AdminShell.req(`/admin/api/channels/${encodeURIComponent(id)}/accessible-members`).catch(function() { return {members: []}; }),
+          AdminShell.req(`/admin/api/online-members?area=${encodeURIComponent(currentArea)}`).catch(function() { return {members: []}; }),
+        ]);
+        (amData.members || []).forEach(function(m) { _selectedUids.add(m.uid); });
+        _onlineMembers = olData.members || [];
+
+        toggleSecretPanel();
         AdminShell.showMessage("editChMsg", "");
       } catch (e) {
         AdminShell.showMessage("editChMsg", "加载设置失败: " + e.message, true);
@@ -269,6 +289,33 @@
     function toggleEditPwd() {
       var show = AdminShell.byId("editChHasPassword").checked;
       AdminShell.byId("editChPwdWrap").style.display = show ? "" : "none";
+    }
+
+    function toggleSecretPanel() {
+      var show = AdminShell.byId("editChSecret").checked;
+      AdminShell.byId("editChAccessWrap").style.display = show ? "" : "none";
+      if (show) renderOnlineMembers();
+    }
+
+    function renderOnlineMembers() {
+      var el = AdminShell.byId("editChAccessList");
+      if (!_onlineMembers.length) {
+        el.innerHTML = '<span class="a-am-empty">当前无在线成员</span>';
+        return;
+      }
+      el.innerHTML = _onlineMembers.map(function(m) {
+        var checked = _selectedUids.has(m.uid) ? " checked" : "";
+        return '<label class="a-am-item">'
+          + '<input type="checkbox" onchange="toggleAccessMember(\'' + esc(m.uid) + '\', this.checked)"' + checked + ' />'
+          + '<span class="a-am-dot"></span>'
+          + '<span class="a-am-name">' + esc(m.name) + '</span>'
+          + '</label>';
+      }).join("");
+    }
+
+    function toggleAccessMember(uid, add) {
+      if (add) _selectedUids.add(uid);
+      else _selectedUids.delete(uid);
     }
 
     function closeEditChannel() {
@@ -291,6 +338,10 @@
         password: AdminShell.byId("editChHasPassword").checked
           ? (AdminShell.byId("editChPassword").value || "") : "",
       };
+
+      if (body.secret) {
+        body.accessibleMembers = Array.from(_selectedUids);
+      }
 
       var isVoice = _editChType === "VOICE" || _editChType === "AUDIO";
       if (isVoice) {

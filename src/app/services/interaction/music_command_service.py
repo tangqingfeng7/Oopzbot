@@ -12,13 +12,108 @@ class MusicCommandService:
         self._sender = sender_of(runtime)
         self._music = music_of(runtime)
 
-    def _play(self, keyword: str, channel: str, area: str, user: str) -> None:
-        """解析平台前缀后调用多平台点歌。"""
+    def _interactive_enabled(self) -> bool:
+        return getattr(self._music, "supports_interactive_selection", False) is True
+
+    def _play_direct(self, keyword: str, channel: str, area: str, user: str) -> None:
         platform, clean_kw = parse_platform_prefix(keyword)
         if platform:
             self._music.play_song(clean_kw, platform, channel, area, user)
         else:
-            self._music.play_song(clean_kw, "netease", channel, area, user)
+            self._music.play_netease(clean_kw, channel, area, user)
+
+    @staticmethod
+    def _is_confident_match(keyword: str, results: list[dict]) -> bool:
+        if not keyword or not results:
+            return False
+        target = keyword.strip().lower()
+        first = results[0]
+        first_name = str(first.get("name", "")).strip().lower()
+        first_full = f"{first_name} {str(first.get('artists', '')).strip().lower()}".strip()
+        if target in {first_name, first_full}:
+            return True
+        if len(results) == 1:
+            return True
+        return False
+
+    def _send_song_candidates(
+        self,
+        keyword: str,
+        platform: str,
+        channel: str,
+        area: str,
+        user: str,
+        results: list[dict],
+    ) -> None:
+        items = []
+        for song in results[:5]:
+            item = dict(song)
+            item["platform"] = platform
+            items.append(item)
+        self._runtime.services.interaction.selection.store(
+            user=user,
+            channel=channel,
+            area=area,
+            kind="song",
+            query=keyword,
+            items=items,
+        )
+        lines = [f'搜歌 "{keyword}" - 找到 {len(results)} 首候选', "---"]
+        for index, song in enumerate(items, 1):
+            lines.append(
+                f"  {index}. {song.get('name', '未知歌曲')} - {song.get('artists', '未知歌手')}"
+                f" [{song.get('durationText', '')}]"
+            )
+        lines += [
+            "",
+            "发送 `@bot 选歌 <编号>`、`@bot 选择 <编号>` 或 `/pick <编号>` 继续",
+        ]
+        self._sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    def _play(self, keyword: str, channel: str, area: str, user: str) -> None:
+        """解析平台前缀后调用多平台点歌。"""
+        platform, clean_kw = parse_platform_prefix(keyword)
+        resolved_platform = platform or "netease"
+        if not self._interactive_enabled():
+            self._play_direct(keyword, channel, area, user)
+            return
+        results = self._music.search_candidates(clean_kw, resolved_platform, limit=5)
+        if not results:
+            self._sender.send_message(f"未找到: {clean_kw}", channel=channel, area=area)
+            return
+        if self._is_confident_match(clean_kw, results):
+            self._music.play_song_choice(dict(results[0], platform=resolved_platform), channel, area, user)
+            return
+        self._send_song_candidates(clean_kw, resolved_platform, channel, area, user, results)
+
+    def search_candidates(self, keyword: str, channel: str, area: str, user: str) -> None:
+        """显式搜歌并返回候选列表。"""
+        keyword = (keyword or "").strip()
+        if not keyword:
+            self._sender.send_message("用法: @bot 搜歌 <关键词>  或  /songsearch <关键词>", channel=channel, area=area)
+            return
+        platform, clean_kw = parse_platform_prefix(keyword)
+        resolved_platform = platform or "netease"
+        if not self._interactive_enabled():
+            self._play_direct(keyword, channel, area, user)
+            return
+        results = self._music.search_candidates(clean_kw, resolved_platform, limit=5)
+        if not results:
+            self._sender.send_message(f"未找到: {clean_kw}", channel=channel, area=area)
+            return
+        self._send_song_candidates(clean_kw, resolved_platform, channel, area, user, results)
+
+    def handle_pick(self, index: int, channel: str, area: str, user: str) -> bool:
+        """处理选歌编号。"""
+        selection, item = self._runtime.services.interaction.selection.pick(user, channel, area, index)
+        if not selection or selection.kind != "song":
+            return False
+        if not item:
+            self._sender.send_message(f"编号超出范围，请输入 1-{len(selection.items)}", channel=channel, area=area)
+            return True
+        self._runtime.services.interaction.selection.clear(user, channel, area)
+        self._music.play_song_choice(item, channel, area, user)
+        return True
 
     def handle_mention(self, text: str, channel: str, area: str, user: str) -> bool:
         """处理 @bot 中文音乐指令。"""
@@ -32,6 +127,11 @@ class MusicCommandService:
                         "请输入歌名，例如:\n  @bot 播放海阔天空\n  @bot 播放 qq:周杰伦\n  @bot 播放 b站:稻香",
                         channel=channel, area=area,
                     )
+                return True
+
+        for prefix in ("搜歌", "搜索歌曲"):
+            if text.startswith(prefix):
+                self.search_candidates(text[len(prefix):].strip(), channel, area, user)
                 return True
 
         if text in ("停止", "停", "停止播放", "关"):
@@ -88,9 +188,20 @@ class MusicCommandService:
                 self._play(keyword, channel, area, user)
             return True
 
+        if command == "/songsearch":
+            keyword = " ".join(parts[1:]).strip()
+            if keyword:
+                self.search_candidates(keyword, channel, area, user)
+            else:
+                self._sender.send_message("用法: /songsearch <关键词>", channel=channel, area=area)
+            return True
+
         if command == "/yun" and subcommand == "play":
             if arg:
-                self._play(arg, channel, area, user)
+                if self._interactive_enabled():
+                    self._play(arg, channel, area, user)
+                else:
+                    self._music.play_netease(arg, channel, area, user)
             else:
                 self._sender.send_message("用法: /yun play 歌曲名", channel=channel, area=area)
             return True

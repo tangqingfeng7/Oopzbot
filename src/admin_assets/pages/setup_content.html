@@ -1,0 +1,67 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="setupState" class="status-text is-warning">等待体检</span>
+            <button class="btn btn-primary" type="button" onclick="loadDiagnostics().catch(() => {})">开始体检</button>
+            <button class="btn btn-ghost" type="button" onclick="openAdminPage('/admin/config')">前往配置中心</button>
+            <button class="btn btn-ghost" type="button" onclick="openAdminPage('/admin/system')">查看系统页</button>
+          </div>
+        </article>
+
+        <section class="metrics-grid">
+          <article class="metric-card metric-card--featured">
+            <div class="metric-card__label">总体状态</div>
+            <div id="setupOverall" class="metric-card__value">-</div>
+          </article>
+          <div class="metric-stack">
+            <article class="summary-card">
+              <div class="summary-card__label">通过</div>
+              <div id="setupPass" class="summary-card__value">0</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-card__label">警告</div>
+              <div id="setupWarn" class="summary-card__value">0</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-card__label">失败</div>
+              <div id="setupFail" class="summary-card__value">0</div>
+            </article>
+            <article class="summary-card">
+              <div class="summary-card__label">信息</div>
+              <div id="setupInfo" class="summary-card__value">0</div>
+            </article>
+          </div>
+        </section>
+
+        <article class="table-card">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">首启向导</h3>
+            </div>
+          </div>
+          <div id="wizardList" class="stack"></div>
+        </article>
+
+        <article class="table-card">
+          <div class="section-head">
+            <div>
+              <h3 class="section-title">检查明细</h3>
+            </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>状态</th>
+                  <th>项目</th>
+                  <th>摘要</th>
+                  <th>建议</th>
+                </tr>
+              </thead>
+              <tbody id="checkRows">
+                <tr><td colspan="4" class="empty-state">登录后开始体检</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+      </section>

@@ -37,20 +37,23 @@
         <article class="table-card" id="channelsCard">
           <div class="section-head">
             <h3 class="section-title">频道列表</h3>
-            <button class="btn btn-ghost btn-sm" type="button" onclick="showCreateChannel()">创建频道</button>
+            <div style="display:flex;align-items:center;gap:8px">
+              <span class="a-id-label">域 ID: <code id="areaIdDisplay" class="a-id-code">-</code></span>
+              <button class="btn btn-ghost btn-sm" type="button" onclick="showCreateChannel()">创建频道</button>
+            </div>
           </div>
           <div class="table-shell">
             <table>
               <thead>
                 <tr>
-                  <th>频道名称</th>
+                  <th>频道名称 / ID</th>
                   <th>分组</th>
-                  <th>类型</th>
+                  <th>状态</th>
                   <th>操作</th>
                 </tr>
               </thead>
               <tbody id="channelRows">
-                <tr><td colspan="4" class="empty-state">暂无数据</td></tr>
+                <tr><td colspan="5" class="empty-state">暂无数据</td></tr>
               </tbody>
             </table>
           </div>
@@ -130,7 +133,7 @@
                 </select>
               </div>
               <div class="field field--check">
-                <label><input id="editChSecret" type="checkbox" /> 私密频道</label>
+                <label><input id="editChSecret" type="checkbox" onchange="toggleSecretPanel()" /> 私密频道</label>
               </div>
               <div class="field field--check">
                 <label><input id="editChHasPassword" type="checkbox" onchange="toggleEditPwd()" /> 启用密码</label>
@@ -138,6 +141,16 @@
               <div class="field field--wide" id="editChPwdWrap" style="display:none">
                 <label for="editChPassword">频道密码</label>
                 <input id="editChPassword" type="text" placeholder="设置频道密码" />
+              </div>
+            </div>
+            <!-- 私密频道成员管理 -->
+            <div id="editChAccessWrap" style="display:none;margin-top:12px">
+              <div class="a-am-section">
+                <label class="a-am-label">可访问成员（在线）</label>
+                <div class="a-am-hint">勾选的成员可进入此频道，Bot 和管理员会自动添加</div>
+                <div id="editChAccessList" class="a-am-grid">
+                  <span class="a-am-empty">当前无在线成员</span>
+                </div>
               </div>
             </div>
             <div id="editChMsg" class="msg" style="margin-top:12px"></div>
@@ -189,7 +202,7 @@
         }
         .a-voice-user__dot {
           width: 6px; height: 6px; border-radius: 50%;
-          background: #22c55e;
+          background: var(--success, #5eead4);
         }
         .a-ch-actions { display: flex; gap: 4px; }
         .a-ch-actions .btn { padding: 2px 10px; font-size: 11px; min-height: 28px; border-radius: 7px; }
@@ -201,6 +214,36 @@
           background: var(--bg-soft); color: var(--ink-soft);
           border: 1px solid var(--line);
         }
-        .a-ch-type--voice { background: #dbeafe; color: #1e40af; border-color: #93c5fd; }
-        .a-ch-type--text { background: #dcfce7; color: #166534; border-color: #86efac; }
+        .a-ch-type--voice { background: rgba(96, 165, 250, 0.12); color: #93c5fd; border-color: rgba(96, 165, 250, 0.25); }
+        .a-ch-type--text { background: rgba(94, 234, 212, 0.1); color: #5eead4; border-color: rgba(94, 234, 212, 0.2); }
+        .a-ch-type--secret { background: rgba(251, 146, 60, 0.12); color: #fb923c; border-color: rgba(251, 146, 60, 0.25); }
+        .a-ch-id { font-size: 11px; color: var(--ink-faint); font-family: monospace; user-select: all; margin-top: 2px; }
+        .a-id-label { font-size: 12px; color: var(--ink-soft); }
+        .a-id-code {
+          font-size: 11px; padding: 2px 6px; border-radius: 4px;
+          background: var(--bg-soft); color: var(--ink); user-select: all;
+          font-family: monospace;
+        }
+        .a-am-section { padding: 12px 0; }
+        .a-am-label { font-weight: 600; font-size: 13px; display: block; margin-bottom: 4px; }
+        .a-am-hint { font-size: 11px; color: var(--ink-faint); margin-bottom: 8px; }
+        .a-am-grid {
+          display: flex; flex-wrap: wrap; gap: 6px;
+          max-height: 160px; overflow-y: auto; padding: 4px 0;
+        }
+        .a-am-empty { font-size: 12px; color: var(--ink-faint); line-height: 28px; }
+        .a-am-item {
+          display: inline-flex; align-items: center; gap: 6px;
+          font-size: 12px; padding: 5px 10px; border-radius: 8px;
+          background: var(--bg-soft); border: 1px solid var(--line);
+          cursor: pointer; user-select: none; transition: border-color .15s, background .15s;
+        }
+        .a-am-item:hover { border-color: var(--ink-faint); }
+        .a-am-item:has(input:checked) { border-color: var(--accent, #d4a058); background: rgba(212,160,88,.08); }
+        .a-am-item input[type="checkbox"] { accent-color: var(--accent, #d4a058); margin: 0; }
+        .a-am-dot {
+          width: 6px; height: 6px; border-radius: 50%;
+          background: #5eead4; flex-shrink: 0;
+        }
+        .a-am-name { white-space: nowrap; }
       </style>

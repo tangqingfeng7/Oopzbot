@@ -20,9 +20,11 @@ from database import DB_PATH, MessageStatsDB, ReminderDB, ScheduledMessageDB, So
 from logger_config import get_logger
 from name_resolver import get_resolver
 from queue_manager import get_redis_client, _area_key, KEY_QUEUE, KEY_CURRENT, KEY_PLAY_STATE
+from scheduler_templates import get_scheduled_template, list_scheduled_templates
 from web_link_token import clear_token, ensure_token, get_token, set_token
 
 import web_player_config as cfg
+from app.services.interaction.setup_diagnostics import SetupDiagnostics
 
 logger = get_logger("WebPlayerAdmin")
 
@@ -95,9 +97,19 @@ def _get_started_at() -> float:
     return started_at
 
 
+def _admin_enabled() -> bool:
+    from web_player import _admin_enabled as web_admin_enabled
+    return web_admin_enabled()
+
+
 def _get_liked_ids_cache() -> list:
     from web_player import liked_ids_cache
     return liked_ids_cache
+
+
+def _get_plugin_runtime():
+    from web_player import get_plugin_runtime
+    return get_plugin_runtime()
 
 
 def _set_liked_ids_cache(value: list) -> None:
@@ -227,11 +239,21 @@ _ADMIN_PAGES: dict[str, dict[str, str]] = {
         "login_copy": "登录后管理插件与配置。",
         "login_button": "进入插件管理",
     },
+    "setup": {
+        "page_title": "系统体检",
+        "page_id": "setup",
+        "brand_title": "系统体检",
+        "brand_copy": "把首启检查、运行时诊断和下一步配置建议放在一个页面里。",
+        "topbar_actions": '<button class="btn btn-ghost" type="button" onclick="loadDiagnostics().catch(() => {})">重新体检</button>',
+        "login_title": "登录系统体检",
+        "login_copy": "登录后查看系统体检与首启向导。",
+        "login_button": "进入体检页",
+    },
 }
 
 
 def _render_admin_page(page_key: str) -> HTMLResponse:
-    if not cfg.admin_enabled():
+    if not _admin_enabled():
         return HTMLResponse("管理后台未启用，请在 WEB_PLAYER_CONFIG 中开启。", status_code=404)
     pages_dir = os.path.join(os.path.dirname(__file__), "admin_assets", "pages")
     content_path = os.path.join(pages_dir, f"{page_key}_content.html")
@@ -457,6 +479,11 @@ def admin_plugins_page():
     return _render_admin_page("plugins")
 
 
+@admin_router.get("/admin/setup", response_class=HTMLResponse)
+def admin_setup_page():
+    return _render_admin_page("setup")
+
+
 
 # ---------------------------------------------------------------------------
 # 管理后台 API 路由
@@ -464,7 +491,7 @@ def admin_plugins_page():
 
 @admin_router.post("/admin/api/login")
 async def admin_login(request: Request):
-    if not cfg.admin_enabled():
+    if not _admin_enabled():
         return JSONResponse({"ok": False, "error": "管理后台未启用"}, status_code=404)
     password = cfg.admin_password()
     if not password:
@@ -826,6 +853,13 @@ def admin_system():
     return JSONResponse(data)
 
 
+@admin_router.get("/admin/api/setup/diagnostics")
+def admin_setup_diagnostics():
+    diagnostics = SetupDiagnostics(sender=_get_sender(), plugins=_get_plugin_runtime())
+    report = diagnostics.build_report()
+    return JSONResponse({"ok": True, **report}, headers={"Cache-Control": "no-store"})
+
+
 # ---------------------------------------------------------------------------
 # 定时消息 CRUD API
 # ---------------------------------------------------------------------------
@@ -833,6 +867,43 @@ def admin_system():
 @admin_router.get("/admin/api/scheduled-messages")
 def admin_scheduled_messages_list():
     return JSONResponse({"ok": True, "items": ScheduledMessageDB.get_all()})
+
+
+@admin_router.get("/admin/api/scheduled-message-templates")
+def admin_scheduled_message_templates():
+    return JSONResponse({"ok": True, "items": list_scheduled_templates()})
+
+
+@admin_router.post("/admin/api/scheduled-message-templates/{template_key}/apply")
+async def admin_scheduled_message_template_apply(template_key: str, request: Request):
+    template = get_scheduled_template(template_key)
+    if not template:
+        return JSONResponse({"ok": False, "error": "未找到定时模板"}, status_code=404)
+    body = await request.json()
+    channel_id = str(body.get("channel_id") or "").strip()
+    area_id = str(body.get("area_id") or "").strip()
+    if not channel_id or not area_id:
+        return JSONResponse({"ok": False, "error": "channel_id/area_id 不能为空"}, status_code=400)
+    name = str(body.get("name") or template["name"]).strip()
+    message_text = str(body.get("message_text") or template["message_text"]).strip()
+    weekdays = str(body.get("weekdays") or template["weekdays"]).strip()
+    try:
+        cron_hour = int(body.get("cron_hour", template["cron_hour"]))
+        cron_minute = int(body.get("cron_minute", template["cron_minute"]))
+    except (TypeError, ValueError):
+        return JSONResponse({"ok": False, "error": "cron_hour/cron_minute 必须为整数"}, status_code=400)
+    if not name or not message_text:
+        return JSONResponse({"ok": False, "error": "name/message_text 不能为空"}, status_code=400)
+    task_id = ScheduledMessageDB.create(
+        name=name,
+        cron_hour=cron_hour,
+        cron_minute=cron_minute,
+        channel_id=channel_id,
+        area_id=area_id,
+        message_text=message_text,
+        weekdays=weekdays,
+    )
+    return JSONResponse({"ok": True, "id": task_id, "template": template["key"]})
 
 
 @admin_router.post("/admin/api/scheduled-messages")
@@ -1035,6 +1106,9 @@ def admin_members_list(
         members = filtered
         total = len(filtered)
 
+    from config import ADMIN_UIDS
+    admin_set = set(ADMIN_UIDS)
+
     items = []
     for m in members:
         uid = m.get("uid", "")
@@ -1051,6 +1125,7 @@ def admin_members_list(
             "roleSort": m.get("roleSort", 0),
             "playingState": m.get("playingState", ""),
             "displayType": m.get("displayType", ""),
+            "is_bot_admin": uid in admin_set,
         })
     resp_data: dict = {
         "ok": True,
@@ -1134,6 +1209,9 @@ def admin_member_detail(uid: str, area: str = Query("")):
     is_muted = isinstance(disable_text_to, (int, float)) and int(disable_text_to) > now_ms
     is_mic_muted = isinstance(disable_voice_to, (int, float)) and int(disable_voice_to) > now_ms
 
+    from config import ADMIN_UIDS
+    is_bot_admin = uid in ADMIN_UIDS
+
     return JSONResponse({
         "ok": True,
         "uid": uid,
@@ -1145,6 +1223,7 @@ def admin_member_detail(uid: str, area: str = Query("")):
         "mic_muted_until": int(disable_voice_to) if is_mic_muted else 0,
         "assignable_roles": assignable if isinstance(assignable, list) else [],
         "messages_7d": user_msg_count,
+        "is_bot_admin": is_bot_admin,
     })
 
 
@@ -1258,6 +1337,57 @@ async def admin_member_unblock(uid: str, request: Request):
     return JSONResponse({"ok": True, "message": result.get("message", "已解封")})
 
 
+@admin_router.get("/admin/api/bot-admins")
+def admin_bot_admins_list():
+    """返回当前 Bot 管理员 UID 列表。"""
+    from config import ADMIN_UIDS
+    resolver = get_resolver()
+    items = []
+    for uid in ADMIN_UIDS:
+        items.append({"uid": uid, "name": resolver.user(uid) or uid[:12]})
+    return JSONResponse({"ok": True, "admins": items, "uids": list(ADMIN_UIDS)})
+
+
+@admin_router.post("/admin/api/bot-admins")
+async def admin_bot_admins_add(request: Request):
+    """将指定 UID 添加为 Bot 管理员。"""
+    import config as _cfg
+    body = await request.json()
+    uid = str(body.get("uid", "")).strip()
+    if not uid:
+        return JSONResponse({"ok": False, "error": "uid 不能为空"}, status_code=400)
+    if uid in _cfg.ADMIN_UIDS:
+        return JSONResponse({"ok": True, "message": "该用户已是管理员"})
+    _cfg.ADMIN_UIDS.append(uid)
+    _persist_admin_uids(_cfg.ADMIN_UIDS)
+    resolver = get_resolver()
+    name = resolver.user(uid) or uid[:12]
+    logger.info("Bot 管理员已添加: %s (%s)", name, uid[:12])
+    return JSONResponse({"ok": True, "message": f"已将 {name} 设为管理员"})
+
+
+@admin_router.delete("/admin/api/bot-admins/{uid}")
+def admin_bot_admins_remove(uid: str):
+    """移除指定 UID 的 Bot 管理员权限。"""
+    import config as _cfg
+    uid = uid.strip()
+    if uid not in _cfg.ADMIN_UIDS:
+        return JSONResponse({"ok": False, "error": "该用户不是管理员"}, status_code=404)
+    _cfg.ADMIN_UIDS.remove(uid)
+    _persist_admin_uids(_cfg.ADMIN_UIDS)
+    resolver = get_resolver()
+    name = resolver.user(uid) or uid[:12]
+    logger.info("Bot 管理员已移除: %s (%s)", name, uid[:12])
+    return JSONResponse({"ok": True, "message": f"已移除 {name} 的管理员权限"})
+
+
+def _persist_admin_uids(uids: list) -> None:
+    """将管理员列表持久化到 admin_runtime_config.json。"""
+    overrides = cfg.read_admin_overrides()
+    overrides["admin_uids"] = list(uids)
+    cfg.write_admin_overrides(overrides)
+
+
 @admin_router.post("/admin/api/members/{uid}/role")
 async def admin_member_role(uid: str, request: Request):
     sender = _get_sender()
@@ -1314,9 +1444,10 @@ def admin_channels_list(area: str = Query("")):
                 "name": ch.get("name", ""),
                 "group": group_name,
                 "type": ch_type,
+                "secret": bool(ch.get("secret")),
             })
 
-    resp = {"ok": True, "channels": channels}
+    resp = {"ok": True, "channels": channels, "area": resolved_area}
     _channels_cache.update(data=resp, ts=now, area=resolved_area)
     return JSONResponse(resp)
 
@@ -1538,6 +1669,73 @@ async def admin_channel_settings_edit(channel_id: str, request: Request):
 
 
 # ---------------------------------------------------------------------------
+# 频道可访问成员 API (私密频道)
+# ---------------------------------------------------------------------------
+
+@admin_router.get("/admin/api/channels/{channel_id}/accessible-members")
+def admin_channel_accessible_members(channel_id: str):
+    """返回频道当前的可访问成员列表（含名称）。"""
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    setting = sender.get_channel_setting_info(channel_id)
+    if isinstance(setting, dict) and "error" in setting:
+        return JSONResponse({"ok": False, "error": setting["error"]})
+    uids = list(setting.get("accessibleMembers") or [])
+    if not uids:
+        return JSONResponse({"ok": True, "members": []})
+    infos = sender.get_person_infos_batch(uids)
+    members = []
+    for uid in uids:
+        info = infos.get(uid, {})
+        members.append({
+            "uid": uid,
+            "name": info.get("name") or info.get("nickname") or uid[:8],
+            "avatar": info.get("avatar", ""),
+        })
+    return JSONResponse({"ok": True, "members": members})
+
+
+@admin_router.get("/admin/api/online-members")
+def admin_online_members(area: str = Query("")):
+    """返回域内当前在线成员（用于私密频道成员选择）。"""
+    sender = _get_sender()
+    if not sender:
+        return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
+    resolved_area = area.strip() or _resolve_area()
+    if not resolved_area:
+        return JSONResponse({"ok": False, "error": "未找到可用域 ID"})
+    all_members = []
+    for page_start in range(0, 200, 50):
+        result = sender.get_area_members(
+            area=resolved_area, offset_start=page_start,
+            offset_end=page_start + 49, quiet=True,
+        )
+        if "error" in result:
+            break
+        batch = result.get("members") or []
+        all_members.extend(batch)
+        if len(batch) < 50:
+            break
+    online_members = [m for m in all_members if m.get("online", 0) == 1]
+    uids = [m.get("uid", "") for m in online_members if m.get("uid")]
+    if not uids:
+        return JSONResponse({"ok": True, "members": []})
+    infos = sender.get_person_infos_batch(uids)
+    members = []
+    for m in online_members:
+        uid = m.get("uid", "")
+        if not uid:
+            continue
+        info = infos.get(uid, {})
+        members.append({
+            "uid": uid,
+            "name": info.get("name") or info.get("nickname") or uid[:8],
+        })
+    return JSONResponse({"ok": True, "members": members})
+
+
+# ---------------------------------------------------------------------------
 # 语音频道监控 API
 # ---------------------------------------------------------------------------
 
@@ -1622,9 +1820,11 @@ def admin_plugins_list():
     return JSONResponse({
         "ok": True,
         "loaded": loaded,
+        "plugins": loaded,
         "available": available,
         "loaded_count": len(loaded),
         "available_count": len(available),
+        "enabled_plugins": [item["name"] for item in loaded],
     })
 
 

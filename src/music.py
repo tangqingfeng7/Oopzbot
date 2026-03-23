@@ -5,6 +5,7 @@ import time
 import uuid
 import random
 import threading
+import copy
 from typing import Optional
 
 from oopz_sender import OopzSender
@@ -28,6 +29,11 @@ logger = get_logger("Music")
 
 _LIKED_PER_PAGE = 20
 _PLATFORM_NETEASE = "netease"
+PLAY_MODE_LIST = "list"
+PLAY_MODE_SINGLE = "single"
+PLAY_MODE_SHUFFLE = "shuffle"
+PLAY_MODE_AUTOPLAY = "autoplay"
+_VALID_PLAY_MODES = {PLAY_MODE_LIST, PLAY_MODE_SINGLE, PLAY_MODE_SHUFFLE, PLAY_MODE_AUTOPLAY}
 
 _PLATFORM_PREFIX_MAP = {
     "qq:": "qq",
@@ -62,6 +68,7 @@ class MusicHandler(PlaybackMixin):
     语音连接同一时刻只有一个（Agora 限制），通过 _voice_channel_area 标识当前所在域。"""
 
     def __init__(self, sender: OopzSender, voice: Optional[VoiceClient] = None):
+        self.supports_interactive_selection = True
         self.sender = sender
         self.voice = voice
         self.netease = NeteaseCloud()
@@ -92,7 +99,15 @@ class MusicHandler(PlaybackMixin):
     @property
     def queue(self) -> QueueManager:
         """向后兼容：未传 area 时使用当前语音域的队列，或全局默认队列。"""
+        override = getattr(self, "_queue_override", None)
+        if override is not None:
+            return override
         return self._get_queue(self._voice_channel_area or "")
+
+    @queue.setter
+    def queue(self, value) -> None:
+        """兼容测试注入 mock queue 的旧写法。"""
+        self._queue_override = value
 
     def _init_extra_platforms(self) -> None:
         """初始化并注册 QQ 音乐和 B 站平台（仅在配置启用时）。"""
@@ -283,6 +298,48 @@ class MusicHandler(PlaybackMixin):
     def play_netease(self, keyword: str, channel: str, area: str, user: str) -> None:
         """搜索网易云并播放或加入队列"""
         self.play_song(keyword, "netease", channel, area, user)
+
+    def search_candidates(self, keyword: str, platform: str = _PLATFORM_NETEASE, limit: int = 5) -> list[dict]:
+        """返回歌曲候选列表，用于交互式选择。"""
+        resolved_platform = platform or _PLATFORM_NETEASE
+        p = self.platforms.get(resolved_platform)
+        if not p:
+            return []
+        return p.search_many(keyword, limit=max(1, min(limit, 10)))
+
+    def play_song_choice(self, song: dict, channel: str, area: str, user: str) -> None:
+        """播放用户从候选列表中选中的歌曲。"""
+        platform = song.get("platform") or _PLATFORM_NETEASE
+        p = self.platforms.get(platform)
+        if not p:
+            self.sender.send_message(f"错误: 未知或未启用的音乐平台: {platform}", channel=channel, area=area)
+            return
+        song_id = song.get("id") or song.get("song_id") or song.get("mid")
+        result = p.summarize_by_id(song_id)
+        if result["code"] != "success":
+            self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
+            return
+        data = result["data"]
+        song_data = {
+            "platform": platform,
+            "song_id": str(data.get("id") or data.get("mid") or song_id),
+            "name": data["name"],
+            "artists": data["artists"],
+            "album": data.get("album", ""),
+            "url": data["url"],
+            "cover": data.get("cover"),
+            "duration": data.get("durationText", ""),
+            "duration_ms": data.get("duration", 0),
+            "attachments": [],
+            "channel": channel,
+            "area": area,
+            "user": user,
+        }
+        if not self._check_and_enter_voice_channel(user, channel, area):
+            return
+        user_name = self.names.user(user) if user else "未知用户"
+        result = self._commit_song_request(song_data, prefix=f"{user_name} 从搜歌结果中选择了")
+        self.sender.send_message(text=result["message"], attachments=result.get("attachments", []), channel=channel, area=area)
 
     def play_song(self, keyword: str, platform: str, channel: str, area: str, user: str) -> None:
         """通用的多平台点歌入口。"""
@@ -496,6 +553,67 @@ class MusicHandler(PlaybackMixin):
                 self.voice.stop_audio()
             self._leave_current_voice_channel()
         self.sender.send_message("已停止播放，Bot 已退出语音频道", channel=channel, area=area)
+
+    def get_play_mode(self) -> str:
+        """读取当前播放模式；未配置时默认列表循环。"""
+        q = self.queue
+        mode = q.get_play_mode() if hasattr(q, "get_play_mode") else None
+        if mode not in _VALID_PLAY_MODES:
+            mode = PLAY_MODE_LIST
+            if hasattr(q, "set_play_mode"):
+                q.set_play_mode(mode)
+        return mode
+
+    def set_play_mode(self, mode: str) -> None:
+        """设置播放模式。"""
+        if mode not in _VALID_PLAY_MODES:
+            raise ValueError(f"无效播放模式: {mode}")
+        if hasattr(self.queue, "set_play_mode"):
+            self.queue.set_play_mode(mode)
+
+    def _build_autoplay_song(self, current_song: dict | None) -> Optional[dict]:
+        uid = self.netease.get_user_id()
+        if not uid:
+            return None
+        if not self._liked_ids_cache:
+            self._liked_ids_cache = self.netease.get_liked_ids(uid)
+        if not self._liked_ids_cache:
+            return None
+        song_id = random.choice(self._liked_ids_cache)
+        result = self.netease.summarize_by_id(song_id)
+        if result["code"] != "success":
+            return None
+        data = result["data"]
+        inherited = current_song or {}
+        return {
+            "platform": _PLATFORM_NETEASE,
+            "song_id": str(song_id),
+            "name": data["name"],
+            "artists": data["artists"],
+            "album": data.get("album", ""),
+            "url": data["url"],
+            "cover": data.get("cover"),
+            "duration": data.get("durationText", ""),
+            "duration_ms": data.get("duration", 0),
+            "attachments": [],
+            "channel": inherited.get("channel", ""),
+            "area": inherited.get("area", ""),
+            "user": inherited.get("user", ""),
+        }
+
+    def _dequeue_next_song(self, natural_end: bool, current_song: dict | None) -> tuple[Optional[dict], str]:
+        """根据播放模式决定下一首歌。"""
+        mode = self.get_play_mode()
+        if natural_end and mode == PLAY_MODE_SINGLE and current_song:
+            return copy.deepcopy(current_song), PLAY_MODE_SINGLE
+        if mode == PLAY_MODE_SHUFFLE and hasattr(self.queue, "pop_random"):
+            return self.queue.pop_random(), "queue"
+        next_song = self.queue.play_next()
+        if next_song:
+            return next_song, "queue"
+        if natural_end and mode == PLAY_MODE_AUTOPLAY:
+            return self._build_autoplay_song(current_song), PLAY_MODE_AUTOPLAY
+        return None, mode
 
     # ------------------------------------------------------------------
     # 自动播放监控（在 main.py 中作为后台线程启动）
@@ -712,4 +830,3 @@ class MusicHandler(PlaybackMixin):
                 text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
 
         return {"code": "success", "message": text, "attachments": attachments}
-

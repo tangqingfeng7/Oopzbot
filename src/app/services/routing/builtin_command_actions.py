@@ -18,8 +18,8 @@ class CommunityCommandActions:
     def show_myinfo(self, channel: str, area: str, user: str) -> None:
         self._services.community.member.show_myinfo(channel, area, user)
 
-    def show_whois(self, target: str, channel: str, area: str) -> None:
-        self._services.community.member.show_whois(target, channel, area)
+    def show_whois(self, target: str, channel: str, area: str, user: str = "") -> None:
+        self._services.community.member.show_whois(target, channel, area, user)
 
     def show_user_roles(self, target: str, channel: str, area: str) -> None:
         self._services.community.role.show_user_roles(target, channel, area)
@@ -33,8 +33,8 @@ class CommunityCommandActions:
     def remove_role(self, target: str, role_name: str, channel: str, area: str) -> None:
         self._services.community.role.remove_role(target, role_name, channel, area)
 
-    def search_members(self, keyword: str, channel: str, area: str) -> None:
-        self._services.community.member.search_members(keyword, channel, area)
+    def search_members(self, keyword: str, channel: str, area: str, user: str = "") -> None:
+        self._services.community.member.search_members(keyword, channel, area, user)
 
 
 class InteractionCommandActions:
@@ -50,8 +50,14 @@ class InteractionCommandActions:
     def show_daily_speech(self, channel: str, area: str) -> None:
         self._services.interaction.common.show_daily_speech(channel, area)
 
-    def show_help(self, channel: str, area: str, user: str) -> None:
-        self._services.interaction.help.show_help(channel, area, user)
+    def show_help(self, channel: str, area: str, user: str, topic: str = "") -> None:
+        self._services.interaction.help.show_help(channel, area, user, topic)
+
+    def show_health_check(self, channel: str, area: str) -> None:
+        self._services.interaction.setup.show_health_check(channel, area)
+
+    def show_setup_wizard(self, channel: str, area: str) -> None:
+        self._services.interaction.setup.show_setup_wizard(channel, area)
 
     def generate_image(self, prompt: str, channel: str, area: str, user: str) -> None:
         self._services.interaction.common.generate_image(prompt, channel, area, user)

@@ -158,6 +158,29 @@ def get_plugin_host():
     return _plugin_host
 
 
+def register_runtime_dependencies(*, music=None, plugins=None, plugin_host=None) -> None:
+    """兼容旧测试/调用方的运行时依赖注入入口。"""
+    if plugins is not None:
+        set_plugin_runtime(plugins, plugin_host)
+
+
+def _admin_enabled() -> bool:
+    return cfg.admin_enabled()
+
+
+def _is_admin_authorized(request: Request) -> bool:
+    if not _admin_enabled():
+        return False
+    cookie_token = request.cookies.get(cfg.admin_cookie_name(), "")
+    if not cookie_token:
+        return False
+    try:
+        active_token = get_redis().get(cfg.admin_session_key(cookie_token))
+    except Exception:
+        active_token = None
+    return bool(active_token)
+
+
 # ---------------------------------------------------------------------------
 # 启动时加载后台配置覆盖
 # ---------------------------------------------------------------------------
@@ -197,16 +220,9 @@ async def _auth_web_api(request: Request, call_next):
         if not active or not secrets.compare_digest(client_token, active):
             return JSONResponse({"ok": False, "error": "未授权或链接已失效"}, status_code=403)
     if path.startswith("/admin/api/") and path not in {"/admin/api/login"}:
-        if not cfg.admin_enabled():
+        if not _admin_enabled():
             return JSONResponse({"ok": False, "error": "管理后台未启用"}, status_code=404)
-        cookie_token = request.cookies.get(cfg.admin_cookie_name(), "")
-        if not cookie_token:
-            return JSONResponse({"ok": False, "error": "后台未登录或会话失效"}, status_code=401)
-        try:
-            active_token = get_redis().get(cfg.admin_session_key(cookie_token))
-        except Exception:
-            active_token = None
-        if not active_token:
+        if not _is_admin_authorized(request):
             return JSONResponse({"ok": False, "error": "后台未登录或会话失效"}, status_code=401)
     return await call_next(request)
 

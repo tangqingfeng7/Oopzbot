@@ -532,14 +532,18 @@ GET /client/v1/area/v1/detail/v1/channels?area={area}
       {
         "id": "频道ID",
         "name": "频道名称",
-        "type": "TEXT"
+        "type": "TEXT",
+        "secret": false
       }
     ]
   }
 ]
 ```
 
-`type` 可选值：`TEXT`（文字频道）、`VOICE`（语音频道）
+| 字段 | 说明 |
+|------|------|
+| `type` | `TEXT`（文字频道）、`VOICE`（语音频道） |
+| `secret` | 是否为私密频道（由 `accessControlEnabled` 派生） |
 
 ### 创建频道
 
@@ -574,7 +578,7 @@ POST /client/v1/area/v1/channel/v1/create
 }
 ```
 
-**说明：** 需域内管理员权限。`group` 为频道所在分组 ID（可从「获取域频道列表」响应中的分组 `id` 取得）。可选字段 `vender`、`maxMember`（不传时由服务端默认）。
+**说明：** 需域内管理员权限。`group` 为频道所在分组 ID（可从「获取域频道列表」响应中的分组 `id` 取得）。可选字段 `vender`、`maxMember`（不传时由服务端默认）。`secret` 控制创建时是否为私密频道。
 
 ### 复制频道
 
@@ -619,7 +623,7 @@ GET /area/v3/channel/setting/info?channel={channel}
 |------|------|
 | `channel` | 频道 ID |
 
-**说明：** Web 端抓包中仅要求 `channel`。返回频道当前设置（名称、权限、文字/语音控制、人数上限、密码等），用于编辑前拉取。
+**说明：** Web 端抓包中仅要求 `channel`。返回频道当前设置（名称、权限、文字/语音控制、人数上限、密码等），用于编辑前拉取。响应 `data` 的字段与编辑接口请求体一致（含 `secret`、`accessControlEnabled`、`accessibleMembers` 等）。注意：部分字段可能在频道未配置时缺失，使用时应设置默认值。
 
 ### 编辑频道设置（频道权限）
 
@@ -651,7 +655,36 @@ POST /area/v3/channel/setting/edit
 }
 ```
 
-**说明：** 需域内管理员权限。用于配置频道名称、文字/语音发言权限（按角色或成员）、访问控制、人数上限、密码等。`textRoles` / `voiceRoles` 为有发言权限的角色 ID 列表；`accessibleMembers` 为有访问权限的成员 UID 列表（当 `accessControlEnabled`/`accessible` 启用时）。
+**字段说明：**
+
+| 字段 | 类型 | 说明 |
+|------|------|------|
+| `channel` | string | 频道 ID |
+| `area` | string | 域 ID |
+| `name` | string | 频道名称 |
+| `textGapSecond` | int | 慢速模式间隔（秒），0 为关闭 |
+| `voiceQuality` | string | 语音质量：`32k` / `64k` / `128k` |
+| `voiceDelay` | string | 语音延迟：`LOW` / `NORMAL` / `HIGH` |
+| `maxMember` | int | 人数上限，默认 30000 |
+| `voiceControlEnabled` | bool | 是否启用语音发言权限控制 |
+| `textControlEnabled` | bool | 是否启用文字发言权限控制 |
+| `textRoles` | int[] | 有文字发言权限的角色 ID 列表 |
+| `voiceRoles` | int[] | 有语音发言权限的角色 ID 列表 |
+| `accessControlEnabled` | bool | 是否启用访问控制（私密频道核心字段） |
+| `accessible` | array | 有访问权限的身份组 |
+| `accessibleMembers` | string[] | 有访问权限的成员 UID 列表 |
+| `secret` | bool | 频道是否标记为私密 |
+| `hasPassword` | bool | 是否启用频道密码 |
+| `password` | string | 频道密码（仅 `hasPassword` 为 true 时有效） |
+
+**说明：** 需域内管理员权限。所有字段均为必填（`accessible` 为必填字段，缺少会返回验证错误）。
+
+> **重要：`secret` 与 `accessControlEnabled` 的关系**
+>
+> 经实测，`secret` 是由平台根据 `accessControlEnabled` 派生的只读字段。当 `accessControlEnabled` 为 `true` 时，平台会强制 `secret` 为 `true`，忽略请求中显式传入的 `secret: false`。因此：
+> - 要将频道设为私密：需设置 `accessControlEnabled: true`（`secret` 会自动变为 `true`）
+> - 要取消私密：需设置 `accessControlEnabled: false` 并清空 `accessible` / `accessibleMembers`
+> - 单独修改 `secret` 而不同步 `accessControlEnabled` 不会生效
 
 ### 搜索可添加的私密成员
 

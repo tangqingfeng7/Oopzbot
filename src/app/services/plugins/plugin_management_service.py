@@ -30,9 +30,13 @@ class PluginManagementService:
         loaded_names = {item.name for item in loaded}
         available = [name for name in discovered if name not in loaded_names]
 
-        lines = ["插件状态", "---"]
-
-        lines.append(f"**插件** (已加载 {len(loaded)}, 可加载 {len(available)})")
+        lines = [
+            "插件状态",
+            "---",
+            f"已加载: {len(loaded)}",
+            f"可加载: {len(available)}",
+            f"**插件** (已加载 {len(loaded)}, 可加载 {len(available)})",
+        ]
         if loaded:
             for item in loaded:
                 lines.extend(format_plugin_status_lines(item))
@@ -97,4 +101,3 @@ class PluginManagementService:
             channel=channel,
             area=area,
         )
-

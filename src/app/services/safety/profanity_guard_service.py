@@ -156,7 +156,11 @@ class ProfanityGuardService:
 
         if PROFANITY_CONFIG.get("warn_before_mute"):
             now = time.time()
-            prev_count, _ = self._warnings.get(user, (0, 0.0))
+            raw_warning = self._warnings.get(user, (0, 0.0))
+            if isinstance(raw_warning, tuple):
+                prev_count, _ = raw_warning
+            else:
+                prev_count = int(raw_warning or 0)
             count = prev_count + 1
             self._warnings[user] = (count, now)
             if count < 2:

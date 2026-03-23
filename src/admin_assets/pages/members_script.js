@@ -136,9 +136,12 @@
           var avatarHtml = m.avatar
             ? '<img src="' + esc(m.avatar) + '" style="width:32px;height:32px;border-radius:50%;object-fit:cover;flex-shrink:0" loading="lazy" onerror="this.style.display=\'none\'">'
             : '<div style="width:32px;height:32px;border-radius:50%;background:var(--bg-soft);flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:14px;color:var(--ink-faint)">?</div>';
+          var adminTag = m.is_bot_admin
+            ? '<span class="m-role-badge m-role-badge--admin">管理员</span> '
+            : '';
           var roleHtml = m.roleName
-            ? '<span class="m-role-badge">' + esc(m.roleName) + '</span>'
-            : '<span style="color:var(--ink-faint);font-size:11px">-</span>';
+            ? adminTag + '<span class="m-role-badge">' + esc(m.roleName) + '</span>'
+            : adminTag || '<span style="color:var(--ink-faint);font-size:11px">-</span>';
           return (
             "<tr>" +
               '<td>' +
@@ -276,8 +279,21 @@
         }
         AdminShell.byId("detailInfo").innerHTML = info;
 
+        // admin badge
+        var adminBadge = '';
+        if (data.is_bot_admin) {
+          adminBadge = '<span class="m-badge m-badge--admin" style="margin-top:6px">Bot 管理员</span>';
+        }
+        var profileEl = AdminShell.byId("detailProfile");
+        profileEl.innerHTML += adminBadge;
+
         // action buttons
         var actions = '';
+        if (data.is_bot_admin) {
+          actions += '<button class="btn btn-ghost m-btn--admin-revoke" onclick="doRemoveAdmin(\'' + esc(uid) + '\')">撤销管理员</button>';
+        } else {
+          actions += '<button class="btn btn-ghost m-btn--admin-grant" onclick="doGrantAdmin(\'' + esc(uid) + '\')">设为管理员</button>';
+        }
         if (data.muted) {
           actions += '<button class="btn btn-ghost" onclick="doUnmute(\'' + esc(uid) + '\')">解除禁言</button>';
         } else {
@@ -439,6 +455,32 @@
         showDetail(uid);
         loadMembers();
       } catch (e) { setPageState("移除角色失败: " + e.message, "error"); }
+    }
+
+    /* ========= Bot 管理员操作 ========= */
+
+    async function doGrantAdmin(uid) {
+      var ok = await confirmAction("设为管理员", "确认将该用户设为 <strong>Bot 管理员</strong>？管理员可执行所有管理命令。");
+      if (!ok) return;
+      try {
+        await AdminShell.req("/admin/api/bot-admins", {
+          method: "POST", body: JSON.stringify({ uid: uid }),
+        });
+        setPageState("已设为管理员", "success");
+        showDetail(uid);
+        loadMembers();
+      } catch (e) { setPageState("设置管理员失败: " + e.message, "error"); }
+    }
+
+    async function doRemoveAdmin(uid) {
+      var ok = await confirmAction("撤销管理员", "确认<strong>撤销</strong>该用户的 Bot 管理员权限？");
+      if (!ok) return;
+      try {
+        await AdminShell.req("/admin/api/bot-admins/" + uid, { method: "DELETE" });
+        setPageState("已撤销管理员", "success");
+        showDetail(uid);
+        loadMembers();
+      } catch (e) { setPageState("撤销管理员失败: " + e.message, "error"); }
     }
 
     /* ========= 封禁列表 ========= */

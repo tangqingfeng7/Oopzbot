@@ -11,6 +11,10 @@ class MemberService:
         self._runtime = runtime
         self._sender = sender_of(runtime)
 
+    def _selection_service(self):
+        interaction = getattr(self._runtime.services, "interaction", None)
+        return getattr(interaction, "selection", None)
+
     def show_members(self, channel: str, area: str) -> None:
         """查询域内成员并展示在线状态。"""
         resolver = get_resolver()
@@ -147,13 +151,8 @@ class MemberService:
 
         self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
-    def show_whois(self, target: str, channel: str, area: str) -> None:
-        """查看他人完整详细资料。"""
-        uid = self._runtime.services.community.target_resolution.resolve_target(target, area=area)
-        if not uid:
-            self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
-            return
-
+    def _show_whois_by_uid(self, uid: str, channel: str, area: str) -> None:
+        """按 UID 展示用户详细资料。"""
         data = self._sender.get_person_detail_full(uid)
         if "error" in data:
             self._sender.send_message(f"查询资料失败: {data['error']}", channel=channel, area=area)
@@ -195,7 +194,37 @@ class MemberService:
 
         self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
-    def search_members(self, keyword: str, channel: str, area: str) -> None:
+    def show_whois(self, target: str, channel: str, area: str, user: str = "") -> None:
+        """查看他人完整详细资料。"""
+        target_resolution = self._runtime.services.community.target_resolution
+        uid = target_resolution.resolve_target(target, area=area)
+        if not uid:
+            candidates_raw = target_resolution.resolve_target_candidates(target, area=area, limit=5)
+            candidates = candidates_raw if isinstance(candidates_raw, list) else []
+            if candidates:
+                selection = self._selection_service()
+                if selection:
+                    selection.store(
+                        user=user,
+                        channel=channel,
+                        area=area,
+                        kind="member",
+                        query=target,
+                        items=candidates,
+                    )
+                    lines = [f'找到多个匹配 "{target}" 的成员，请发送 `选择 <编号>` 继续:']
+                else:
+                    lines = [f'找到多个匹配 "{target}" 的成员:']
+                for index, candidate in enumerate(candidates, 1):
+                    lines.append(f"  {index}. {candidate['name']} ({candidate['uid'][:8]})")
+                self._sender.send_message("\n".join(lines), channel=channel, area=area)
+                return
+            self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
+            return
+
+        self._show_whois_by_uid(uid, channel, area)
+
+    def search_members(self, keyword: str, channel: str, area: str, user: str = "") -> None:
         """搜索域内成员。"""
         resolver = get_resolver()
         members = self._sender.search_area_members(area=area, keyword=keyword)
@@ -204,9 +233,12 @@ class MemberService:
             return
 
         lines = [f'搜索 "{keyword}" - 找到 {len(members)} 人', "---"]
+        selection_items = []
         for member in members[:20]:
             uid = member.get("uid", "")
             name = resolver.user(uid)
+            if uid:
+                selection_items.append({"uid": uid, "name": name})
             roles_info = member.get("roleInfos", [])
             role_names = [role.get("name", "") for role in roles_info if role.get("name")]
             role_str = f" [{', '.join(role_names)}]" if role_names else ""
@@ -219,4 +251,39 @@ class MemberService:
         if len(members) > 20:
             lines.append(f"  ... 还有 {len(members) - 20} 人")
 
+        if selection_items:
+            selection = self._selection_service()
+            if selection:
+                selection.store(
+                    user=user,
+                    channel=channel,
+                    area=area,
+                    kind="member",
+                    query=keyword,
+                    items=selection_items,
+                )
+                lines.append("")
+                lines.append("发送 `@bot 选择 <编号>` 或 `/pick <编号>` 查看对应成员资料")
+
         self._sender.send_message("\n".join(lines), channel=channel, area=area)
+
+    def handle_pick(self, index: int, channel: str, area: str, user: str) -> bool:
+        """处理成员候选编号选择。"""
+        selection_service = self._selection_service()
+        if not selection_service:
+            return False
+        selection, item = selection_service.pick(user, channel, area, index)
+        if not selection or selection.kind != "member":
+            return False
+        if not item:
+            self._sender.send_message(f"编号超出范围，请输入 1-{len(selection.items)}", channel=channel, area=area)
+            return True
+
+        uid = item.get("uid", "")
+        if not uid:
+            self._sender.send_message("候选结果无效，请重新搜索", channel=channel, area=area)
+            return True
+
+        selection_service.clear(user, channel, area)
+        self._show_whois_by_uid(uid, channel, area)
+        return True

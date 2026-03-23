@@ -1,7 +1,12 @@
-from typing import Optional
+from __future__ import annotations
+
+from typing import TYPE_CHECKING, Optional
 
 from app.services.runtime import CommandRuntimeView, chat_of, sender_of
 from logger_config import get_logger
+
+if TYPE_CHECKING:
+    from conversation_memory import ConversationMemory
 
 logger = get_logger("ChatInteractionService")
 
@@ -13,7 +18,7 @@ class ChatInteractionService:
         self._runtime = runtime
         self._sender = sender_of(runtime)
         self._chat = chat_of(runtime)
-        self._memory: Optional["ConversationMemory"] = None  # noqa: F821
+        self._memory: Optional[ConversationMemory] = None
         self._memory_init = False
 
     def _ensure_memory(self):
@@ -61,6 +66,15 @@ class ChatInteractionService:
 
         self._sender.send_message("我没听懂，输入 @bot 帮助 查看指令", channel=channel, area=area)
 
+    def send_unknown_mention_command(self, text: str, channel: str, area: str, suggestions: list[str] | None = None) -> None:
+        """发送未知 @bot 命令提示，不直接落到 AI。"""
+        lines = [f"未识别的命令: {text}", "输入 @bot 帮助 查看分类帮助"]
+        if suggestions:
+            lines.append("你是不是想用:")
+            for item in suggestions:
+                lines.append(f"  {item}")
+        self._sender.send_message("\n".join(lines), channel=channel, area=area)
+
     def clear_memory(self, user: str, channel: str) -> bool:
         """清除指定用户在指定频道的对话记忆。"""
         self._ensure_memory()
@@ -75,10 +89,11 @@ class ChatInteractionService:
             return self._memory.clear_user(user)
         return 0
 
-    def send_unknown_command(self, command: str, channel: str, area: str) -> None:
+    def send_unknown_command(self, command: str, channel: str, area: str, suggestions: list[str] | None = None) -> None:
         """发送未知斜杠命令提示。"""
-        self._sender.send_message(
-            f"未知命令: {command}\n输入 /help 查看帮助",
-            channel=channel,
-            area=area,
-        )
+        lines = [f"未知命令: {command}", "输入 /help 查看帮助"]
+        if suggestions:
+            lines.append("你是不是想用:")
+            for item in suggestions:
+                lines.append(f"  {item}")
+        self._sender.send_message("\n".join(lines), channel=channel, area=area)

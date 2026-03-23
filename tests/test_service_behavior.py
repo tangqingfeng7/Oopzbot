@@ -608,6 +608,19 @@ class HelpServiceTest(unittest.TestCase):
         message = self.sender.send_message.call_args.args[0]
         self.assertNotIn("AI 功能", message)
 
+    def test_show_help_can_render_topic_view(self) -> None:
+        from app.services.interaction.help_service import HelpService
+
+        self.access.is_admin.return_value = False
+        self.plugins.list_command_descriptors.return_value = []
+
+        service = HelpService(self.handler)
+        service.show_help("channel-1", "area-1", user="user-1", topic="音乐")
+
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("帮助 - 音乐", message)
+        self.assertIn("选歌", message)
+
 
 class PluginManagementServiceTest(unittest.TestCase):
     def setUp(self) -> None:
@@ -960,6 +973,123 @@ class MusicCommandServiceTest(unittest.TestCase):
         self.assertFalse(result)
         self.music.play_liked.assert_not_called()
         self.sender.send_message.assert_not_called()
+
+
+class MusicCommandInteractiveSelectionTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sender = Mock()
+        self.selection = Mock()
+        self.music = Mock()
+        self.music.supports_interactive_selection = True
+        self.handler = SimpleNamespace(
+            infrastructure=SimpleNamespace(sender=self.sender, music=self.music),
+            services=SimpleNamespace(
+                interaction=SimpleNamespace(selection=self.selection),
+            ),
+        )
+
+    def test_search_candidates_stores_song_choices(self) -> None:
+        from app.services.interaction.music_command_service import MusicCommandService
+
+        self.music.search_candidates.return_value = [
+            {"id": 1, "name": "稻香", "artists": "周杰伦", "durationText": "3:42"},
+            {"id": 2, "name": "稻香 (Live)", "artists": "周杰伦", "durationText": "4:01"},
+        ]
+
+        service = MusicCommandService(self.handler)
+        service.search_candidates("稻香", "channel-1", "area-1", "user-1")
+
+        self.selection.store.assert_called_once()
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("搜歌", message)
+        self.assertIn("选择", message)
+
+    def test_handle_pick_plays_selected_song(self) -> None:
+        from app.services.interaction.music_command_service import MusicCommandService
+
+        self.selection.pick.return_value = (
+            SimpleNamespace(kind="song", items=[{"id": 1}]),
+            {"id": 1, "name": "稻香", "artists": "周杰伦", "platform": "netease"},
+        )
+
+        service = MusicCommandService(self.handler)
+        result = service.handle_pick(1, "channel-1", "area-1", "user-1")
+
+        self.assertTrue(result)
+        self.music.play_song_choice.assert_called_once_with(
+            {"id": 1, "name": "稻香", "artists": "周杰伦", "platform": "netease"},
+            "channel-1",
+            "area-1",
+            "user-1",
+        )
+        self.selection.clear.assert_called_once_with("user-1", "channel-1", "area-1")
+
+
+class SetupServiceTest(unittest.TestCase):
+    def setUp(self) -> None:
+        self.sender = Mock()
+        self.plugins = Mock()
+        self.handler = SimpleNamespace(
+            infrastructure=SimpleNamespace(sender=self.sender),
+            plugins=self.plugins,
+        )
+
+    def test_show_health_check_reports_failures_and_next_steps(self) -> None:
+        from app.services.interaction.setup_service import SetupService
+
+        service = SetupService(self.handler)
+        fake_report = {
+            "status": "fail",
+            "summary": {"pass": 2, "warn": 1, "fail": 1, "info": 0},
+            "checks": [
+                {"level": "fail", "title": "Redis 连接", "summary": "Redis 无法连接"},
+                {"level": "warn", "title": "默认域与频道", "summary": "默认域与频道未配置"},
+            ],
+            "wizard_steps": [],
+        }
+        with patch.object(service, "build_report", return_value=fake_report):
+            service.show_health_check("channel-1", "area-1")
+
+        self.sender.send_message.assert_called_once()
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("系统体检", message)
+        self.assertIn("Redis 无法连接", message)
+        self.assertIn("@bot 首启向导", message)
+        self.assertIn("/admin/setup", message)
+
+    def test_show_setup_wizard_formats_steps(self) -> None:
+        from app.services.interaction.setup_service import SetupService
+
+        service = SetupService(self.handler)
+        fake_report = {
+            "wizard_steps": [
+                {
+                    "status": "blocked",
+                    "title": "设置后台安全与持久化",
+                    "description": "先保证密码和写权限可用。",
+                    "summary": "后台密码未配置",
+                    "actions": ["前往配置中心设置 admin_password"],
+                    "page": "/admin/config",
+                },
+                {
+                    "status": "done",
+                    "title": "打通基础运行时",
+                    "description": "Redis 与数据库已就绪。",
+                    "summary": "Redis 连接正常",
+                    "actions": [],
+                    "page": "/admin/system",
+                },
+            ]
+        }
+        with patch.object(service, "build_report", return_value=fake_report):
+            service.show_setup_wizard("channel-1", "area-1")
+
+        self.sender.send_message.assert_called_once()
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("首启向导", message)
+        self.assertIn("设置后台安全与持久化", message)
+        self.assertIn("前往配置中心设置 admin_password", message)
+        self.assertIn("/health", message)
 
 
 if __name__ == "__main__":

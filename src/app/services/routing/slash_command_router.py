@@ -10,6 +10,7 @@ class SlashCommandRouter:
         self._sender = sender_of(runtime)
         self._plugins = plugins_of(runtime)
         self._actions = build_builtin_command_actions(runtime)
+        self._current_user = ""
 
     def _rest(self, parts: list[str]) -> str:
         return " ".join(parts[1:]).strip()
@@ -68,12 +69,13 @@ class SlashCommandRouter:
 
     def _exact_rules(self, channel: str, area: str, user: str, raw: str):
         return (
-            (("/help",), lambda: self._actions.interaction.show_help(channel, area, user)),
             (("/members", "/online"), lambda: self._actions.community.show_members(channel, area)),
             (("/me",), lambda: self._actions.community.show_profile(channel, area, user)),
             (("/myinfo",), lambda: self._actions.community.show_myinfo(channel, area, user)),
             (("/voice",), lambda: self._actions.interaction.show_voice_channels(channel, area)),
             (("/daily", "/quote"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
+            (("/health", "/doctor"), lambda: self._actions.interaction.show_health_check(channel, area)),
+            (("/setup", "/wizard"), lambda: self._actions.interaction.show_setup_wizard(channel, area)),
             (("/禁言", "/mute"), lambda: self._actions.moderation.mute_user(raw, channel, area, "用法: /禁言 谁 10")),
             (("/解禁", "/unmute"), lambda: self._actions.moderation.unmute_user(raw, channel, area, "用法: /解禁 谁")),
             (("/禁麦", "/mutemic"), lambda: self._actions.moderation.mute_mic(raw, channel, area, "用法: /禁麦 谁")),
@@ -99,11 +101,14 @@ class SlashCommandRouter:
 
     def _arg_rules(self, channel: str, area: str):
         return (
-            (("/whois",), lambda target: self._actions.community.show_whois(target, channel, area), "用法: /whois 用户名"),
+            (("/whois",), lambda target: self._actions.community.show_whois(target, channel, area, self._current_user), "用法: /whois 用户名"),
             (("/role",), lambda target: self._actions.community.show_user_roles(target, channel, area), "用法: /role 用户名"),
             (("/roles",), lambda target: self._actions.community.show_assignable_roles(target, channel, area), "用法: /roles 用户名"),
-            (("/search",), lambda keyword: self._actions.community.search_members(keyword, channel, area), "用法: /search 关键词"),
+            (("/search",), lambda keyword: self._actions.community.search_members(keyword, channel, area, self._current_user), "用法: /search 关键词"),
+            (("/help",), lambda topic: self._actions.interaction.show_help(channel, area, self._current_user, topic), "用法: /help 音乐"),
             (("/enter",), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: /enter 频道ID"),
+            (("/songsearch",), lambda keyword: self._services.interaction.music.search_candidates(keyword, channel, area, self._current_user), "用法: /songsearch 关键词"),
+            (("/pick",), lambda raw: self._handle_pick(raw, channel, area, self._current_user), "用法: /pick <编号>"),
         )
 
     def _pair_rules(self, channel: str, area: str):
@@ -121,6 +126,7 @@ class SlashCommandRouter:
         )
 
     def dispatch(self, content: str, channel: str, area: str, user: str) -> None:
+        self._current_user = user
         parts = content.split()
         if not parts:
             return
@@ -148,7 +154,7 @@ class SlashCommandRouter:
                 if usage is not None and self._dispatch_required_arg(command, aliases, raw, callback, usage, channel, area):
                     return
 
-        if self._dispatch_exact(command, ("/help",), lambda: self._actions.interaction.show_help(channel, area, user)):
+        if not raw and self._dispatch_exact(command, ("/help",), lambda: self._actions.interaction.show_help(channel, area, user)):
             return
         if self._services.interaction.music.handle_slash(command, subcommand, arg, parts, channel, area, user):
             return
@@ -220,4 +226,21 @@ class SlashCommandRouter:
                 self._sender.send_message("当前没有对话记忆", channel=channel, area=area)
             return
 
-        self._services.interaction.chat.send_unknown_command(command, channel, area)
+        self._services.interaction.chat.send_unknown_command(
+            command,
+            channel,
+            area,
+            suggestions=self._services.interaction.help.suggest_commands(command),
+        )
+
+    def _handle_pick(self, raw: str, channel: str, area: str, user: str) -> None:
+        token = (raw or "").strip()
+        if not token.isdigit():
+            self._sender.send_message("用法: /pick <编号>", channel=channel, area=area)
+            return
+        index = int(token)
+        if self._services.interaction.music.handle_pick(index, channel, area, user):
+            return
+        if self._services.community.member.handle_pick(index, channel, area, user):
+            return
+        self._sender.send_message("当前没有可选择的候选结果，请先搜索或搜歌", channel=channel, area=area)

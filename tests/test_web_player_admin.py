@@ -93,6 +93,7 @@ class WebPlayerAdminTest(unittest.TestCase):
             "/admin/config",
             "/admin/stats",
             "/admin/system",
+            "/admin/setup",
         ]
 
         with patch.object(self.module, "_admin_enabled", return_value=True):
@@ -106,6 +107,59 @@ class WebPlayerAdminTest(unittest.TestCase):
                     self.assertIn('id="topNav"', response.text)
                     self.assertIn('id="mobileNav"', response.text)
                     self.assertIn('id="topStatus"', response.text)
+
+    def test_setup_diagnostics_api_returns_report_when_logged_in(self) -> None:
+        fake_report = {
+            "status": "warn",
+            "summary": {"pass": 3, "warn": 1, "fail": 0, "info": 1},
+            "checks": [{"id": "redis", "level": "pass", "title": "Redis 连接", "summary": "Redis 连接正常"}],
+            "wizard_steps": [{"id": "runtime", "status": "done", "title": "打通基础运行时"}],
+            "first_run_needed": True,
+            "quick_links": [],
+        }
+
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch("web_player_admin.SetupDiagnostics") as diagnostics_cls,
+        ):
+            diagnostics_cls.return_value.build_report.return_value = fake_report
+            response = self.client.get("/admin/api/setup/diagnostics")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertEqual(data["status"], "warn")
+        self.assertEqual(data["summary"]["warn"], 1)
+        self.assertEqual(data["checks"][0]["title"], "Redis 连接")
+
+    def test_scheduled_message_templates_api_returns_items_when_logged_in(self) -> None:
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+        ):
+            response = self.client.get("/admin/api/scheduled-message-templates")
+
+        self.assertEqual(response.status_code, 200)
+        data = response.json()
+        self.assertTrue(data["ok"])
+        self.assertTrue(len(data["items"]) >= 1)
+        self.assertIn("key", data["items"][0])
+
+    def test_scheduled_message_template_apply_creates_task(self) -> None:
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch("web_player_admin.ScheduledMessageDB.create", return_value=99) as create_task,
+        ):
+            response = self.client.post(
+                "/admin/api/scheduled-message-templates/morning/apply",
+                json={"channel_id": "channel-1", "area_id": "area-1"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["id"], 99)
+        create_task.assert_called_once()
 
 
 if __name__ == "__main__":

@@ -60,12 +60,19 @@ class TargetResolutionService:
 
     def _resolve_from_area_members(self, name: str, area: Optional[str]) -> Optional[str]:
         """在当前域内做一次安全的模糊匹配，只接受唯一命中。"""
+        candidates = self.resolve_target_candidates(name, area=area, limit=10)
+        if len(candidates) == 1:
+            return candidates[0]["uid"]
+        return None
+
+    def resolve_target_candidates(self, name: str, area: Optional[str] = None, limit: int = 5) -> list[dict]:
+        """在当前域内返回候选用户列表，用于交互式选择。"""
         if not area:
-            return None
+            return []
 
         uids = self._collect_area_member_uids(area)
         if not uids:
-            return None
+            return []
 
         resolver = get_resolver()
         names = resolver.ensure_users(uids) if hasattr(resolver, "ensure_users") else {}
@@ -77,21 +84,30 @@ class TargetResolutionService:
             candidates.append((uid, display_name))
 
         if not candidates:
-            return None
+            return []
 
-        exact_matches = [uid for uid, display_name in candidates if display_name and display_name.lower() == keyword]
-        if len(exact_matches) == 1:
-            return exact_matches[0]
+        exact_matches = [
+            {"uid": uid, "name": display_name}
+            for uid, display_name in candidates
+            if display_name and display_name.lower() == keyword
+        ]
+        if exact_matches:
+            return exact_matches[:limit]
 
-        prefix_matches = [uid for uid, display_name in candidates if display_name and display_name.lower().startswith(keyword)]
-        if len(prefix_matches) == 1:
-            return prefix_matches[0]
+        prefix_matches = [
+            {"uid": uid, "name": display_name}
+            for uid, display_name in candidates
+            if display_name and display_name.lower().startswith(keyword)
+        ]
+        if prefix_matches:
+            return prefix_matches[:limit]
 
-        contains_matches = [uid for uid, display_name in candidates if display_name and keyword in display_name.lower()]
-        if len(contains_matches) == 1:
-            return contains_matches[0]
-
-        return None
+        contains_matches = [
+            {"uid": uid, "name": display_name}
+            for uid, display_name in candidates
+            if display_name and keyword in display_name.lower()
+        ]
+        return contains_matches[:limit]
 
     def resolve_target(self, text: str, area: Optional[str] = None) -> Optional[str]:
         """从 @mention、UID 或用户名中解析目标用户 UID。"""

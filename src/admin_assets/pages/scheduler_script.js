@@ -41,6 +41,49 @@
       AdminShell.byId("scheduledRows").innerHTML = rows;
     }
 
+    function setCreateFormFromTemplate(item) {
+      AdminShell.byId("schName").value = item.name || "";
+      AdminShell.byId("schHour").value = item.cron_hour ?? 8;
+      AdminShell.byId("schMinute").value = item.cron_minute ?? 0;
+      AdminShell.byId("schWeekdays").value = item.weekdays || "0,1,2,3,4,5,6";
+      AdminShell.byId("schText").value = item.message_text || "";
+      AdminShell.showMessage("createMsg", "模板已套用到表单，可继续修改后创建");
+    }
+
+    function renderTemplateCards(items) {
+      var root = AdminShell.byId("templateCards");
+      if (!root) {
+        return;
+      }
+      if (!items || !items.length) {
+        root.innerHTML = '<div class="empty-state">暂无定时任务模板</div>';
+        return;
+      }
+      root.innerHTML = items.map(function (item) {
+        var time = String(item.cron_hour).padStart(2, "0") + ":" + String(item.cron_minute).padStart(2, "0");
+        return (
+          '<article class="surface-card">' +
+            '<div class="section-head">' +
+              '<div>' +
+                '<p class="section-eyebrow">TEMPLATE</p>' +
+                '<h3 class="section-title">' + escapeHtml(item.name) + '</h3>' +
+              '</div>' +
+              '<span class="micro-status is-neutral">' + escapeHtml(item.key) + '</span>' +
+            '</div>' +
+            '<div class="stack">' +
+              '<div>' + escapeHtml(item.description || "") + '</div>' +
+              '<div>时间: ' + time + ' | ' + weekdaysLabel(item.weekdays) + '</div>' +
+              '<div>内容: ' + escapeHtml((item.message_text || "").slice(0, 80)) + '</div>' +
+              '<div class="action-row">' +
+                '<button class="btn btn-ghost" type="button" onclick="useTemplateToForm(\'' + escapeHtml(item.key) + '\')">套用到表单</button>' +
+                '<button class="btn btn-primary" type="button" onclick="createFromTemplate(\'' + escapeHtml(item.key) + '\')">一键创建</button>' +
+              '</div>' +
+            '</div>' +
+          '</article>'
+        );
+      }).join("");
+    }
+
     function renderReminderTable(items) {
       if (!items || !items.length) {
         AdminShell.byId("reminderRows").innerHTML =
@@ -64,10 +107,55 @@
       var scheduled = await AdminShell.req("/admin/api/scheduled-messages");
       renderScheduledTable(scheduled.items || []);
 
+      var templates = await AdminShell.req("/admin/api/scheduled-message-templates");
+      renderTemplateCards(templates.items || []);
+
       var reminders = await AdminShell.req("/admin/api/reminders");
       renderReminderTable(reminders.items || []);
 
       setPageState("列表已同步", "success");
+    }
+
+    async function loadTemplateMap() {
+      var templates = await AdminShell.req("/admin/api/scheduled-message-templates");
+      return (templates.items || []).reduce(function (acc, item) {
+        acc[item.key] = item;
+        return acc;
+      }, {});
+    }
+
+    async function useTemplateToForm(templateKey) {
+      try {
+        var map = await loadTemplateMap();
+        if (!map[templateKey]) {
+          throw new Error("模板不存在");
+        }
+        setCreateFormFromTemplate(map[templateKey]);
+      } catch (error) {
+        setPageState("模板加载失败: " + error.message, "error");
+      }
+    }
+
+    async function createFromTemplate(templateKey) {
+      var channel_id = (AdminShell.byId("schChannel").value || "").trim();
+      var area_id = (AdminShell.byId("schArea").value || "").trim();
+      if (!channel_id || !area_id) {
+        AdminShell.showMessage("createMsg", "请先填写频道 ID 和域 ID，再使用模板创建", true);
+        return;
+      }
+      try {
+        await AdminShell.req("/admin/api/scheduled-message-templates/" + encodeURIComponent(templateKey) + "/apply", {
+          method: "POST",
+          body: JSON.stringify({
+            channel_id: channel_id,
+            area_id: area_id,
+          }),
+        });
+        AdminShell.showMessage("createMsg", "模板创建成功");
+        await loadScheduler();
+      } catch (error) {
+        AdminShell.showMessage("createMsg", error.message, true);
+      }
     }
 
     async function createScheduled() {

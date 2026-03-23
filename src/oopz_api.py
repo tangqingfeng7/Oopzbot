@@ -404,6 +404,11 @@ class OopzApiMixin:
         if isinstance(setting, dict) and "error" in setting:
             return {"error": f"获取频道设置失败: {setting['error']}"}
 
+        _BOOL_FIELDS = ("secret", "hasPassword", "voiceControlEnabled",
+                        "textControlEnabled", "accessControlEnabled")
+        _INT_FIELDS = ("textGapSecond", "maxMember")
+        _STR_FIELDS = ("name", "voiceQuality", "voiceDelay", "password")
+
         edit_body = {
             "channel": channel_id,
             "area": area,
@@ -412,34 +417,55 @@ class OopzApiMixin:
             "voiceQuality": str(setting.get("voiceQuality") or "64k"),
             "voiceDelay": str(setting.get("voiceDelay") or "LOW"),
             "maxMember": int(setting.get("maxMember", 30000) or 30000),
-            "voiceControlEnabled": bool(setting.get("voiceControlEnabled", False)),
-            "textControlEnabled": bool(setting.get("textControlEnabled", False)),
+            "voiceControlEnabled": bool(setting.get("voiceControlEnabled")),
+            "textControlEnabled": bool(setting.get("textControlEnabled")),
             "textRoles": list(setting.get("textRoles") or []),
             "voiceRoles": list(setting.get("voiceRoles") or []),
-            "accessControlEnabled": bool(setting.get("accessControlEnabled", False)),
+            "accessControlEnabled": bool(setting.get("accessControlEnabled")),
             "accessible": list(setting.get("accessible") or []),
             "accessibleMembers": list(setting.get("accessibleMembers") or []),
-            "secret": bool(setting.get("secret", False)),
-            "hasPassword": bool(setting.get("hasPassword", False)),
+            "secret": bool(setting.get("secret")),
+            "hasPassword": bool(setting.get("hasPassword")),
             "password": str(setting.get("password") or ""),
         }
 
         if name:
             edit_body["name"] = name
         if overrides:
-            _INT_KEYS = ("textGapSecond", "maxMember")
-            _BOOL_KEYS = ("secret", "hasPassword", "voiceControlEnabled",
-                          "textControlEnabled", "accessControlEnabled")
-            _STR_KEYS = ("name", "voiceQuality", "voiceDelay", "password")
             for k, v in overrides.items():
-                if k in _INT_KEYS:
+                if k in _INT_FIELDS:
                     edit_body[k] = int(v or 0)
-                elif k in _BOOL_KEYS:
+                elif k in _BOOL_FIELDS:
                     edit_body[k] = bool(v)
-                elif k in _STR_KEYS:
+                elif k in _STR_FIELDS:
                     edit_body[k] = str(v or "")
                 elif k in edit_body:
                     edit_body[k] = v
+
+            if "secret" in overrides:
+                want_secret = bool(overrides["secret"])
+                edit_body["secret"] = want_secret
+                edit_body["accessControlEnabled"] = want_secret
+                if want_secret:
+                    if "accessibleMembers" in overrides and isinstance(overrides["accessibleMembers"], list):
+                        members = set(str(u) for u in overrides["accessibleMembers"] if u)
+                    else:
+                        members = set(edit_body.get("accessibleMembers") or [])
+                    bot_uid = str(OOPZ_CONFIG.get("person_uid") or "")
+                    if bot_uid:
+                        members.add(bot_uid)
+                    try:
+                        import config as _cfg
+                        for uid in getattr(_cfg, "ADMIN_UIDS", []):
+                            uid = str(uid).strip()
+                            if uid:
+                                members.add(uid)
+                    except Exception:
+                        pass
+                    edit_body["accessibleMembers"] = list(members)
+                else:
+                    edit_body["accessible"] = []
+                    edit_body["accessibleMembers"] = []
 
         try:
             resp = self._post("/area/v3/channel/setting/edit", edit_body)
@@ -449,6 +475,7 @@ class OopzApiMixin:
 
         raw = resp.text or ""
         if resp.status_code != 200:
+            logger.error("更新频道 HTTP %d: %s", resp.status_code, raw[:300])
             return {"error": f"HTTP {resp.status_code}" + (f" | {raw[:200]}" if raw else "")}
 
         try:

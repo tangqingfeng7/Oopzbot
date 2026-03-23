@@ -7,6 +7,8 @@ from app.services.interaction.chat_interaction_service import ChatInteractionSer
 from app.services.interaction.common_command_service import CommonCommandService
 from app.services.interaction.help_service import HelpService
 from app.services.interaction.music_command_service import MusicCommandService
+from app.services.interaction.selection_service import SelectionService
+from app.services.interaction.setup_service import SetupService
 from app.services.plugins.plugin_management_service import PluginManagementService
 from app.services.routing.command_access_service import CommandAccessService
 from app.services.routing.command_message_service import CommandMessageService
@@ -37,6 +39,8 @@ class InteractionServices:
     common: CommonCommandService
     help: HelpService
     music: MusicCommandService
+    selection: SelectionService
+    setup: SetupService
 
 
 @dataclass(frozen=True)
@@ -92,6 +96,8 @@ def _build_interaction_services(runtime: CommandRuntimeView) -> InteractionServi
         common=CommonCommandService(runtime),
         help=HelpService(runtime),
         music=MusicCommandService(runtime),
+        selection=SelectionService(),
+        setup=SetupService(runtime),
     )
 
 

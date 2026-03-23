@@ -74,6 +74,8 @@ class MentionCommandRouter:
             (("我的资料", "我的详细资料", "我的信息"), lambda: self._actions.community.show_myinfo(channel, area, user)),
             (("语音", "语音频道", "语音在线", "谁在语音"), lambda: self._actions.interaction.show_voice_channels(channel, area)),
             (("每日一句", "一句", "名言", "语录", "鸡汤"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
+            (("体检", "系统体检", "健康检查"), lambda: self._actions.interaction.show_health_check(channel, area)),
+            (("首启向导", "向导"), lambda: self._actions.interaction.show_setup_wizard(channel, area)),
             (("清理历史", "清理记录", "清除历史", "清空历史", "清理数据"), lambda: self._actions.recall.clear_history(channel, area)),
             (("封禁列表", "封禁名单", "黑名单"), lambda: self._actions.moderation.show_block_list(channel, area)),
             (("插件列表", "扩展列表", "插件"), lambda: self._actions.plugins.show_plugin_list(channel, area)),
@@ -89,14 +91,15 @@ class MentionCommandRouter:
 
     def _arg_rules(self, channel: str, area: str, user: str):
         return (
-            (("查看", "资料", "查询资料"), lambda target: self._actions.community.show_whois(target, channel, area), "用法: @bot 查看用户名"),
+            (("查看", "资料", "查询资料"), lambda target: self._actions.community.show_whois(target, channel, area, user), "用法: @bot 查看用户名"),
             (("角色",), lambda target: self._actions.community.show_user_roles(target, channel, area), "用法: @bot 角色用户名"),
             (
                 ("可分配角色", "分配角色"),
                 lambda target: self._actions.community.show_assignable_roles(target, channel, area),
                 "用法: @bot 可分配角色用户名",
             ),
-            (("搜索成员", "搜索", "找人"), lambda keyword: self._actions.community.search_members(keyword, channel, area), "用法: @bot 搜索用户名"),
+            (("搜索成员", "搜索", "找人"), lambda keyword: self._actions.community.search_members(keyword, channel, area, user), "用法: @bot 搜索用户名"),
+            (("帮助", "help"), lambda topic: self._actions.interaction.show_help(channel, area, user, topic), "用法: @bot 帮助 音乐"),
             (("进入频道", "进入"), lambda channel_id: self._actions.interaction.enter_channel(channel_id, channel, area), "用法: @bot 进入频道 <频道ID>"),
             (("加载插件", "启用插件", "loadplugin"), lambda name: self._actions.plugins.load_plugin(name, channel, area), "用法: @bot 加载插件 <名>"),
             (("卸载插件", "禁用插件", "unloadplugin"), lambda name: self._actions.plugins.unload_plugin(name, channel, area), "用法: @bot 卸载插件 <名>"),
@@ -149,6 +152,8 @@ class MentionCommandRouter:
             (("删除定时消息", "移除定时消息"), lambda raw: self._actions.scheduler.delete_scheduled(raw, channel, area)),
             (("开启定时消息", "启用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, True)),
             (("关闭定时消息", "停用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, False)),
+            (("选择", "选歌"), lambda raw: self._handle_pick(raw, channel, area, user)),
+            (("搜歌", "搜索歌曲"), lambda raw: self._services.interaction.music.search_candidates(raw, channel, area, user)),
         )
 
     def _clear_ai_memory(self, user: str, channel: str, area: str) -> None:
@@ -158,6 +163,21 @@ class MentionCommandRouter:
             self._sender.send_message("对话记忆已清除", channel=channel, area=area)
         else:
             self._sender.send_message("当前没有对话记忆", channel=channel, area=area)
+
+    def _handle_pick(self, raw: str, channel: str, area: str, user: str) -> None:
+        token = (raw or "").strip()
+        if not token.isdigit():
+            self._sender.send_message("用法: @bot 选择 <编号>", channel=channel, area=area)
+            return
+        index = int(token)
+        if self._services.interaction.music.handle_pick(index, channel, area, user):
+            return
+        if self._services.community.member.handle_pick(index, channel, area, user):
+            return
+        self._sender.send_message("当前没有可选择的候选结果，请先搜索或搜歌", channel=channel, area=area)
+
+    def _should_treat_as_unknown_command(self, text: str) -> bool:
+        return bool(self._services.interaction.help.suggest_commands(text, limit=1))
 
     def dispatch(self, text: str, channel: str, area: str, user: str) -> None:
         if self._plugins.try_dispatch_mention(
@@ -192,5 +212,14 @@ class MentionCommandRouter:
         for prefixes, callback in self._raw_rules(channel, area, user):
             if self._dispatch_prefixed_raw(text, prefixes, callback):
                 return
+
+        if self._should_treat_as_unknown_command(text):
+            self._services.interaction.chat.send_unknown_mention_command(
+                text,
+                channel,
+                area,
+                suggestions=self._services.interaction.help.suggest_commands(text),
+            )
+            return
 
         self._services.interaction.chat.handle_mention_fallback(text, channel, area, user=user)

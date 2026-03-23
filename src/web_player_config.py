@@ -477,6 +477,23 @@ def bootstrap_admin_overrides() -> None:
     existing = read_admin_overrides()
     if not existing:
         return
+
+    saved_admin_uids = existing.pop("admin_uids", None)
+    if isinstance(saved_admin_uids, list) and saved_admin_uids:
+        try:
+            import config as _cfg
+            current = set(_cfg.ADMIN_UIDS)
+            for uid in saved_admin_uids:
+                uid = str(uid).strip()
+                if uid and uid not in current:
+                    _cfg.ADMIN_UIDS.append(uid)
+                    current.add(uid)
+            logger.info("从覆盖文件恢复了 %d 个 Bot 管理员", len(saved_admin_uids))
+        except Exception as e:
+            logger.warning("恢复 Bot 管理员列表失败: %s", e)
+
+    if not existing:
+        return
     _, errors, _ = apply_config_updates(existing)
     if errors:
         logger.warning("加载后台配置覆盖时存在问题: %s", " | ".join(errors))
