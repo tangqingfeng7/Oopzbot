@@ -21,7 +21,7 @@ from logger_config import get_logger
 from name_resolver import get_resolver
 from queue_manager import get_redis_client, _area_key, KEY_QUEUE, KEY_CURRENT, KEY_PLAY_STATE
 from scheduler_templates import get_scheduled_template, list_scheduled_templates
-from web_link_token import clear_token, ensure_token, get_token, set_token
+from web_link_token import clear_token, ensure_token, get_active_area, get_token, set_token
 
 import web_player_config as cfg
 from app.services.interaction.setup_diagnostics import SetupDiagnostics
@@ -51,8 +51,7 @@ _resolved_area_cache: dict = {"value": "", "ts": 0.0}
 
 def _resolve_area() -> str:
     """获取当前域 ID,优先使用配置,否则从已加入的域列表取第一个(缓存 5 分钟)。"""
-    from config import OOPZ_CONFIG
-    area = (OOPZ_CONFIG.get("default_area") or "").strip()
+    area = (cfg.OOPZ_CONFIG.get("default_area") or "").strip()
     if area:
         return area
     now = time.time()
@@ -71,6 +70,50 @@ def _resolve_area() -> str:
     except Exception:
         logger.debug("自动解析默认域失败", exc_info=True)
     return ""
+
+
+def _music_area_context(redis_client=None) -> dict:
+    """返回后台音乐当前使用的域上下文。"""
+    r = redis_client or _get_redis()
+    default_area = (cfg.OOPZ_CONFIG.get("default_area") or "").strip()
+    active_area = ""
+    try:
+        active_area = (get_active_area(redis_client=r) or "").strip()
+    except Exception:
+        logger.debug("读取活跃域失败，继续尝试默认域/自动探测", exc_info=True)
+
+    area = ""
+    source = "none"
+    if active_area:
+        area = active_area
+        source = "active"
+    elif default_area:
+        area = default_area
+        source = "default"
+    else:
+        area = _resolve_area()
+        if area:
+            source = "auto"
+
+    source_text = {
+        "active": "活跃域",
+        "default": "默认域",
+        "auto": "自动探测",
+        "none": "未解析",
+    }.get(source, "未解析")
+
+    return {
+        "area": area,
+        "source": source,
+        "source_text": source_text,
+        "default_area": default_area,
+        "active_area": active_area,
+    }
+
+
+def _get_music_area(redis_client=None) -> str:
+    """获取音乐相关接口应使用的域。"""
+    return _music_area_context(redis_client).get("area", "")
 
 
 _members_resp_cache: dict = {"data": None, "ts": 0.0, "key": ""}
@@ -301,15 +344,19 @@ def _overview_payload() -> dict:
     redis_status = "connected"
     queue_len = 0
     playing: dict = {}
+    area_context = _music_area_context()
     try:
         r = _get_redis()
         r.ping()
-        queue_len = int(r.llen(KEY_QUEUE) or 0)
-        current_raw = r.get(KEY_CURRENT)
-        play_state_raw = r.get(KEY_PLAY_STATE)
+        area_context = _music_area_context(r)
+        area = area_context.get("area", "")
+        queue_len = int(r.llen(_area_key(KEY_QUEUE, area)) or 0)
+        current_raw = r.get(_area_key(KEY_CURRENT, area))
+        play_state_raw = r.get(_area_key(KEY_PLAY_STATE, area))
         playing = {
             "current": json.loads(current_raw) if current_raw else None,
             "play_state": json.loads(play_state_raw) if play_state_raw else None,
+            "area": area,
         }
     except Exception as e:
         redis_status = f"error: {e}"
@@ -322,6 +369,7 @@ def _overview_payload() -> dict:
         "redis": redis_status,
         "queue_length": queue_len,
         "playing": playing,
+        "music_area": area_context,
         "statistics_today": today,
         "statistics_summary": summary,
         "today_messages": MessageStatsDB.get_today_total(),
@@ -397,9 +445,9 @@ def _queue_snapshot(redis_client, area: str = "") -> list[dict]:
     return queue
 
 
-def _current_song_snapshot(redis_client) -> Optional[dict]:
+def _current_song_snapshot(redis_client, area: str = "") -> Optional[dict]:
     try:
-        raw = redis_client.get(KEY_CURRENT)
+        raw = redis_client.get(_area_key(KEY_CURRENT, area))
         if not raw:
             return None
         song = json.loads(raw)
@@ -415,19 +463,19 @@ def _current_song_snapshot(redis_client) -> Optional[dict]:
         return None
 
 
-def _execute_control_action(action: str, body: dict, redis_client) -> dict:
+def _execute_control_action(action: str, body: dict, redis_client, area: str = "") -> dict:
     from web_player import execute_control_action
-    return execute_control_action(action, body, redis_client)
+    return execute_control_action(action, body, redis_client, area=area)
 
 
-def _execute_queue_action(action: str, index, redis_client) -> dict:
+def _execute_queue_action(action: str, index, redis_client, area: str = "") -> dict:
     from web_player import execute_queue_action
-    return execute_queue_action(action, index, redis_client)
+    return execute_queue_action(action, index, redis_client, area=area)
 
 
-def _add_song_to_queue(body: dict) -> dict:
+def _add_song_to_queue(body: dict, area: str = "") -> dict:
     from web_player import add_song_to_queue
-    return add_song_to_queue(body)
+    return add_song_to_queue(body, area=area)
 
 
 # ---------------------------------------------------------------------------
@@ -533,6 +581,9 @@ def admin_get_config():
     return JSONResponse({
         "ok": True,
         "config": cfg.config_snapshot(),
+        "runtime": {
+            "music_area": _music_area_context(),
+        },
         "overrides_path": cfg.ADMIN_OVERRIDES_PATH,
     })
 
@@ -561,6 +612,9 @@ async def admin_update_config(request: Request):
         "errors": errors,
         "persisted": bool(persist and persist_payload),
         "config": cfg.config_snapshot(),
+        "runtime": {
+            "music_area": _music_area_context(),
+        },
     })
 
 
@@ -675,7 +729,8 @@ async def admin_control(request: Request):
     try:
         body = await request.json()
         action = str(body.get("action", ""))
-        result = _execute_control_action(action=action, body=body, redis_client=_get_redis())
+        area = _get_music_area()
+        result = _execute_control_action(action=action, body=body, redis_client=_get_redis(), area=area)
         return JSONResponse(result)
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -689,7 +744,7 @@ def admin_liked_refresh():
 
 @admin_router.post("/admin/api/queue/clear")
 def admin_queue_clear():
-    area = _resolve_area()
+    area = _get_music_area()
     _get_redis().delete(_area_key(KEY_QUEUE, area))
     return JSONResponse({"ok": True})
 
@@ -700,15 +755,19 @@ def admin_queue(
     page_size: int = Query(10, ge=1, le=100),
 ):
     r = _get_redis()
-    full_queue = _queue_snapshot(r, area=_resolve_area())
+    area_context = _music_area_context(r)
+    area = area_context.get("area", "")
+    full_queue = _queue_snapshot(r, area=area)
     total = len(full_queue)
     pages = max(1, (total + page_size - 1) // page_size) if total else 1
     page = min(page, pages)
     start = (page - 1) * page_size
     queue = full_queue[start:start + page_size]
-    current = _current_song_snapshot(r)
+    current = _current_song_snapshot(r, area=area)
     return JSONResponse({
         "ok": True,
+        "area": area,
+        "music_area": area_context,
         "current": current,
         "queue": queue,
         "count": len(queue),
@@ -722,13 +781,15 @@ def admin_queue(
 @admin_router.post("/admin/api/queue/action")
 async def admin_queue_action(request: Request):
     body = await request.json()
+    area = _get_music_area()
     result = _execute_queue_action(
         action=body.get("action", ""),
         index=body.get("index", -1),
         redis_client=_get_redis(),
+        area=area,
     )
     if result.get("ok"):
-        result["queue"] = _queue_snapshot(_get_redis(), area=_resolve_area())
+        result["queue"] = _queue_snapshot(_get_redis(), area=area)
     return JSONResponse(result)
 
 
@@ -810,7 +871,7 @@ def admin_search(
 async def admin_add(request: Request):
     try:
         body = await request.json()
-        return JSONResponse(_add_song_to_queue(body=body))
+        return JSONResponse(_add_song_to_queue(body=body, area=_get_music_area()))
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 

@@ -40,6 +40,9 @@ class NeteaseApiRuntime:
 
         node_cmd = self._find_node_binary()
         env = os.environ.copy()
+        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY",
+                     "http_proxy", "https_proxy", "all_proxy"):
+            env.pop(key, None)
         local_bin = os.path.expanduser("~/.local/bin")
         if local_bin and local_bin not in env.get("PATH", ""):
             env["PATH"] = local_bin + os.pathsep + env.get("PATH", "")

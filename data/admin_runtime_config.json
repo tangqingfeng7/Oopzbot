@@ -1,12 +1,12 @@
 {
   "web_player": {
-    "url": "https://traceck.online",
+    "url": "http://127.0.0.1:8080",
     "token_ttl_seconds": 86400,
     "cookie_max_age_seconds": 86400,
     "link_idle_release_seconds": 1800,
-    "cookie_secure": true,
+    "cookie_secure": false,
     "admin_session_ttl_seconds": 43200,
-    "admin_cookie_secure": true,
+    "admin_cookie_secure": false,
     "host": "0.0.0.0",
     "port": 8080
   },

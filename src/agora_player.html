@@ -17,11 +17,12 @@ window.WebSocket.OPEN = _OrigWS.OPEN;
 window.WebSocket.CLOSING = _OrigWS.CLOSING;
 window.WebSocket.CLOSED = _OrigWS.CLOSED;
 </script>
-<script src="https://download.agora.io/sdk/release/AgoraRTC_N-4.22.0.js"></script>
+<script src="agora_sdk.js"></script>
 <script>
 let client = null;
 let audioTrack = null;
 let _state = "idle";
+let _playGen = 0;
 
 window.agoraReady = () => typeof AgoraRTC !== "undefined";
 
@@ -38,13 +39,20 @@ window.agoraJoin = async (appId, token, channelName, uid) => {
 };
 
 window.agoraPlayAudio = async (url) => {
+  const gen = ++_playGen;
   try {
     await window.agoraStopAudio();
-    audioTrack = await AgoraRTC.createBufferSourceAudioTrack({
+    const track = await AgoraRTC.createBufferSourceAudioTrack({
       source: url,
       cacheOnlineFile: false,
     });
+    if (gen !== _playGen) {
+      try { track.close(); } catch(_){}
+      return { ok: false, error: "superseded" };
+    }
+    audioTrack = track;
     audioTrack.on("source-state-change", (st) => {
+      if (gen !== _playGen) return;
       _state = st === "playing" ? "playing" : st === "stopped" ? "finished" : st;
     });
     audioTrack.startProcessAudioBuffer({ loop: false });
@@ -52,6 +60,7 @@ window.agoraPlayAudio = async (url) => {
     _state = "playing";
     return { ok: true, duration: audioTrack.duration };
   } catch (e) {
+    if (gen !== _playGen) return { ok: false, error: "superseded" };
     return { ok: false, error: e.message };
   }
 };

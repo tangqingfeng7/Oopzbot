@@ -77,6 +77,15 @@ class MusicCommandService:
         if not self._interactive_enabled():
             self._play_direct(keyword, channel, area, user)
             return
+        fast_result = None
+        fast_search = getattr(self._music, "search_best_candidate", None)
+        if callable(fast_search):
+            candidate = fast_search(clean_kw, resolved_platform)
+            if isinstance(candidate, dict):
+                fast_result = candidate
+        if fast_result and self._is_confident_match(clean_kw, [fast_result]):
+            self._music.play_song_choice(dict(fast_result, platform=resolved_platform), channel, area, user)
+            return
         results = self._music.search_candidates(clean_kw, resolved_platform, limit=5)
         if not results:
             self._sender.send_message(f"未找到: {clean_kw}", channel=channel, area=area)

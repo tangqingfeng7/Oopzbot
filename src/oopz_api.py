@@ -1022,6 +1022,22 @@ class OopzApiMixin:
 
     # ---- 各语音频道在线成员 ----
 
+    _voice_ids_cache: dict = {}
+
+    def _get_voice_channel_ids(self, area: str) -> list[str]:
+        """返回域内语音频道 ID 列表，缓存 5 分钟。"""
+        cached = self._voice_ids_cache.get(area)
+        if cached and time.time() - cached["ts"] < 300:
+            return cached["ids"]
+        groups = self.get_area_channels(area, quiet=True)
+        ids = []
+        for g in groups:
+            for ch in g.get("channels") or []:
+                if str(ch.get("type", "")).upper() in ("VOICE", "AUDIO"):
+                    ids.append(ch["id"])
+        self._voice_ids_cache[area] = {"ids": ids, "ts": time.time()}
+        return ids
+
     def get_voice_channel_members(self, area: Optional[str] = None) -> dict:
         """
         获取域内各语音频道的在线成员列表。
@@ -1032,29 +1048,33 @@ class OopzApiMixin:
             {"channelId1": [uid1, uid2, ...], "channelId2": [...], ...}
         """
         area = area or OOPZ_CONFIG["default_area"]
-        groups = self.get_area_channels(area)
-        voice_ids = []
-        for g in groups:
-            for ch in g.get("channels") or []:
-                if str(ch.get("type", "")).upper() in ("VOICE", "AUDIO"):
-                    voice_ids.append(ch["id"])
+        voice_ids = self._get_voice_channel_ids(area)
         if not voice_ids:
             return {}
 
         url_path = "/area/v3/channel/membersByChannels"
         body = {"area": area, "channels": voice_ids}
-        try:
-            resp = self._post(url_path, body)
-            if resp.status_code != 200:
-                logger.error(f"获取语音频道成员失败: HTTP {resp.status_code}")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                resp = self._post(url_path, body)
+                if resp.status_code == 429:
+                    wait = min(2 ** attempt, 4)
+                    logger.warning(f"获取语音频道成员被限流 (429)，{wait}s 后重试 ({attempt + 1}/{max_retries})")
+                    time.sleep(wait)
+                    continue
+                if resp.status_code != 200:
+                    logger.error(f"获取语音频道成员失败: HTTP {resp.status_code}")
+                    return {}
+                result = resp.json()
+                if not result.get("status"):
+                    return {}
+                return result.get("data", {}).get("channelMembers", {})
+            except Exception as e:
+                logger.error(f"获取语音频道成员异常: {e}")
                 return {}
-            result = resp.json()
-            if not result.get("status"):
-                return {}
-            return result.get("data", {}).get("channelMembers", {})
-        except Exception as e:
-            logger.error(f"获取语音频道成员异常: {e}")
-            return {}
+        logger.error("获取语音频道成员失败: 重试次数用尽")
+        return {}
 
     def get_voice_channel_for_user(self, user_uid: str, area: Optional[str] = None) -> Optional[str]:
         """

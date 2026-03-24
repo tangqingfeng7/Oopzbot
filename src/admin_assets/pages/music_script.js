@@ -17,6 +17,25 @@
       setPageState(text, variant);
     }
 
+    function renderMusicArea(info) {
+      const area = info.area || "-";
+      const defaultArea = info.default_area || "-";
+      const activeArea = info.active_area || "-";
+      const sourceText = info.source_text || "未解析";
+      let variant = "warning";
+      if (info.source === "active" || info.source === "default") {
+        variant = "success";
+      } else if (info.source === "auto") {
+        variant = "warning";
+      } else if (info.source === "none") {
+        variant = "error";
+      }
+      AdminShell.setMicroStatus("来源：" + sourceText, variant, "musicAreaState");
+      AdminShell.byId("musicAreaText").textContent = "当前音乐域：" + area;
+      AdminShell.byId("musicDefaultAreaText").textContent = "默认域：" + defaultArea;
+      AdminShell.byId("musicActiveAreaText").textContent = "活跃域：" + activeArea;
+    }
+
     async function check() {
       try {
         await AdminShell.req("/admin/api/me");
@@ -37,6 +56,7 @@
         });
         AdminShell.showMessage("loginMsg", "");
         AdminShell.setMicroStatus("等待操作", "neutral", "ctlState");
+        renderMusicArea({});
       }
     }
 
@@ -91,6 +111,7 @@
     async function loadQueue() {
       const data = await AdminShell.req("/admin/api/queue?page=" + queuePage + "&page_size=10");
       const rows = [];
+      renderMusicArea(data.music_area || {});
 
       if (data.current) {
         rows.push(

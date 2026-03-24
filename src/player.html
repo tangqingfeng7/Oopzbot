@@ -173,6 +173,8 @@ body::after{
 .album-art .playing-badge span{font-size:.6875rem;font-weight:600;color:rgba(255,255,255,.85);letter-spacing:.02em}
 @keyframes spin{to{transform:rotate(360deg)}}
 .album-art .playing-badge.paused svg{animation-play-state:paused;color:var(--text-muted)}
+.album-art .playing-badge.loading span{animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
 
 /* Song Info */
 .song-info{display:flex;flex-direction:column;gap:.125rem}
@@ -841,6 +843,7 @@ body::after{
   let apiOk = true;
   let lastStatusError = 0;
   let isPaused = false;
+  let isLoading = false;
   let currentDuration = 0;
   let isSeeking = false;
   let volumeDebounce = null;
@@ -1010,13 +1013,15 @@ body::after{
 
       currentDuration=d.duration||0;
 
+      isLoading=!!d.loading;
       isPaused=!!d.paused;
       $('iconPause').style.display=isPaused?'none':'';
       $('iconPlay').style.display=isPaused?'':'none';
       $('pauseLabel').textContent=isPaused?'播放':'暂停';
       const badge=$('playingBadge');
-      badge.querySelector('span').textContent=isPaused?'Paused':'Playing';
-      badge.classList.toggle('paused',isPaused);
+      badge.querySelector('span').textContent=isLoading?'Loading':isPaused?'Paused':'Playing';
+      badge.classList.toggle('paused',isPaused&&!isLoading);
+      badge.classList.toggle('loading',isLoading);
 
       if(d.volume!==undefined && !volumeDebounce){
         if(!_savedVolumeApplied){
@@ -1035,14 +1040,19 @@ body::after{
         }
       }
 
-      _progressBase = d.progress;
-      _progressBaseTime = Date.now();
+      if(isLoading){
+        _progressBase = 0;
+        _progressBaseTime = Date.now();
+      } else if(d.server_time){
+        const networkDelay = (Date.now()/1000) - d.server_time;
+        _progressBase = d.progress + Math.max(0, networkDelay);
+        _progressBaseTime = Date.now();
+      } else {
+        _progressBase = d.progress;
+        _progressBaseTime = Date.now();
+      }
       if(!isSeeking){
-        if(isPaused){
-          updateProgressUI(d.progress);
-        }else{
-          updateProgressUI(d.progress);
-        }
+        updateProgressUI(_progressBase);
       }
     }catch(e){
       const now=Date.now();
@@ -1465,7 +1475,7 @@ body::after{
 
   /** 进度/歌词平滑：在两次 status 轮询之间用本地时间插值，避免歌词只按 1 秒跳变 */
   function tickProgress(){
-    if(!currentId||isPaused||isSeeking||!currentDuration) return;
+    if(!currentId||isPaused||isSeeking||!currentDuration||isLoading) return;
     const localProgress = _progressBase + (Date.now() - _progressBaseTime)/1000;
     updateProgressUI(Math.min(localProgress, currentDuration));
   }

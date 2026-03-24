@@ -250,9 +250,21 @@ class PlaybackMixin:
                 logger.debug(f"推流前清理 play_state 失败: {e}")
             return
 
+        def _on_audio_started():
+            self._play_start_time = time.time()
+            try:
+                self.queue.set_play_state({
+                    "start_time": self._play_start_time,
+                    "duration": self._play_duration,
+                    "loading": False,
+                })
+                logger.info(f"音频实际开始播放，已校准 start_time: {name}")
+            except Exception as e:
+                logger.debug(f"校准 start_time 写入 Redis 失败: {e}")
+
         try:
-            self.voice.play_audio(url)
-            logger.info(f"开始 Agora 推流: {name}")
+            self.voice.play_audio(url, on_started=_on_audio_started)
+            logger.info(f"已提交 Agora 推流任务: {name}")
         except Exception as e:
             if song_id:
                 logger.info(f"推流失败，尝试重新获取音频URL: {name}")
@@ -263,7 +275,7 @@ class PlaybackMixin:
                     refetch = p or self.netease
                     new_url = refetch.get_song_url(song_id)
                     if new_url:
-                        self.voice.play_audio(new_url)
+                        self.voice.play_audio(new_url, on_started=_on_audio_started)
                         logger.info(f"重新获取URL后推流成功: {name}")
                         return
                 except Exception as inner_e:
@@ -286,6 +298,7 @@ class PlaybackMixin:
             self.queue.set_play_state({
                 "start_time": self._play_start_time,
                 "duration": self._play_duration,
+                "loading": True,
             })
         except Exception as e:
             logger.debug(f"写入 play_state 到 Redis 失败: {e}")

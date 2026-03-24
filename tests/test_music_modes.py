@@ -97,6 +97,41 @@ class MusicModeTest(unittest.TestCase):
         self.assertEqual(next_song["channel"], "text-1")
         self.assertEqual(next_song["area"], "area-1")
 
+    def test_play_song_choice_reuses_search_result_without_fetching_detail(self) -> None:
+        platform = Mock()
+        platform.get_song_url.return_value = "https://example.com/song.mp3"
+        platform.summarize_by_id.return_value = {"code": "error", "message": "不应调用", "data": None}
+        self.handler.platforms = Mock()
+        self.handler.platforms.get.return_value = platform
+        self.handler.sender = Mock()
+        self.handler.names = Mock()
+        self.handler.names.user.return_value = "测试用户"
+        self.handler._check_and_enter_voice_channel = Mock(return_value=True)
+        self.handler._commit_song_request = Mock(return_value={"message": "ok", "attachments": []})
+
+        self.handler.play_song_choice(
+            {
+                "id": 1,
+                "name": "稻香",
+                "artists": "周杰伦",
+                "album": "魔杰座",
+                "cover": "https://example.com/cover.jpg",
+                "duration": 222000,
+                "durationText": "3:42",
+                "platform": "netease",
+            },
+            "channel-1",
+            "area-1",
+            "user-1",
+        )
+
+        platform.get_song_url.assert_called_once_with(1)
+        platform.summarize_by_id.assert_not_called()
+        committed_song = self.handler._commit_song_request.call_args.args[0]
+        self.assertEqual(committed_song["url"], "https://example.com/song.mp3")
+        self.assertEqual(committed_song["duration"], "3:42")
+        self.assertEqual(committed_song["duration_ms"], 222000)
+
 
 if __name__ == "__main__":
     unittest.main()

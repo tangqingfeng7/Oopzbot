@@ -981,6 +981,7 @@ class MusicCommandInteractiveSelectionTest(unittest.TestCase):
         self.selection = Mock()
         self.music = Mock()
         self.music.supports_interactive_selection = True
+        self.music.search_best_candidate.return_value = None
         self.handler = SimpleNamespace(
             infrastructure=SimpleNamespace(sender=self.sender, music=self.music),
             services=SimpleNamespace(
@@ -1023,6 +1024,29 @@ class MusicCommandInteractiveSelectionTest(unittest.TestCase):
             "user-1",
         )
         self.selection.clear.assert_called_once_with("user-1", "channel-1", "area-1")
+
+    def test_handle_slash_play_uses_fast_match_before_candidate_search(self) -> None:
+        from app.services.interaction.music_command_service import MusicCommandService
+
+        self.music.search_best_candidate.return_value = {
+            "id": 1,
+            "name": "稻香",
+            "artists": "周杰伦",
+            "durationText": "3:42",
+        }
+
+        service = MusicCommandService(self.handler)
+        result = service.handle_slash("/bf", None, None, ["/bf", "稻香"], "channel-1", "area-1", "user-1")
+
+        self.assertTrue(result)
+        self.music.search_best_candidate.assert_called_once_with("稻香", "netease")
+        self.music.play_song_choice.assert_called_once_with(
+            {"id": 1, "name": "稻香", "artists": "周杰伦", "durationText": "3:42", "platform": "netease"},
+            "channel-1",
+            "area-1",
+            "user-1",
+        )
+        self.music.search_candidates.assert_not_called()
 
 
 class SetupServiceTest(unittest.TestCase):

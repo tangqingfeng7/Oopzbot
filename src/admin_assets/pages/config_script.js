@@ -34,6 +34,18 @@
       AdminShell.setStatus(text, variant, "railState");
     }
 
+    function renderMusicAreaHint(info) {
+      const hint = AdminShell.byId("cfg_oopz_area_hint");
+      if (!hint) {
+        return;
+      }
+      const area = info.area || "-";
+      const sourceText = info.source_text || "未解析";
+      const activeArea = info.active_area || "-";
+      const defaultArea = info.default_area || "-";
+      hint.textContent = "当前音乐域：" + area + "；来源：" + sourceText + "；活跃域：" + activeArea + "；默认域：" + defaultArea;
+    }
+
     function setSecretState(id, configured) {
       const element = AdminShell.byId(id);
       if (!element) {
@@ -119,6 +131,7 @@
     async function loadConfig() {
       const data = await AdminShell.req("/admin/api/config");
       const config = data.config || {};
+      const runtime = data.runtime || {};
 
       setVal("cfg_web_url", config.web_player?.url || "");
       setVal("cfg_web_host", config.web_player?.host || "0.0.0.0");
@@ -214,6 +227,7 @@
       setSecretValue("cfg_doubao_img_api_key", config.doubao_image?.api_key || "", config.doubao_image?.api_key_configured);
       setSecretValue("cfg_qq_music_cookie", config.qq_music?.cookie || "", config.qq_music?.cookie_configured);
       setSecretValue("cfg_bilibili_cookie", config.bilibili_music?.cookie || "", config.bilibili_music?.cookie_configured);
+      renderMusicAreaHint(runtime.music_area || {});
 
       setPageState("配置已同步", "success");
     }

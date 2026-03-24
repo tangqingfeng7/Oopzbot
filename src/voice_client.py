@@ -1,7 +1,8 @@
-import base64
+import asyncio as _asyncio
 import os
 import queue
 import random
+import tempfile
 import threading
 import time
 from typing import Optional, Tuple
@@ -9,16 +10,22 @@ from typing import Optional, Tuple
 import requests as http_requests
 
 from logger_config import get_logger
-from proxy_utils import get_playwright_proxy, get_selenium_proxy_argument
 
 logger = get_logger("Voice")
 
 _PLAY_POLL_INTERVAL = 2
 _PLAY_POLL_TIMEOUT = 600
 _INIT_TIMEOUT_DEFAULT = 60
+_REMOTE_PLAY_START_TIMEOUT = 5
+_REMOTE_FAIL_SUPPRESS_SECONDS = 300
 
-_HTML_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "agora_player.html")
-_PLAYWRIGHT_DOCKER_ARGS = [
+_SRC_DIR = os.path.dirname(os.path.abspath(__file__))
+_HTML_PATH = os.path.join(_SRC_DIR, "agora_player.html")
+_SDK_PATH = os.path.join(_SRC_DIR, "agora_sdk.js")
+_SDK_URL = "https://download.agora.io/sdk/release/AgoraRTC_N-4.22.0.js"
+_SDK_MIN_SIZE = 500_000
+
+_BROWSER_ARGS = [
     "--disable-web-security",
     "--allow-file-access-from-files",
     "--autoplay-policy=no-user-gesture-required",
@@ -26,7 +33,32 @@ _PLAYWRIGHT_DOCKER_ARGS = [
     "--use-fake-ui-for-media-stream",
     "--no-sandbox",
     "--disable-dev-shm-usage",
+    "--no-proxy-server",
 ]
+
+
+def _ensure_agora_sdk() -> None:
+    """检查本地 Agora SDK 文件，不存在则自动下载。"""
+    if os.path.isfile(_SDK_PATH) and os.path.getsize(_SDK_PATH) >= _SDK_MIN_SIZE:
+        return
+    logger.info("本地 Agora SDK 缺失，正在下载: %s", _SDK_URL)
+    try:
+        from proxy_utils import resolve_proxy_settings_with_env
+        ps = resolve_proxy_settings_with_env()
+        proxies = {"http": ps.server, "https": ps.server} if ps.enabled else None
+    except Exception:
+        proxies = None
+    try:
+        resp = http_requests.get(_SDK_URL, timeout=30, proxies=proxies)
+        resp.raise_for_status()
+        if len(resp.content) < _SDK_MIN_SIZE:
+            raise RuntimeError(f"SDK 文件过小 ({len(resp.content)} bytes)")
+        with open(_SDK_PATH, "wb") as f:
+            f.write(resp.content)
+        logger.info("Agora SDK 已下载: %s (%d bytes)", _SDK_PATH, len(resp.content))
+    except Exception as e:
+        logger.error("Agora SDK 下载失败: %s", e)
+        raise RuntimeError(f"无法下载 Agora SDK: {e}") from e
 
 
 class VoiceClient:
@@ -38,6 +70,7 @@ class VoiceClient:
     """
 
     def __init__(self, app_id: str, oopz_uid: str = "", init_timeout: float = _INIT_TIMEOUT_DEFAULT):
+        _ensure_agora_sdk()
         self._app_id = app_id
         self._oopz_uid = oopz_uid
         self._agora_uid = str(random.randint(100_000_000, 999_999_999))
@@ -50,8 +83,11 @@ class VoiceClient:
         self._preloaded: dict = {}
         self._preload_lock = threading.Lock()
         self._identity_thread: Optional[threading.Thread] = None
+        self._on_play_start_callback = None
+        self._remote_last_fail: float = 0
+        self._temp_audio_path: Optional[str] = None
 
-        # 浏览器专用线程 + 任务队列；任务格式 (method, args_list, result_holder, error_holder, done_event)
+        # 浏览器专用线程 + 任务队列；任务格式 (method, args, result_holder, error_holder, done_event, timeout)
         self._task_queue: queue.Queue = queue.Queue()
         self._shutdown = threading.Event()
         self._init_done = threading.Event()
@@ -101,22 +137,18 @@ class VoiceClient:
 
     def _run_playwright_backend(self):
         """Playwright 后端：async_playwright + 任务队列 (method, args, ...)。"""
-        import asyncio
         from playwright.async_api import async_playwright
 
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
+        loop = _asyncio.new_event_loop()
+        _asyncio.set_event_loop(loop)
 
         async def _init():
             pw = await async_playwright().start()
             launch_kwargs = {
                 "headless": True,
                 "channel": "chromium",
-                "args": _PLAYWRIGHT_DOCKER_ARGS,
+                "args": _BROWSER_ARGS,
             }
-            playwright_proxy = get_playwright_proxy()
-            if playwright_proxy:
-                launch_kwargs["proxy"] = playwright_proxy
             browser = await pw.chromium.launch(**launch_kwargs)
             page = await browser.new_page()
             page.set_default_timeout(60000)
@@ -135,16 +167,18 @@ class VoiceClient:
                 continue
             if task is None:
                 break
-            method, args, result_holder, error_holder, done_event = task
+            method, args, result_holder, error_holder, done_event, task_timeout = task
             try:
-                # window[method](...args)，支持返回 Promise
+                coro = self._page.evaluate(
+                    "([m, ...a]) => Promise.resolve(window[m].apply(window, a))",
+                    [method, *args],
+                )
                 result = loop.run_until_complete(
-                    self._page.evaluate(
-                        "([m, ...a]) => Promise.resolve(window[m].apply(window, a))",
-                        [method, *args],
-                    )
+                    _asyncio.wait_for(coro, timeout=task_timeout)
                 )
                 result_holder.append(result)
+            except _asyncio.TimeoutError:
+                error_holder.append(TimeoutError("浏览器操作超时"))
             except Exception as e:
                 error_holder.append(e)
             done_event.set()
@@ -168,16 +202,8 @@ class VoiceClient:
 
         opts = Options()
         opts.add_argument("--headless=new")
-        opts.add_argument("--disable-web-security")
-        opts.add_argument("--allow-file-access-from-files")
-        opts.add_argument("--autoplay-policy=no-user-gesture-required")
-        opts.add_argument("--use-fake-device-for-media-stream")
-        opts.add_argument("--use-fake-ui-for-media-stream")
-        opts.add_argument("--no-sandbox")
-        opts.add_argument("--disable-dev-shm-usage")
-        selenium_proxy_arg = get_selenium_proxy_argument()
-        if selenium_proxy_arg:
-            opts.add_argument(selenium_proxy_arg)
+        for arg in _BROWSER_ARGS:
+            opts.add_argument(arg)
 
         driver = None
         last_error = None
@@ -222,12 +248,8 @@ class VoiceClient:
                 from selenium.webdriver.edge.service import Service as EdgeService
                 eopts = EdgeOptions()
                 eopts.add_argument("--headless=new")
-                eopts.add_argument("--disable-web-security")
-                eopts.add_argument("--allow-file-access-from-files")
-                eopts.add_argument("--autoplay-policy=no-user-gesture-required")
-                eopts.add_argument("--no-sandbox")
-                if selenium_proxy_arg:
-                    eopts.add_argument(selenium_proxy_arg)
+                for arg in _BROWSER_ARGS:
+                    eopts.add_argument(arg)
                 try:
                     from webdriver_manager.microsoft import EdgeChromiumDriverManager
                     driver = webdriver.Edge(service=EdgeService(EdgeChromiumDriverManager().install()), options=eopts)
@@ -279,8 +301,9 @@ class VoiceClient:
                 continue
             if task is None:
                 break
-            method, args, result_holder, error_holder, done_event = task
+            method, args, result_holder, error_holder, done_event, task_timeout = task
             try:
+                driver.set_script_timeout(task_timeout)
                 result = driver.execute_async_script(_async_script, method, *args)
                 result_holder.append(result)
             except Exception as e:
@@ -297,8 +320,8 @@ class VoiceClient:
         result_holder = []
         error_holder = []
         done = threading.Event()
-        self._task_queue.put((method, list(args), result_holder, error_holder, done))
-        if not done.wait(timeout=timeout):
+        self._task_queue.put((method, list(args), result_holder, error_holder, done, timeout))
+        if not done.wait(timeout=timeout + 5):
             raise TimeoutError("浏览器操作超时")
         if error_holder:
             raise error_holder[0]
@@ -344,12 +367,13 @@ class VoiceClient:
             logger.error(f"加入 Agora 房间异常: {e}")
             return False
 
-    def play_audio(self, url: str):
+    def play_audio(self, url: str, on_started=None):
         """下载音频并通过 Agora 推流到语音频道；若该 URL 已预加载则直接使用，减少卡顿。"""
         if not self._available:
             return
         self.stop_audio()
         self._stop_event.clear()
+        self._on_play_start_callback = on_started
         with self._preload_lock:
             cached = self._preloaded.pop(url, None)
         if cached:
@@ -453,6 +477,12 @@ class VoiceClient:
         self.leave()
         self._shutdown.set()
         self._task_queue.put(None)
+        if self._temp_audio_path:
+            try:
+                os.unlink(self._temp_audio_path)
+            except OSError:
+                pass
+            self._temp_audio_path = None
         logger.info("Agora 浏览器播放器已释放")
 
     def get_state(self) -> str:
@@ -505,39 +535,37 @@ class VoiceClient:
         self._identity_thread = None
 
     def _do_play(self, url: Optional[str] = None, audio_data: Optional[bytes] = None, content_type: str = "audio/mpeg"):
-        """后台线程：使用预加载数据或下载音频 → 派发到浏览器 → Agora 推流"""
+        """后台线程"""
         self._playing = True
         try:
-            if audio_data is None and url:
-                audio_data, content_type = self._download_audio_with_retry(url)
-            if audio_data is None or self._stop_event.is_set():
-                return
+            started = False
+            duration = 0.0
 
-            logger.info(f"音频就绪: {len(audio_data)} bytes" + (" (预加载)" if url is None else ""))
-            b64 = base64.b64encode(audio_data).decode("ascii")
-            if "octet-stream" in (content_type or ""):
-                content_type = "audio/mpeg"
+            remote_suppressed = (
+                self._remote_last_fail > 0
+                and (time.monotonic() - self._remote_last_fail) < _REMOTE_FAIL_SUPPRESS_SECONDS
+            )
 
-            result = self._run_on_browser("agoraPlayLocal", b64, content_type)
+            if audio_data is not None:
+                started, duration = self._play_local_audio(audio_data, content_type, is_preloaded=url is None)
+            elif url:
+                if remote_suppressed:
+                    logger.info("远程推流近期失败，直接本地下载")
+                    audio_data, content_type = self._download_audio_with_retry(url)
+                    if audio_data and not self._stop_event.is_set():
+                        started, duration = self._play_local_audio(audio_data, content_type)
+                else:
+                    started, duration = self._race_remote_and_local(url)
 
-            if result and result.get("ok"):
-                duration = result.get("duration", 0)
-                logger.info(f"Agora 推流已开始 (时长: {duration:.1f}s)")
-
-                timeout = max(duration * 1.5 + 30, _PLAY_POLL_TIMEOUT) if duration > 0 else _PLAY_POLL_TIMEOUT
-                poll_start = time.monotonic()
-                while not self._stop_event.is_set():
-                    state = self.get_state()
-                    if state == "finished":
-                        logger.info("Agora 推流播放完成")
-                        break
-                    if time.monotonic() - poll_start > timeout:
-                        logger.warning("Agora 推流轮询超时 (%.0fs)，强制结束", timeout)
-                        break
-                    time.sleep(_PLAY_POLL_INTERVAL)
-            else:
-                err = result.get("error", "未知") if result else "无响应"
-                logger.warning(f"Agora 推流启动失败: {err}")
+            if started:
+                cb = self._on_play_start_callback
+                self._on_play_start_callback = None
+                if cb:
+                    try:
+                        cb()
+                    except Exception as e:
+                        logger.debug(f"on_play_start 回调异常: {e}")
+                self._monitor_playback(duration)
 
         except http_requests.RequestException as e:
             logger.error(f"音频下载失败: {e}")
@@ -546,19 +574,128 @@ class VoiceClient:
         finally:
             self._playing = False
 
+    def _race_remote_and_local(self, url: str) -> Tuple[bool, float]:
+        """远程直推和本地下载并行竞赛：远程快则用远程，否则用已下载的本地数据。"""
+        download_result: list = []
+        download_done = threading.Event()
+
+        def _bg_download():
+            try:
+                data, ct = self._download_audio_with_retry(url)
+                download_result.append((data, ct))
+            except Exception as e:
+                download_result.append((None, str(e)))
+            download_done.set()
+
+        dl_thread = threading.Thread(target=_bg_download, daemon=True)
+        dl_thread.start()
+
+        remote_ok, remote_dur = self._try_play_remote_url(url)
+        if remote_ok:
+            return True, remote_dur
+
+        download_done.wait()
+        if not download_result or self._stop_event.is_set():
+            return False, 0.0
+        audio_data, content_type = download_result[0]
+        if audio_data is None:
+            return False, 0.0
+        return self._play_local_audio(audio_data, content_type)
+
+    def _try_play_remote_url(self, url: str) -> Tuple[bool, float]:
+        """让浏览器直接拉远程音频。失败则标记抑制后续尝试。"""
+        if self._stop_event.is_set():
+            return False, 0.0
+        try:
+            logger.info(f"尝试直推远程音频: {url[:80]}...")
+            result = self._run_on_browser("agoraPlayAudio", url, timeout=_REMOTE_PLAY_START_TIMEOUT)
+        except Exception as e:
+            logger.warning(f"远程 URL 推流失败，回退本地下载: {e}")
+            self._remote_last_fail = time.monotonic()
+            return False, 0.0
+
+        if result and result.get("ok"):
+            self._remote_last_fail = 0
+            duration = float(result.get("duration", 0) or 0)
+            logger.info(f"Agora 远程直推已开始 (时长: {duration:.1f}s)")
+            return True, duration
+
+        err = result.get("error", "未知") if result else "无响应"
+        logger.warning(f"远程 URL 推流不可用，回退本地下载: {err}")
+        self._remote_last_fail = time.monotonic()
+        return False, 0.0
+
+    def _play_local_audio(self, audio_data: bytes, content_type: str, is_preloaded: bool = False) -> Tuple[bool, float]:
+        """将已拿到的音频字节写入临时文件，让浏览器通过 file:// URL 播放。"""
+        logger.info(f"音频就绪: {len(audio_data)} bytes" + (" (预加载)" if is_preloaded else ""))
+        if "octet-stream" in (content_type or ""):
+            content_type = "audio/mpeg"
+
+        if self._temp_audio_path:
+            try:
+                os.unlink(self._temp_audio_path)
+            except OSError:
+                pass
+            self._temp_audio_path = None
+
+        ext = ".mp3" if "mpeg" in (content_type or "") else ".ogg"
+        fd, temp_path = tempfile.mkstemp(suffix=ext, prefix="agora_")
+        try:
+            with os.fdopen(fd, "wb") as f:
+                f.write(audio_data)
+        except Exception:
+            try:
+                os.close(fd)
+            except OSError:
+                pass
+            raise
+        self._temp_audio_path = temp_path
+
+        file_url = "file:///" + temp_path.replace("\\", "/")
+        result = self._run_on_browser("agoraPlayAudio", file_url)
+        if result and result.get("ok"):
+            duration = float(result.get("duration", 0) or 0)
+            logger.info(f"Agora 本地推流已开始 (时长: {duration:.1f}s)")
+            return True, duration
+
+        err = result.get("error", "未知") if result else "无响应"
+        logger.warning(f"Agora 本地推流启动失败: {err}")
+        return False, 0.0
+
+    def _monitor_playback(self, duration: float) -> None:
+        """轮询浏览器播放状态，直到播放结束或超时。"""
+        timeout = max(duration * 1.5 + 30, _PLAY_POLL_TIMEOUT) if duration > 0 else _PLAY_POLL_TIMEOUT
+        poll_start = time.monotonic()
+        while not self._stop_event.is_set():
+            state = self.get_state()
+            if state == "finished":
+                logger.info("Agora 推流播放完成")
+                break
+            if time.monotonic() - poll_start > timeout:
+                logger.warning("Agora 推流轮询超时 (%.0fs)，强制结束", timeout)
+                break
+            time.sleep(_PLAY_POLL_INTERVAL)
+
     def _download_audio_with_retry(
         self, url: str, stop_event: Optional[threading.Event] = None,
     ) -> Tuple[Optional[bytes], str]:
-        """流式下载音频，弱网时使用更长超时与重试。返回 (音频数据, content_type)。"""
+        """流式下载音频，绕过代理直连 CDN。返回 (音频数据, content_type)。"""
         if stop_event is None:
             stop_event = self._stop_event
         try:
             from config import NETEASE_CLOUD
-            connect_timeout = 15
-            read_timeout = NETEASE_CLOUD.get("audio_download_timeout", 120)
+            connect_timeout = 10
+            read_timeout = NETEASE_CLOUD.get("audio_download_timeout", 60)
             max_retries = NETEASE_CLOUD.get("audio_download_retries", 2)
         except Exception:
-            connect_timeout, read_timeout, max_retries = 15, 120, 2
+            connect_timeout, read_timeout, max_retries = 10, 60, 2
+
+        session = http_requests.Session()
+        session.trust_env = False
+        session.headers.update({
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36",
+            "Referer": "https://music.163.com/",
+        })
 
         last_error = None
         content_type = "audio/mpeg"
@@ -567,11 +704,10 @@ class VoiceClient:
                 return None, content_type
             try:
                 logger.info(f"正在下载音频 ({attempt + 1}/{max_retries + 1}): {url[:80]}...")
-                resp = http_requests.get(
+                resp = session.get(
                     url,
                     timeout=(connect_timeout, read_timeout),
                     stream=True,
-                    headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Chrome/140.0.0.0 Safari/537.36", "Referer": "https://music.163.com/"},
                 )
                 resp.raise_for_status()
                 content_type = resp.headers.get("Content-Type") or "audio/mpeg"

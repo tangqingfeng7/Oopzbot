@@ -309,6 +309,46 @@ class MusicHandler(PlaybackMixin):
             return []
         return p.search_many(keyword, limit=max(1, min(limit, 10)))
 
+    def search_best_candidate(self, keyword: str, platform: str = _PLATFORM_NETEASE) -> Optional[dict]:
+        """快速搜索首条候选，用于 /bf 直播放歌的快速命中。"""
+        resolved_platform = platform or _PLATFORM_NETEASE
+        p = self.platforms.get(resolved_platform)
+        if not p:
+            return None
+        try:
+            return p.search(keyword, limit=1)
+        except Exception as e:
+            logger.debug("快速搜索候选失败 (%s): %s", resolved_platform, e)
+            return None
+
+    @staticmethod
+    def _build_song_data_from_platform_data(
+        data: dict,
+        platform: str,
+        song_id,
+        channel: str,
+        area: str,
+        user: str,
+    ) -> dict:
+        """把平台返回的歌曲信息统一转换为内部 song_data。"""
+        duration_ms = data.get("duration", 0) or data.get("duration_ms", 0) or 0
+        duration_text = data.get("durationText", "") or data.get("duration", "")
+        return {
+            "platform": platform,
+            "song_id": str(data.get("id") or data.get("mid") or song_id),
+            "name": data["name"],
+            "artists": data["artists"],
+            "album": data.get("album", ""),
+            "url": data["url"],
+            "cover": data.get("cover"),
+            "duration": duration_text,
+            "duration_ms": duration_ms,
+            "attachments": [],
+            "channel": channel,
+            "area": area,
+            "user": user,
+        }
+
     def play_song_choice(self, song: dict, channel: str, area: str, user: str) -> None:
         """播放用户从候选列表中选中的歌曲。"""
         platform = song.get("platform") or _PLATFORM_NETEASE
@@ -317,26 +357,28 @@ class MusicHandler(PlaybackMixin):
             self.sender.send_message(f"错误: 未知或未启用的音乐平台: {platform}", channel=channel, area=area)
             return
         song_id = song.get("id") or song.get("song_id") or song.get("mid")
-        result = p.summarize_by_id(song_id)
-        if result["code"] != "success":
-            self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
+        if not song_id:
+            self.sender.send_message("错误: 无法识别歌曲 ID", channel=channel, area=area)
             return
-        data = result["data"]
-        song_data = {
-            "platform": platform,
-            "song_id": str(data.get("id") or data.get("mid") or song_id),
-            "name": data["name"],
-            "artists": data["artists"],
-            "album": data.get("album", ""),
-            "url": data["url"],
-            "cover": data.get("cover"),
-            "duration": data.get("durationText", ""),
-            "duration_ms": data.get("duration", 0),
-            "attachments": [],
-            "channel": channel,
-            "area": area,
-            "user": user,
-        }
+
+        data = None
+        if song.get("url"):
+            data = dict(song)
+        elif song.get("name") and song.get("artists"):
+            url = p.get_song_url(song_id)
+            if not url:
+                self.sender.send_message("错误: 无法获取播放链接", channel=channel, area=area)
+                return
+            data = dict(song)
+            data["url"] = url
+        else:
+            result = p.summarize_by_id(song_id)
+            if result["code"] != "success":
+                self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
+                return
+            data = result["data"]
+
+        song_data = self._build_song_data_from_platform_data(data, platform, song_id, channel, area, user)
         if not self._check_and_enter_voice_channel(user, channel, area):
             return
         user_name = self.names.user(user) if user else "未知用户"
@@ -345,12 +387,22 @@ class MusicHandler(PlaybackMixin):
 
     def play_song(self, keyword: str, platform: str, channel: str, area: str, user: str) -> None:
         """通用的多平台点歌入口。"""
+        voice_ok = [None]
+        voice_done = threading.Event()
+
+        def _voice_check():
+            voice_ok[0] = self._check_and_enter_voice_channel(user, channel, area)
+            voice_done.set()
+
+        threading.Thread(target=_voice_check, daemon=True).start()
+
         result = self._prepare_song_request(keyword, channel, area, user, platform=platform)
         if result["code"] != "success":
             self.sender.send_message(f"错误: {result['message']}", channel=channel, area=area)
             return
 
-        if not self._check_and_enter_voice_channel(user, channel, area):
+        voice_done.wait()
+        if not voice_ok[0]:
             return
 
         result = self._commit_song_request(result["song_data"])
@@ -700,22 +752,14 @@ class MusicHandler(PlaybackMixin):
             return search_result
 
         data = search_result["data"]
-
-        song_data = {
-            "platform": resolved_platform,
-            "song_id": str(data.get("id") or data.get("mid") or keyword),
-            "name": data["name"],
-            "artists": data["artists"],
-            "album": data.get("album", ""),
-            "url": data["url"],
-            "cover": data.get("cover"),
-            "duration": data.get("durationText", ""),
-            "duration_ms": data.get("duration", 0),
-            "attachments": [],
-            "channel": channel,
-            "area": area,
-            "user": user,
-        }
+        song_data = self._build_song_data_from_platform_data(
+            data,
+            resolved_platform,
+            keyword,
+            channel,
+            area,
+            user,
+        )
 
         return {"code": "success", "song_data": song_data}
 
@@ -780,10 +824,9 @@ class MusicHandler(PlaybackMixin):
     def _commit_song_request(self, song_data: dict, prefix: str = "") -> dict:
         """将已准备好的歌曲请求正式提交为播放或排队。prefix 用于自定义通知前缀。"""
         song_data = dict(song_data)
-        attachments, image_cache_id, cache_hit = self._resolve_song_attachments(song_data)
-        song_data["attachments"] = attachments
 
         q = self._get_queue(song_data.get("area", ""))
+        direct_play = False
 
         with self._playback_lock:
             is_playing = self._is_playing()
@@ -815,20 +858,30 @@ class MusicHandler(PlaybackMixin):
                     daemon=True,
                 ).start()
                 self._preload_next_song_if_any()
-
-                SongCache.record_play(
-                    song_data.get("song_id"),
-                    song_data.get("platform", _PLATFORM_NETEASE),
-                    song_data,
-                    image_cache_id,
-                    song_data.get("channel", ""),
-                    song_data.get("user", ""),
-                )
-                Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
-                text = self._build_song_request_text(song_data, prefix=prefix)
+                direct_play = True
             else:
                 pos = q.add_to_queue(song_data)
-                actual = pos + 1 + (1 if current_song or is_playing else 0)
-                text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
+
+        attachments, image_cache_id, cache_hit = self._resolve_song_attachments(song_data)
+        song_data["attachments"] = attachments
+
+        if direct_play:
+            try:
+                q.set_current(song_data)
+            except Exception:
+                pass
+            SongCache.record_play(
+                song_data.get("song_id"),
+                song_data.get("platform", _PLATFORM_NETEASE),
+                song_data,
+                image_cache_id,
+                song_data.get("channel", ""),
+                song_data.get("user", ""),
+            )
+            Statistics.update_today(song_data.get("platform", _PLATFORM_NETEASE), cache_hit)
+            text = self._build_song_request_text(song_data, prefix=prefix)
+        else:
+            actual = pos + 1 + (1 if current_song or is_playing else 0)
+            text = self._build_song_request_text(song_data, prefix=prefix) + f"\n已加入队列 (位置: {actual})"
 
         return {"code": "success", "message": text, "attachments": attachments}

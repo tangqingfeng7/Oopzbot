@@ -419,14 +419,18 @@ def api_status(area: str = Query("", description="域 ID，用于多域隔离"))
                 duration = 0.0
 
         paused = False
+        loading = False
         if play_state_raw:
             ps = json.loads(play_state_raw)
             start = float(ps.get("start_time", 0) or 0)
             dur = float(ps.get("duration", 0) or 0)
             paused = bool(ps.get("paused"))
+            loading = bool(ps.get("loading"))
             if dur:
                 duration = dur
-            if paused:
+            if loading:
+                progress = 0.0
+            elif paused:
                 progress = float(ps.get("pause_elapsed", 0) or 0)
             elif start and duration:
                 progress = time.time() - start
@@ -443,6 +447,7 @@ def api_status(area: str = Query("", description="域 ID，用于多域隔离"))
         return JSONResponse({
             "playing": True,
             "paused": paused,
+            "loading": loading,
             "id": song_id,
             "name": current.get("name", ""),
             "artists": current.get("artists", ""),
@@ -452,6 +457,7 @@ def api_status(area: str = Query("", description="域 ID，用于多域隔离"))
             "durationText": dur_text,
             "progress": round(progress, 2),
             "volume": volume,
+            "server_time": round(time.time(), 3),
         })
     except Exception as e:
         logger.error(f"/api/status 异常: {e}")
