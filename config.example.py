@@ -211,18 +211,18 @@ PROFANITY_CONFIG = {
 
 # Web 播放器配置
 WEB_PLAYER_CONFIG = {
-    "url": "",       # 留空则自动检测（公网 IPv4 优先）；也可手动填写，如 http://你的公网IP:端口
+    "url": "",       # 留空则自动检测（公网 IPv4 优先）；使用 Nginx 反代时填写对外地址，如 https://your-domain.com
     "host": "0.0.0.0",  # 监听地址，一般不改
-    "port": 8080,    # 若 8080 无法访问（被防火墙/运营商封），可改为 3001 等与 3000 同网段端口
+    "port": 8080,    # 内部监听端口；使用 Nginx 反代时无需对外暴露，由 Nginx 统一通过 80/443 转发
     "token_ttl_seconds": 86400,  # Web 随机访问令牌有效期（秒），0=不过期（不建议）
     "cookie_max_age_seconds": 86400,  # 浏览器 cookie 有效期（秒）；留空则跟 token_ttl_seconds 一致
-    "cookie_secure": False,  # True=仅 HTTPS 发送 cookie；纯 http 环境请保持 False
+    "cookie_secure": False,  # True=仅 HTTPS 发送 cookie；使用 Nginx + SSL 时应设为 True
     "link_idle_release_seconds": 1800,  # 播放列表空闲超过该秒数后，释放随机播放器链接（0=不释放）
     # 管理后台（访问 /admin）
     "admin_enabled": False,  # 是否启用管理后台
     "admin_password": "",    # 后台登录密码（强烈建议设置强密码）
     "admin_session_ttl_seconds": 43200,  # 后台登录会话有效期（秒），0=不过期（不建议）
-    "admin_cookie_secure": False,  # 后台 cookie 是否仅 HTTPS 发送
+    "admin_cookie_secure": False,  # 后台 cookie 是否仅 HTTPS 发送；使用 Nginx + SSL 时应设为 True
 }
 
 # Bot 消息自动撤回配置

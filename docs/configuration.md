@@ -148,12 +148,14 @@ copy private_key.example.py private_key.py
 | 配置项 | 说明 |
 |--------|------|
 | `host` | 监听地址（默认 `0.0.0.0`） |
-| `port` | 监听端口（默认 `8080`） |
-| `url` | 对外访问地址，留空则自动检测 |
+| `port` | 监听端口（默认 `8080`）；使用 Nginx 反代时此端口仅内部访问 |
+| `url` | 对外访问地址，留空则自动检测公网 IP；使用 Nginx 反代时填写 `https://你的域名` |
 | `token_ttl_seconds` | Web 随机访问令牌有效期（秒），`0` 表示不过期（不建议） |
 | `cookie_max_age_seconds` | 浏览器 cookie 有效期（秒）；留空时默认跟 `token_ttl_seconds` 一致 |
-| `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（HTTPS 建议 `True`） |
+| `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（使用 Nginx + SSL 时设为 `True`） |
 | `link_idle_release_seconds` | 播放列表空闲超时后释放随机链接（秒，`0` 表示不释放） |
+
+> **注意**：管理后台保存的运行时覆盖（`data/admin_runtime_config.json`）优先级高于 `config.py`。修改 `url` 等字段时，建议通过管理后台 `/admin` -> 配置页面操作，或同时修改 JSON 文件。
 
 ### 自动撤回 (`AUTO_RECALL_CONFIG`)
 
@@ -210,6 +212,23 @@ copy private_key.example.py private_key.py
 
 - **不启用语音推流**  
   在 `OOPZ_CONFIG` 中不填 `agora_app_id`（或留空），则不会初始化浏览器，音乐点歌仍可用，仅无法在语音频道内播放。
+
+## 环境变量覆盖
+
+Docker 环境下可通过环境变量覆盖部分配置，无需修改 `config.py`：
+
+| 环境变量 | 对应配置 |
+|----------|----------|
+| `BOT_REDIS_HOST` / `BOT_REDIS_PORT` / `BOT_REDIS_PASSWORD` / `BOT_REDIS_DB` | Redis 连接 |
+| `BOT_NETEASE_BASE_URL` | 网易云 API 地址 |
+| `BOT_WEB_HOST` / `BOT_WEB_PORT` | Web 播放器监听 |
+| `BOT_OOPZ_PROXY` | Oopz 代理地址 |
+| `BOT_DISABLE_VOICE` | 禁用语音推流 |
+| `BOT_DISABLE_AUTO_START_NETEASE` | 禁用自动启动网易云 API |
+
+## 插件配置
+
+插件配置位于 `config/plugins/` 目录，每个插件提供 `*.example.json`（示例）和 `*.schema.json`（结构定义），复制示例文件并修改即可。
 
 ## private_key.py
 

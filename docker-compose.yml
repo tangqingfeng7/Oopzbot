@@ -1,4 +1,19 @@
 services:
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    depends_on:
+      bot:
+        condition: service_healthy
+      netease-api:
+        condition: service_healthy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/ssl:/etc/nginx/ssl:ro
+
   redis:
     image: redis:7-alpine
     restart: unless-stopped
@@ -34,8 +49,8 @@ services:
       BOT_NETEASE_BASE_URL: http://netease-api:3000
       # BOT_LOG_CONSOLE_LEVEL: INFO       # DEBUG / INFO / WARNING / ERROR
       # BOT_LOG_FILE_LEVEL: DEBUG
-    ports:
-      - "8080:8080"
+    expose:
+      - "8080"
     shm_size: "1gb"
     volumes:
       - ./config.py:/app/config.py:ro
@@ -58,8 +73,6 @@ services:
       retries: 20
     expose:
       - "3000"
-    ports:
-      - "3000:3000"
 
 volumes:
   redis-data:
