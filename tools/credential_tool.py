@@ -13,6 +13,21 @@ OOPZ_WEB_URL = "https://web.oopz.cn"
 WS_EVENT_AUTH = 253
 
 
+def _is_jwt_expired(token: str) -> bool:
+    """解码 JWT payload，检查 exp 是否已过期（不校验签名）"""
+    try:
+        import base64
+        payload_b64 = token.split(".")[1]
+        payload_b64 += "=" * (4 - len(payload_b64) % 4)
+        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
+        exp = payload.get("exp")
+        if exp is None:
+            return False
+        return exp <= time.time()
+    except Exception:
+        return False
+
+
 def ensure_playwright():
     """确保 playwright 和 chromium 已安装"""
     try:
@@ -352,12 +367,16 @@ async def capture_credentials():
             if h.get("oopz-device-id") and not credentials["device_id"]:
                 credentials["device_id"] = h["oopz-device-id"]
                 print(f"  [✓] 设备 ID:   {credentials['device_id']}")
-            if h.get("oopz-signature") and not credentials["jwt_token"]:
-                credentials["jwt_token"] = h["oopz-signature"]
-                preview = credentials["jwt_token"]
-                if len(preview) > 50:
-                    preview = preview[:50] + "..."
-                print(f"  [✓] JWT Token:  {preview}")
+            sig = h.get("oopz-signature")
+            if sig and not credentials["jwt_token"]:
+                if _is_jwt_expired(sig):
+                    if not getattr(on_request, "_warned_expired", False):
+                        on_request._warned_expired = True
+                        print(f"  [!] 检测到过期 JWT，已跳过。请在浏览器中重新登录以获取新 Token")
+                else:
+                    credentials["jwt_token"] = sig
+                    preview = sig[:50] + "..." if len(sig) > 50 else sig
+                    print(f"  [✓] JWT Token:  {preview}")
 
             if all(credentials[k] for k in ("person_uid", "device_id", "jwt_token")):
                 header_done.set()
@@ -378,12 +397,16 @@ async def capture_credentials():
                     if body.get("deviceId") and not credentials["device_id"]:
                         credentials["device_id"] = body["deviceId"]
                         print(f"  [✓] 设备 ID (ws):   {credentials['device_id']}")
-                    if body.get("signature") and not credentials["jwt_token"]:
-                        credentials["jwt_token"] = body["signature"]
-                        preview = credentials["jwt_token"]
-                        if len(preview) > 50:
-                            preview = preview[:50] + "..."
-                        print(f"  [✓] JWT Token (ws):  {preview}")
+                    ws_sig = body.get("signature")
+                    if ws_sig and not credentials["jwt_token"]:
+                        if _is_jwt_expired(ws_sig):
+                            if not getattr(on_frame, "_warned_expired", False):
+                                on_frame._warned_expired = True
+                                print(f"  [!] 检测到过期 JWT (ws)，已跳过。请在浏览器中重新登录以获取新 Token")
+                        else:
+                            credentials["jwt_token"] = ws_sig
+                            preview = ws_sig[:50] + "..." if len(ws_sig) > 50 else ws_sig
+                            print(f"  [✓] JWT Token (ws):  {preview}")
 
                     if all(credentials[k] for k in ("person_uid", "device_id", "jwt_token")):
                         header_done.set()

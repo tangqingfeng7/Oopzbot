@@ -16,7 +16,7 @@ from name_resolver import NameResolver
 from voice_client import VoiceClient
 from config import WEB_PLAYER_CONFIG
 from logger_config import get_logger
-from web_link_token import clear_token, get_token
+from web_link_token import clear_token, get_token, set_active_area
 from music_web_control import WebControlExecutor
 from music_platform import PlatformRegistry
 from music_playback import (
@@ -131,9 +131,11 @@ class MusicHandler(PlaybackMixin):
     def _get_web_link(self, area: str = "") -> str:
         """获取 Web 播放器链接（按需生成随机访问令牌）。"""
         q = self._get_queue(area)
-        link = _web_player_link(redis_client=getattr(q, "redis", None))
+        redis_client = getattr(q, "redis", None)
+        link = _web_player_link(redis_client=redis_client)
         if link:
             self._web_link_released_due_to_idle = False
+            set_active_area(area, redis_client=redis_client)
         return link
 
     def _release_web_link_if_needed(self):

@@ -829,6 +829,8 @@ body::after{
 <script>
 (function(){
   const $ = id => document.getElementById(id);
+  const _area = window.__OOPZ_AREA__ || '';
+  function _api(path){ return _area ? path+(path.includes('?')?'&':'?')+'area='+encodeURIComponent(_area) : path; }
 
   let currentId = null;
   let lyrics = [];
@@ -967,7 +969,8 @@ body::after{
 
   async function fetchStatus(){
     try{
-      const r=await fetch('/api/status');
+      const r=await fetch(_api('/api/status'));
+      if(!r.ok){ setConnStatus(true); return; }
       const d=await r.json();
       setConnStatus(true);
 
@@ -1023,7 +1026,7 @@ body::after{
           $('volumeFill').style.width=volume+'%';
           $('volumeThumb').style.left=volume+'%';
           $('volumePct').textContent=volume+'%';
-          fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
+          fetch(_api('/api/control'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
         }else{
           volume=d.volume;
           $('volumeFill').style.width=volume+'%';
@@ -1052,7 +1055,7 @@ body::after{
 
   async function fetchLyric(id){
     try{
-      const r=await fetch('/api/lyric?id='+id);
+      const r=await fetch(_api('/api/lyric?id='+id));
       const d=await r.json();
       lyrics=parseLRC(d.lyric);
       tLyrics=parseLRC(d.tlyric);
@@ -1066,7 +1069,8 @@ body::after{
 
   async function fetchQueue(){
     try{
-      const r=await fetch('/api/queue');
+      const r=await fetch(_api('/api/queue'));
+      if(!r.ok) return;
       const d=await r.json();
       const el=$('queueList');
       const waitQueue=d.queue||[];
@@ -1126,7 +1130,7 @@ body::after{
 
   window.doControl=async function(action){
     try{
-      const r=await fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
+      const r=await fetch(_api('/api/control'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})});
       const d=await r.json();
       if(d.ok){
         toast({next:'已切换下一首',clear:'队列已清空',stop:'已停止播放',pause:'已暂停',resume:'继续播放'}[action]||'操作成功');
@@ -1139,7 +1143,7 @@ body::after{
 
   window.doQueueAction=async function(action,idx){
     try{
-      const r=await fetch('/api/queue/action',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,index:idx})});
+      const r=await fetch(_api('/api/queue/action'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action,index:idx})});
       const d=await r.json();
       if(d.ok){
         toast({top:'已置顶',remove:'已删除'}[action]||'操作成功');
@@ -1206,7 +1210,7 @@ body::after{
     const badge=$('playingBadge');
     badge.querySelector('span').textContent=isPaused?'Paused':'Playing';
     badge.classList.toggle('paused',isPaused);
-    fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})
+    fetch(_api('/api/control'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action})})
       .then(r=>r.json()).then(d=>{if(d.ok)toast(action==='pause'?'已暂停':'继续播放')})
       .catch(()=>{});
   };
@@ -1237,7 +1241,7 @@ body::after{
         if(t!==undefined){
           _progressBase=t;
           _progressBaseTime=Date.now();
-          fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'seek',time:Math.round(t)})});
+          fetch(_api('/api/control'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'seek',time:Math.round(t)})});
           highlightLyric(t);
         }
         setTimeout(()=>{isSeeking=false},300);
@@ -1260,7 +1264,7 @@ body::after{
       clearTimeout(volumeDebounce);
       localStorage.setItem('webVolume', String(volume));
       volumeDebounce=setTimeout(()=>{
-        fetch('/api/control',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
+        fetch(_api('/api/control'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({action:'volume',value:volume})});
         setTimeout(()=>{volumeDebounce=null},1000);
       },200);
     }
@@ -1308,7 +1312,7 @@ body::after{
   window.refreshLiked=async function(){
     $('likedBody').innerHTML='<div class="search-loading"><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 12a9 9 0 0 1-6.219-8.56"/></svg>刷新中...</div>';
     $('likedPager').style.display='none';
-    try{ await fetch('/api/liked/refresh',{method:'POST'}); }catch(e){}
+    try{ await fetch(_api('/api/liked/refresh'),{method:'POST'}); }catch(e){}
     _likedSearchKeyword='';
     $('likedSearchInput').value='';
     loadLiked(1);
@@ -1411,7 +1415,7 @@ body::after{
 
   async function doSearch(kw){
     try{
-      const r=await fetch('/api/search?keyword='+encodeURIComponent(kw));
+      const r=await fetch(_api('/api/search?keyword='+encodeURIComponent(kw)));
       const d=await r.json();
       const results=d.results||[];
       if(!results.length){
@@ -1439,7 +1443,7 @@ body::after{
     btn.disabled=true;
     btn.textContent='添加中...';
     try{
-      const r=await fetch('/api/add',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(song)});
+      const r=await fetch(_api('/api/add'),{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(song)});
       const d=await r.json();
       if(d.ok){
         btn.textContent='已添加';

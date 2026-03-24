@@ -19,7 +19,7 @@ from fastapi.staticfiles import StaticFiles
 from logger_config import get_logger
 from netease import NeteaseCloud
 from queue_manager import get_redis_client, _area_key, KEY_QUEUE, KEY_CURRENT, KEY_PLAY_STATE
-from web_link_token import ensure_token, get_token, set_token
+from web_link_token import ensure_token, get_token, set_token, get_active_area
 
 import web_player_config as cfg
 
@@ -66,7 +66,7 @@ class _RateLimiter:
                 del self._hits[k]
 
 
-_api_limiter = _RateLimiter(max_requests=60, window_seconds=60)
+_api_limiter = _RateLimiter(max_requests=200, window_seconds=60)
 _search_limiter = _RateLimiter(max_requests=15, window_seconds=60)
 
 # ---------------------------------------------------------------------------
@@ -391,6 +391,8 @@ def _filter_songs_by_keyword(songs: list, keyword: str) -> list:
 def api_status(area: str = Query("", description="域 ID，用于多域隔离")):
     try:
         r = get_redis()
+        if not area:
+            area = get_active_area(redis_client=r)
         current_key = _area_key(KEY_CURRENT, area)
         ps_key = _area_key(KEY_PLAY_STATE, area)
 
@@ -489,6 +491,8 @@ def api_lyric(id: str = Query(...), platform: str = Query("netease")):
 def api_queue(area: str = Query("", description="域 ID，用于多域隔离")):
     try:
         r = get_redis()
+        if not area:
+            area = get_active_area(redis_client=r)
         queue_key = _area_key(KEY_QUEUE, area)
         items = r.lrange(queue_key, 0, -1)
         queue: list[dict] = []
@@ -713,13 +717,17 @@ def index():
 
 @app.get("/w/{token}", response_class=HTMLResponse)
 def index_with_token(token: str):
-    active = get_token(redis_client=get_redis())
+    r = get_redis()
+    active = get_token(redis_client=r)
     if not active or not secrets.compare_digest(token, active):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
-    set_token(token, redis_client=get_redis(), ttl_seconds=cfg.token_ttl_seconds())
+    set_token(token, redis_client=r, ttl_seconds=cfg.token_ttl_seconds())
+    area = get_active_area(redis_client=r)
     html_path = os.path.join(os.path.dirname(__file__), "player.html")
     with open(html_path, "r", encoding="utf-8") as f:
-        resp = HTMLResponse(f.read())
+        html = f.read()
+    html = html.replace("</head>", f'<script>window.__OOPZ_AREA__="{area}";</script></head>', 1)
+    resp = HTMLResponse(html)
     resp.set_cookie(
         key="web_token",
         value=token,

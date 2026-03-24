@@ -301,11 +301,16 @@ class PlaybackMixin:
                     return True
         except Exception as e:
             logger.debug(f"读取 play_state 失败，按时间判定播放状态: {e}")
+        voice_state = None
         try:
-            if self.voice and self.voice.available and self._voice_channel_id and not self.voice.is_playing:
-                return False
+            if self.voice and self.voice.available and self._voice_channel_id:
+                voice_state = self.voice.is_playing
         except Exception as e:
             logger.debug(f"读取语音推流状态失败，回退时间判定: {e}")
+        if voice_state is True:
+            return True
+        if voice_state is False:
+            return False
         elapsed = time.time() - self._play_start_time
         return elapsed < self._play_duration
 

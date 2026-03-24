@@ -6,9 +6,11 @@ from logger_config import get_logger
 logger = get_logger("WebLinkToken")
 
 KEY_WEB_ACCESS_TOKEN = "music:web_access_token"
+KEY_WEB_ACTIVE_AREA = "music:web_active_area"
 
 _lock = threading.Lock()
 _memory_token: str = ""
+_memory_area: str = ""
 
 
 def _normalize_ttl(ttl_seconds=None) -> int:
@@ -93,3 +95,36 @@ def clear_token(redis_client=None):
             redis_client.delete(KEY_WEB_ACCESS_TOKEN)
         except Exception as e:
             logger.debug(f"Redis 清理 Web 令牌失败: {e}")
+
+
+def get_active_area(redis_client=None) -> str:
+    """读取当前 Web 播放器关联的活跃域 ID。"""
+    global _memory_area
+    if redis_client is not None:
+        try:
+            raw = redis_client.get(KEY_WEB_ACTIVE_AREA)
+            val = ""
+            if isinstance(raw, bytes):
+                val = raw.decode("utf-8", errors="ignore")
+            elif isinstance(raw, str):
+                val = raw
+            with _lock:
+                _memory_area = val
+            return val
+        except Exception:
+            pass
+    with _lock:
+        return _memory_area
+
+
+def set_active_area(area: str, redis_client=None):
+    """保存当前 Web 播放器关联的活跃域 ID。"""
+    global _memory_area
+    val = (area or "").strip()
+    with _lock:
+        _memory_area = val
+    if redis_client is not None:
+        try:
+            redis_client.set(KEY_WEB_ACTIVE_AREA, val)
+        except Exception as e:
+            logger.debug(f"Redis 写入 active area 失败: {e}")
