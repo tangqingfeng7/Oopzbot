@@ -177,9 +177,11 @@ class MentionCommandRouter:
         self._sender.send_message("当前没有可选择的候选结果，请先搜索或搜歌", channel=channel, area=area)
 
     def _should_treat_as_unknown_command(self, text: str) -> bool:
-        return bool(self._services.interaction.help.suggest_commands(text, limit=1))
+        from app.services.interaction.help_catalog import suggest_command_usages
+        return bool(suggest_command_usages(text, limit=1))
 
-    def dispatch(self, text: str, channel: str, area: str, user: str) -> None:
+    def dispatch(self, text: str, channel: str, area: str, user: str) -> bool:
+        """分发 @bot 命令。返回 True 表示该消息落入了 AI 聊天（用户消息不应被撤回）。"""
         if self._plugins.try_dispatch_mention(
             text,
             channel,
@@ -187,31 +189,31 @@ class MentionCommandRouter:
             user,
             self._runtime.plugin_host,
         ):
-            return
+            return False
         if self._services.interaction.music.handle_mention(text, channel, area, user):
-            return
+            return False
 
         for aliases, callback in self._exact_rules(channel, area, user):
             candidate = text.strip() if "封禁列表" in aliases or "插件列表" in aliases else text
             if self._dispatch_exact(candidate, aliases, callback):
-                return
+                return False
 
         for prefixes, callback, usage in self._arg_rules(channel, area, user):
             if self._dispatch_prefixed_arg(text, prefixes, callback, usage, channel, area):
-                return
+                return False
 
         for prefixes, callback, usage in self._pair_rules(channel, area):
             if self._dispatch_prefixed_pair(text, prefixes, callback, usage, channel, area):
-                return
+                return False
 
         match = re.match(r"撤回\s*(\d+)\s*条", text.strip())
         if match:
             self._actions.recall.recall_multiple(int(match.group(1)), channel, area)
-            return
+            return False
 
         for prefixes, callback in self._raw_rules(channel, area, user):
             if self._dispatch_prefixed_raw(text, prefixes, callback):
-                return
+                return False
 
         if self._should_treat_as_unknown_command(text):
             self._services.interaction.chat.send_unknown_mention_command(
@@ -220,6 +222,7 @@ class MentionCommandRouter:
                 area,
                 suggestions=self._services.interaction.help.suggest_commands(text),
             )
-            return
+            return False
 
         self._services.interaction.chat.handle_mention_fallback(text, channel, area, user=user)
+        return True

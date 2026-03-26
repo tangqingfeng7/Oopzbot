@@ -1,3 +1,40 @@
+    /* ---- Keyword editor helpers ---- */
+    window._kwRender = function(obj) {
+      var list = AdminShell.byId("cfg_kw_list");
+      if (!list) return;
+      list.innerHTML = "";
+      Object.entries(obj).forEach(function(pair) { _kwAddRow(list, pair[0], pair[1]); });
+    };
+    function _kwAddRow(list, key, val) {
+      var row = document.createElement("div");
+      row.className = "kw-row";
+      row.innerHTML =
+        '<input class="kw-key" type="text" placeholder="关键词" value="' + _kwEsc(key) + '">' +
+        '<input class="kw-val" type="text" placeholder="回复内容" value="' + _kwEsc(val) + '">' +
+        '<button type="button" class="kw-del" title="删除">&times;</button>';
+      row.querySelector(".kw-del").onclick = function() { row.remove(); };
+      list.appendChild(row);
+    }
+    function _kwEsc(s) { return String(s || "").replace(/&/g,"&amp;").replace(/"/g,"&quot;").replace(/</g,"&lt;"); }
+    window._kwAdd = function() {
+      var list = AdminShell.byId("cfg_kw_list");
+      if (!list) return;
+      _kwAddRow(list, "", "");
+      var last = list.querySelector(".kw-row:last-child .kw-key");
+      if (last) last.focus();
+    };
+    window._kwCollect = function() {
+      var obj = {};
+      var list = AdminShell.byId("cfg_kw_list");
+      if (!list) return obj;
+      list.querySelectorAll(".kw-row").forEach(function(row) {
+        var k = row.querySelector(".kw-key").value.trim();
+        var v = row.querySelector(".kw-val").value;
+        if (k) obj[k] = v;
+      });
+      return obj;
+    };
+
     function setVal(id, value) {
       const element = AdminShell.byId(id);
       if (!element) {
@@ -151,7 +188,7 @@
       setVal("cfg_area_auto_role_id", config.area_join_notify?.auto_assign_role_id || "");
       setVal("cfg_area_auto_role_name", config.area_join_notify?.auto_assign_role_name || "");
       setVal("cfg_chat_enabled", config.chat?.enabled);
-      setVal("cfg_chat_keywords", JSON.stringify(config.chat?.keyword_replies || {}, null, 2));
+      window._kwRender(config.chat?.keyword_replies || {});
       setVal("cfg_profanity_enabled", config.profanity?.enabled);
       setVal("cfg_profanity_recall", config.profanity?.recall_message);
       setVal("cfg_mute_duration", config.profanity?.mute_duration || 5);
@@ -233,11 +270,7 @@
     }
 
     function build() {
-      var keywordsRaw = val("cfg_chat_keywords");
-      var keywordsObj = {};
-      if (keywordsRaw) {
-        try { keywordsObj = JSON.parse(keywordsRaw); } catch (_) {}
-      }
+      var keywordsObj = window._kwCollect();
 
       const updates = {
         web_player: {

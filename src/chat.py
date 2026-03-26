@@ -39,7 +39,6 @@ class ChatHandler:
 
     def __init__(self):
         self.enabled = CHAT_CONFIG.get("enabled", True)
-        self.keyword_replies: dict = CHAT_CONFIG.get("keyword_replies", {})
         self._session = requests.Session()
 
         # 豆包 AI
@@ -61,7 +60,12 @@ class ChatHandler:
 
         ai_status = "已启用" if (self.ai_enabled and self._ai_key) else "未启用"
         img_status = "已启用" if (self.img_enabled and self._img_key) else "未启用"
-        logger.info(f"聊天模块已初始化，关键词: {len(self.keyword_replies)} 个，AI: {ai_status}，图片生成: {img_status}")
+        kw_count = len(CHAT_CONFIG.get("keyword_replies", {}))
+        logger.info(f"聊天模块已初始化，关键词: {kw_count} 个，AI: {ai_status}，图片生成: {img_status}")
+
+    @property
+    def keyword_replies(self) -> dict:
+        return CHAT_CONFIG.get("keyword_replies") or {}
 
     def try_reply(self, content: str) -> Optional[str]:
         """
@@ -221,12 +225,17 @@ class ChatHandler:
             return None
 
     def add_keyword(self, keyword: str, reply: str):
-        self.keyword_replies[keyword] = reply
+        kw = CHAT_CONFIG.get("keyword_replies")
+        if not isinstance(kw, dict):
+            kw = {}
+            CHAT_CONFIG["keyword_replies"] = kw
+        kw[keyword] = reply
         logger.info(f"添加关键词: '{keyword}' -> '{reply}'")
 
     def remove_keyword(self, keyword: str) -> bool:
-        if keyword in self.keyword_replies:
-            del self.keyword_replies[keyword]
+        kw = CHAT_CONFIG.get("keyword_replies")
+        if isinstance(kw, dict) and keyword in kw:
+            del kw[keyword]
             return True
         return False
 

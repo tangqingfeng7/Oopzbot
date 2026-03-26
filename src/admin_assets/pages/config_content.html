@@ -97,7 +97,11 @@
                 <div class="field"><label for="cfg_area_auto_role_id">新人自动分配身份组 ID</label><input id="cfg_area_auto_role_id" type="text" placeholder="留空不分配" /></div>
                 <div class="field"><label for="cfg_area_auto_role_name">或按名称匹配身份组</label><input id="cfg_area_auto_role_name" type="text" placeholder="优先使用 ID" /></div>
                 <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
-                <div class="field field--wide"><label for="cfg_chat_keywords">关键词回复（JSON）</label><textarea id="cfg_chat_keywords" rows="3" placeholder='{"你好": "你好呀！", "帮助": "输入 /help 查看命令"}'></textarea></div>
+                <div class="field field--wide">
+                  <label>关键词回复</label>
+                  <div id="cfg_kw_list" class="kw-editor"></div>
+                  <button type="button" class="kw-add-btn" onclick="window._kwAdd()">+ 添加关键词</button>
+                </div>
                 <div class="field field--check"><label><input id="cfg_profanity_enabled" type="checkbox" /> 启用脏话检测</label></div>
                 <div class="field field--check"><label><input id="cfg_profanity_recall" type="checkbox" /> 自动撤回脏话消息</label></div>
                 <div class="field"><label for="cfg_mute_duration">禁言时长（分钟）</label><input id="cfg_mute_duration" type="number" min="1" /></div>

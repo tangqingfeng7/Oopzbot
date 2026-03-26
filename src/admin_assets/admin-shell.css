@@ -1762,3 +1762,30 @@ a:not(.nav-link):not(.index-link):hover {
   height: 1px;
   background: linear-gradient(90deg, transparent, rgba(232, 180, 77, 0.15), transparent);
 }
+
+/* Keyword editor */
+.kw-editor { display: flex; flex-direction: column; gap: 6px; }
+.kw-row {
+  display: flex; gap: 6px; align-items: center;
+}
+.kw-row input {
+  flex: 1; min-width: 0;
+}
+.kw-row input.kw-key { flex: 0.4; }
+.kw-row input.kw-val { flex: 0.6; }
+.kw-del {
+  flex-shrink: 0; width: 28px; height: 28px;
+  border: 1px solid rgba(255,80,80,.3); border-radius: 8px;
+  background: rgba(255,80,80,.08); color: rgba(255,100,100,.8);
+  cursor: pointer; font-size: 15px; line-height: 1;
+  display: flex; align-items: center; justify-content: center;
+  transition: background .15s, border-color .15s;
+}
+.kw-del:hover { background: rgba(255,80,80,.18); border-color: rgba(255,80,80,.5); }
+.kw-add-btn {
+  margin-top: 4px; padding: 5px 12px;
+  border: 1px dashed rgba(255,255,255,.2); border-radius: 8px;
+  background: transparent; color: var(--admin-muted, #999);
+  cursor: pointer; font-size: .8125rem; transition: all .15s;
+}
+.kw-add-btn:hover { border-color: rgba(255,255,255,.4); color: #ccc; }
