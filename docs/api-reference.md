@@ -7,7 +7,6 @@
 | 项目 | 值 |
 |------|-----|
 | Gateway API | `https://gateway.oopz.cn` |
-| Public API | `https://api.oopz.cn` |
 | WebSocket | `wss://ws.oopz.cn` |
 | CDN | 通过签名上传接口获取 CDN URL |
 

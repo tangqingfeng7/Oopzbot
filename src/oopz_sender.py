@@ -186,44 +186,18 @@ class OopzSender(UploadMixin, OopzApiMixin):
         """DELETE 请求，部分撤回接口可能用 DELETE 方法"""
         return self._request("DELETE", url_path, body)
 
-    def _get(self, url_path: str, params: Optional[dict] = None, use_api: bool = False) -> requests.Response:
-        """
-        GET 请求（签名包含查询参数），支持自动回退。
-
-        优先使用指定的 base_url；若返回 404 或连接失败，自动尝试另一个。
-        """
+    def _get(self, url_path: str, params: Optional[dict] = None) -> requests.Response:
+        """GET 请求（签名包含查询参数）。"""
+        self._throttle()
         if params:
             from urllib.parse import urlencode
-            query_string = urlencode(params)
-            sign_path = url_path + "?" + query_string
+            sign_path = url_path + "?" + urlencode(params)
         else:
             sign_path = url_path
 
-        bases = [OOPZ_CONFIG["api_url"], OOPZ_CONFIG["base_url"]] if use_api \
-            else [OOPZ_CONFIG["base_url"], OOPZ_CONFIG["api_url"]]
-
-        last_error = None
-        resp = None
-        for base in bases:
-            self._throttle()
-            try:
-                headers = {**self.session.headers, **self.signer.oopz_headers(sign_path, "")}
-                url = base + url_path
-                resp = self.session.get(url, headers=headers, params=params, timeout=10)
-                if resp.status_code == 404:
-                    logger.debug(f"GET {url} → 404，尝试回退")
-                    continue
-                return resp
-            except Exception as e:
-                logger.debug(f"GET {base}{url_path} 连接失败: {e}，尝试回退")
-                last_error = e
-                continue
-
-        if resp is not None:
-            return resp
-        if last_error:
-            raise last_error
-        raise RuntimeError("GET 请求未得到任何响应")
+        headers = {**self.session.headers, **self.signer.oopz_headers(sign_path, "")}
+        url = OOPZ_CONFIG["base_url"] + url_path
+        return self.session.get(url, headers=headers, params=params, timeout=10)
 
     # ---- 发送消息 ----
 

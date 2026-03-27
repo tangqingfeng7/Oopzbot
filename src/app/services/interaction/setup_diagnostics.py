@@ -273,8 +273,7 @@ class SetupDiagnostics:
         person_uid = str(oopz.get("person_uid", "") or "").strip()
         jwt_token = str(oopz.get("jwt_token", "") or "").strip()
         base_url = str(oopz.get("base_url", "") or "").strip()
-        api_url = str(oopz.get("api_url", "") or "").strip()
-        if person_uid and jwt_token and base_url and api_url:
+        if person_uid and jwt_token and base_url:
             return self._make_check(
                 check_id="oopz_config",
                 group="oopz",
@@ -291,8 +290,6 @@ class SetupDiagnostics:
             missing.append("jwt_token")
         if not base_url:
             missing.append("base_url")
-        if not api_url:
-            missing.append("api_url")
         return self._make_check(
             check_id="oopz_config",
             group="oopz",

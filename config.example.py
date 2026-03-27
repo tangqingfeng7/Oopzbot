@@ -10,7 +10,6 @@ OOPZ_CONFIG = {
     "platform": "windows",
     "web": True,
     "base_url": "https://gateway.oopz.cn",
-    "api_url": "https://api.oopz.cn",       # 公共 API（成员、个人信息、语录等）
 
     # === 以下需要手动填写 ===
     "device_id": "",       # 设备 ID
