@@ -19,7 +19,7 @@ EVENT_SOURCE_OPERATE_LOGS = "operate_logs"
 EVENT_SOURCE_MEMBER_SNAPSHOT = "member_snapshot"
 EVENT_SOURCE_CHOICES = (EVENT_SOURCE_OPERATE_LOGS, EVENT_SOURCE_MEMBER_SNAPSHOT)
 OPERATE_LOG_MEMBER_OP_TYPES = ["AREA_SUBSCRIBE", "AREA_UNSUBSCRIBE"]
-# 401 单次不足以判定无权限：连续这么多轮都失败才停掉该域的轮询。
+# 401 单次不足以判定无权限：连续这么多轮都失败才切换到成员快照。
 # 轮询间隔约 5s，5 轮 ≈ 半分钟，足以跨过一次凭据续期或网络抖动。
 OPERATE_LOG_AUTH_FAILURE_LIMIT = 5
 OPERATE_LOG_PERMISSION_DENIED_KEYWORDS = (
@@ -78,6 +78,7 @@ class AreaOperateLogCursor:
             for change in ordered:
                 self._mark_seen(area, change.key)
             self._initialized.add(area)
+            logger.info("域成员管理日志检测已就绪 area=%s，已跳过 %d 条历史记录", area, len(ordered))
             return []
 
         fresh: list[AreaMemberChange] = []
@@ -167,12 +168,13 @@ async def _get_default_area_channel(
 
     now = time.time()
     cached = _read_area_channel_cache(now)
-    if cached is not None:
+    if cached is not None and (not default_area or cached[0] == default_area):
         return cached
 
-    areas = await sender.get_joined_areas(quiet=quiet)
-    if areas:
-        default_area = (areas[0].get("id") or "").strip()
+    if not default_area:
+        areas = await sender.get_joined_areas(quiet=quiet)
+        if areas:
+            default_area = (areas[0].get("id") or "").strip()
     if default_area:
         for g in await sender.get_area_channels(area=default_area, quiet=quiet):
             for ch in (g.get("channels") or []):
@@ -184,6 +186,25 @@ async def _get_default_area_channel(
     if default_area and default_channel:
         _store_area_channel_cache(default_area, default_channel, now)
     return default_area, default_channel
+
+
+async def _resolve_area_channel(sender: AsyncOopzGateway, area: str) -> str:
+    """只在目标域内解析文字频道，禁止回退到其他域的频道。"""
+    from core.area_config import get_area_registry
+
+    registry = get_area_registry()
+    channel = registry.get(area).default_channel
+    if not channel and area == registry.global_default_area:
+        channel = registry.global_default_channel
+    if channel:
+        return channel
+    for group in await sender.get_area_channels(area=area, quiet=True):
+        for item in group.get("channels") or []:
+            if str(item.get("type") or "").upper() != "VOICE":
+                channel = str(item.get("id") or "").strip()
+                if channel:
+                    return channel
+    return ""
 
 
 def _member_uid(m: dict) -> str:
@@ -438,6 +459,17 @@ async def _run_join_poll_loop(
             )
 
     async def handle_join(area_id: str, channel: str, uid: str, area_cfg) -> None:
+        await _try_assign_role(
+            sender,
+            uid,
+            area_id,
+            area_cfg.auto_assign_role_id or auto_role_id,
+            area_cfg.auto_assign_role_name or auto_role_name,
+        )
+        await notify("join", area_id, uid)
+        if not channel:
+            logger.warning("域成员欢迎跳过: 域 %s 未获取到文字频道 uid=%s", area_id[:8], uid[:8])
+            return
         try:
             name = await _resolve_display_name(sender, uid)
             join_msg = area_cfg.welcome_message or message_template_join
@@ -451,19 +483,11 @@ async def _run_join_poll_loop(
             )
         except Exception as exc:
             logger.warning("域成员欢迎发送失败 area=%s uid=%s: %s", area_id[:8], uid[:8], exc)
-        await _try_assign_role(
-            sender,
-            uid,
-            area_id,
-            area_cfg.auto_assign_role_id or auto_role_id,
-            area_cfg.auto_assign_role_name or auto_role_name,
-        )
-        await notify("join", area_id, uid)
 
     async def handle_leave(area_id: str, channel: str, uid: str, area_cfg) -> None:
         try:
             leave_msg = area_cfg.leave_message or message_template_leave
-            if leave_msg:
+            if leave_msg and channel:
                 name = await _resolve_display_name(sender, uid)
                 await sender.send_message(
                     leave_msg.format(name=name, uid=uid),
@@ -481,23 +505,23 @@ async def _run_join_poll_loop(
             if is_operate_log_permission_denied(error):
                 operate_log_disabled_areas.add(area_id)
                 operate_log_auth_failures.pop(area_id, None)
-                logger.warning("域管理日志无权限，停止轮询该域 area=%s: %s", area_id[:8], error)
-                return False
+                logger.warning("域管理日志无权限，切换成员快照检测 area=%s: %s", area_id[:8], error)
+                return await handle_snapshot(area_id, channel, area_cfg)
             if is_operate_log_auth_failure(error):
                 # 401 既可能是「本账号读不了该域的管理日志」，也可能是凭据真的失效。
-                # 单次无从区分，因此连续多轮都是 401 才判定为无权限并停止轮询；
-                # 否则会在凭据短暂异常时永久关掉该域的成员通知。
+                # 单次无从区分，连续多轮失败才切换成员快照。
                 streak = operate_log_auth_failures.get(area_id, 0) + 1
                 operate_log_auth_failures[area_id] = streak
                 if streak >= OPERATE_LOG_AUTH_FAILURE_LIMIT:
                     operate_log_disabled_areas.add(area_id)
                     operate_log_auth_failures.pop(area_id, None)
                     logger.warning(
-                        "域管理日志连续 %d 轮鉴权失败，判定为无权限并停止轮询该域 area=%s: %s",
+                        "域管理日志连续 %d 轮鉴权失败，切换成员快照检测 area=%s: %s",
                         streak,
                         area_id[:8],
                         error,
                     )
+                    return await handle_snapshot(area_id, channel, area_cfg)
                 else:
                     logger.warning(
                         "域管理日志鉴权失败（第 %d/%d 轮），暂时跳过 area=%s: %s",
@@ -539,6 +563,7 @@ async def _run_join_poll_loop(
         if area_id not in first_run_set:
             last_uids_map[area_id] = current_uids
             first_run_set.add(area_id)
+            logger.info("域成员快照检测已就绪 area=%s，现有成员 %d 人", area_id, len(current_uids))
             return False
         previous = last_uids_map.get(area_id, set())
         last_uids_map[area_id] = current_uids
@@ -549,12 +574,6 @@ async def _run_join_poll_loop(
             if uid and uid != bot_uid:
                 await handle_leave(area_id, channel, uid, area_cfg)
         return False
-
-    async def resolve_area_channel(area_id: str) -> tuple[str, str]:
-        channel = get_area_registry().get_default_channel(area_id)
-        if channel:
-            return area_id, channel
-        return await _get_default_area_channel(sender, quiet=True)
 
     async def poll_areas() -> list[str]:
         configured = get_area_registry().get_all_area_ids()
@@ -575,17 +594,12 @@ async def _run_join_poll_loop(
             for area in areas:
                 if stop_event.is_set():
                     return
-                area_id, channel = await resolve_area_channel(area)
-                if not area_id or not channel:
+                area_id = area
+                if not area_id:
                     continue
-                # ``area`` may only be the configured lookup key. When no explicit
-                # default channel exists, ``resolve_area_channel`` can map it to the
-                # account's actual default area. Permission failures are recorded by
-                # that resolved id, so the disabled check must use the same id too.
-                if source == EVENT_SOURCE_OPERATE_LOGS and area_id in operate_log_disabled_areas:
-                    continue
+                channel = await _resolve_area_channel(sender, area_id)
                 area_cfg = registry.get(area_id)
-                if source == EVENT_SOURCE_MEMBER_SNAPSHOT:
+                if source == EVENT_SOURCE_MEMBER_SNAPSHOT or area_id in operate_log_disabled_areas:
                     rate_limited = await handle_snapshot(area_id, channel, area_cfg)
                 else:
                     rate_limited = await handle_operate_log(area_id, channel, area_cfg)
@@ -655,20 +669,15 @@ def make_ws_handler(
     channel_cache: dict[str, str] = {}
 
     async def resolve_channel(area: str) -> str:
+        configured = get_area_registry().get(area).default_channel
+        if configured:
+            return configured
         if area in channel_cache:
             return channel_cache[area]
-        channel = get_area_registry().get_default_channel(area)
+        channel = await _resolve_area_channel(sender, area)
         if channel:
             channel_cache[area] = channel
-            return channel
-        for group in await sender.get_area_channels(area=area, quiet=True):
-            for item in group.get("channels") or []:
-                if str(item.get("type") or "").upper() != "VOICE":
-                    channel = str(item.get("id") or "").strip()
-                    if channel:
-                        channel_cache[area] = channel
-                        return channel
-        return ""
+        return channel
 
     async def on_other_event(event: int, data: dict) -> None:
         parsed = _parse_member_event(event, data)
