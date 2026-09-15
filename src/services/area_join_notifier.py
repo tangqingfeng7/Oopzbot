@@ -121,23 +121,22 @@ async def _resolve_display_name(
     uid: str,
     cached: str | None = None,
 ) -> str:
+    from oopz.name_resolver import get_resolver
+
+    cached = cached or get_resolver().user_cached(uid, fallback=False)
     if cached and not _looks_like_uid(cached):
         return cached
-    try:
-        detail = await sender.get_person_detail_full(uid)
-        if "error" not in detail:
+    for lookup in (sender.get_person_detail_full, sender.get_person_detail):
+        try:
+            detail = await lookup(uid)
+            if not isinstance(detail, dict) or "error" in detail:
+                continue
             for key in ("name", "nickname", "displayName", "userName"):
                 val = detail.get(key)
                 if val and isinstance(val, str) and val.strip():
                     return val.strip()
-        detail = await sender.get_person_detail(uid)
-        if "error" not in detail:
-            for key in ("name", "nickname", "displayName", "userName"):
-                val = detail.get(key)
-                if val and isinstance(val, str) and val.strip():
-                    return val.strip()
-    except Exception:
-        pass
+        except Exception:
+            continue
     return cached or (uid[:8] + "…" if len(uid) > 8 else uid)
 
 
@@ -495,6 +494,7 @@ async def _run_join_poll_loop(
                     channel=channel,
                     auto_recall=False,
                 )
+                logger.info("域成员退出通知已发送 area=%s channel=%s uid=%s", area_id, channel, uid)
         except Exception as exc:
             logger.warning("域成员退出通知发送失败 area=%s uid=%s: %s", area_id[:8], uid[:8], exc)
         await notify("leave", area_id, uid)
@@ -747,8 +747,6 @@ def start_area_join_notifier(
         msg_leave = ""
     else:
         msg_leave = str(raw_leave)
-        if "{name}" not in msg_leave and "{uid}" not in msg_leave:
-            msg_leave = "{name} 已退出域"
 
     if sender is None:
         raise ValueError("启用域成员通知时必须注入 AsyncOopzGateway")

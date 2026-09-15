@@ -72,10 +72,10 @@ class NameResolver:
         """仅读缓存；网络补全必须显式 ``await ensure_users``。"""
         return self.user_cached(uid)
 
-    def user_cached(self, uid: str) -> str:
+    def user_cached(self, uid: str, *, fallback: bool = True) -> str:
         if not uid:
             return ""
-        return self._data["users"].get(uid) or self._short_id(uid)
+        return self._data["users"].get(uid) or (self._short_id(uid) if fallback else "")
 
     def channel(self, channel_id: str) -> str:
         return self._get("channels", channel_id)

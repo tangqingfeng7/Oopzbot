@@ -9,7 +9,6 @@ from core.logger_config import get_logger
 logger = get_logger("AreaConfig")
 
 _DEFAULT_WELCOME = "欢迎 {name} 加入域～\n请阅读频道规则，祝你玩得开心！"
-_DEFAULT_LEAVE = "{name} 已退出域"
 
 
 def _parse_optional_bool(raw: object) -> bool | None:
@@ -53,7 +52,8 @@ class AreaConfig:
     name: str = ""
     default_channel: str = ""
     welcome_message: str = _DEFAULT_WELCOME
-    leave_message: str = _DEFAULT_LEAVE
+    # 留空继承 AREA_JOIN_NOTIFY.message_template_leave，包括其关闭状态。
+    leave_message: str = ""
     auto_assign_role_id: str = ""
     auto_assign_role_name: str = ""
     admin_uids: tuple[str, ...] = ()
@@ -70,7 +70,7 @@ class AreaConfig:
             name=str(raw.get("name", "") or ""),
             default_channel=str(raw.get("default_channel", "") or ""),
             welcome_message=str(raw.get("welcome_message", _DEFAULT_WELCOME) or _DEFAULT_WELCOME),
-            leave_message=str(raw.get("leave_message", _DEFAULT_LEAVE) or _DEFAULT_LEAVE),
+            leave_message=str(raw.get("leave_message") or "").strip(),
             auto_assign_role_id=str(raw.get("auto_assign_role_id", "") or ""),
             auto_assign_role_name=str(raw.get("auto_assign_role_name", "") or ""),
             admin_uids=tuple(str(u) for u in (raw.get("admin_uids") or [])),
