@@ -230,7 +230,6 @@ async def announce_ended(session: dict) -> None:
             f"{presenter_name} 的屏幕共享已结束",
             channel=str(session["channel"]),
             area=str(session["area"]),
-            auto_recall=False,
         )
     except Exception:
         logger.warning("发送屏幕共享结束通知失败", exc_info=True)

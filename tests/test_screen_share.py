@@ -894,7 +894,9 @@ class ScreenShareAssetContractTest(unittest.TestCase):
         )
         for call in sender.send_message.await_args_list:
             self.assertNotIn("styleTags", call.kwargs)
-            self.assertFalse(call.kwargs["auto_recall"])
+        started, ended = sender.send_message.await_args_list
+        self.assertIs(started.kwargs["auto_recall"], False)
+        self.assertIsNot(ended.kwargs.get("auto_recall"), False)
         sender.recall_message.assert_awaited_once_with(
             "viewer-message",
             area="area-1",
