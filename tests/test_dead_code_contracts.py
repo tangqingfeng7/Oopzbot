@@ -73,6 +73,51 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         self.assertIn("_currentVolume = Math.max(0, Math.min(100, parsed));", set_volume_body)
         self.assertIn("return { ok: true, pending: true, volume: _currentVolume };", set_volume_body)
 
+    def test_agora_remote_audio_streams_before_the_full_file_is_downloaded(self) -> None:
+        """远程无损音频应使用媒体流音轨，不能退回整首下载解码后才发布。"""
+        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        stream_start = page.index("async function publishStreamingUrlAsPlayback")
+        stream_end = page.index("window.agoraPlayAudio", stream_start)
+        stream_body = page[stream_start:stream_end]
+        remote_start = page.index("window.agoraPlayAudio")
+        remote_end = page.index("window.agoraPlayLocal", remote_start)
+        remote_body = page[remote_start:remote_end]
+
+        self.assertIn('document.createElement("audio")', stream_body)
+        self.assertIn("createMediaElementSource(media)", stream_body)
+        self.assertIn("createMediaStreamDestination()", stream_body)
+        self.assertIn("AgoraRTC.createCustomAudioTrack({ mediaStreamTrack })", stream_body)
+        self.assertIn("await waitForMediaCanPlay(media, gen)", stream_body)
+        self.assertIn("await media.play()", stream_body)
+        self.assertIn("publishStreamingUrlAsPlayback(url, gen)", remote_body)
+        self.assertNotIn("createBufferSourceAudioTrack", remote_body)
+
+    def test_agora_streaming_media_keeps_controls_and_cleanup(self) -> None:
+        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+
+        self.assertIn("disposeStreamingMedia(playback);", page)
+        self.assertIn("activePlayback.media.pause();", page)
+        self.assertIn("await activePlayback.media.play();", page)
+        self.assertIn("activePlayback.media.currentTime =", page)
+        self.assertIn('media.addEventListener("ended"', page)
+        self.assertIn('media.addEventListener("error"', page)
+
+    def test_voice_browser_warmup_loads_agora_sdk_before_first_join(self) -> None:
+        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        project_transport = _read("src/oopz/sdk_transport.py")
+        sdk_transport = _read("src/oopz_sdk/transport/voice_browser.py")
+
+        self.assertIn("window.agoraWarmup = async () =>", page)
+        self.assertIn("await loadAgoraSdk();", page)
+        for source in (project_transport, sdk_transport):
+            goto = source.index("await page.goto(html_path.as_uri())")
+            warmup = source.index('await page.evaluate("() => window.agoraWarmup()")', goto)
+            ready = source.index("self._page = page", warmup)
+            self.assertLess(goto, warmup)
+            self.assertLess(warmup, ready)
+
+        self.assertIn("Promise.resolve(window.agoraWarmup())", project_transport)
+
     def test_agora_identity_uses_sdk_data_stream_before_raw_websocket(self) -> None:
         """身份心跳必须走 Agora SDK 的 data stream 请求。
 

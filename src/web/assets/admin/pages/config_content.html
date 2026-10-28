@@ -226,6 +226,28 @@
               </div>
             </section>
 
+            <section id="section-screen-share" class="field-section">
+              <div class="section-head">
+                <h3 class="section-title">网页屏幕共享</h3>
+                <p class="section-copy">使用独立声网项目生成临时发起/观看链接；需要 HTTPS、真实 Redis，并在声网控制台开启连麦鉴权。</p>
+              </div>
+              <div class="field-grid">
+                <div class="field field--check"><label><input id="cfg_screen_share_enabled" type="checkbox" /> 启用网页屏幕共享</label></div>
+                <div class="field field--wide"><label for="cfg_screen_share_app_id">声网 App ID</label><input id="cfg_screen_share_app_id" type="text" maxlength="32" /></div>
+                <div class="field field--wide">
+                  <label for="cfg_screen_share_certificate">声网 App Certificate</label>
+                  <div class="secret-input">
+                    <input id="cfg_screen_share_certificate" type="password" maxlength="32" placeholder="留空表示不修改" />
+                    <button class="btn btn-sm btn-ghost" type="button" data-action="toggle-secret" data-secret="cfg_screen_share_certificate">显示</button>
+                  </div>
+                </div>
+                <div class="field"><label for="cfg_screen_share_link_ttl">发起链接有效期（秒）</label><input id="cfg_screen_share_link_ttl" type="number" min="60" max="3600" /></div>
+                <div class="field"><label for="cfg_screen_share_session_max">最长共享时长（秒）</label><input id="cfg_screen_share_session_max" type="number" min="300" max="86400" /></div>
+                <div class="field"><label for="cfg_screen_share_token_ttl">RTC Token 有效期（秒）</label><input id="cfg_screen_share_token_ttl" type="number" min="300" max="86400" /></div>
+                <div class="field"><label for="cfg_screen_share_quality">默认画质</label><select id="cfg_screen_share_quality"><option value="2k">2K</option><option value="1080p">1080p</option><option value="720p">720p</option></select></div>
+              </div>
+            </section>
+
             <section id="section-qq-music" class="field-section">
               <div class="section-head">
                 <h3 class="section-title">QQ 音乐</h3>

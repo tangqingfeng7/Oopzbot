@@ -166,6 +166,7 @@ nginx/ssl/key.pem    # 私钥
 | GET | `/admin` | 管理后台首页（分页面入口） |
 | GET | `/admin/music` | 音乐管理页 |
 | GET | `/admin/config` | 配置中心页 |
+| GET | `/admin/screen-share` | 屏幕共享管理页，可观看或结束指定会话 |
 | GET | `/admin/stats` | 统计页 |
 | GET | `/admin/activity` | 活跃统计页 |
 | GET | `/admin/scheduler` | 定时任务管理页 |
@@ -259,6 +260,13 @@ nginx/ssl/key.pem    # 私钥
 | POST | `/admin/api/bot-admins` | 新增 Bot 管理员 |
 | DELETE | `/admin/api/bot-admins/{uid}` | 移除 Bot 管理员 |
 
+### 屏幕共享管理
+
+| 方法 | 路径 | 说明 |
+|------|------|------|
+| GET | `/admin/api/screen-shares` | 列出活动共享、发起者、域/频道和临时观看链接 |
+| POST | `/admin/api/screen-shares/{session_id}/stop` | 结束指定共享，使观看链接失效并在原频道通知 |
+
 ### 第三方账号登录
 
 | 方法 | 路径 | 说明 |
@@ -273,7 +281,7 @@ nginx/ssl/key.pem    # 私钥
 
 > 成员管理相关接口（`/admin/api/areas`、`/admin/api/members/*`、`/admin/api/send-message`、`/admin/api/send-announcement` 等）见 [命令文档 - 管理后台 API](commands.md#管理后台-api)。
 
-`/admin/api/config` 当前支持分组：`web_player`、`auto_recall`、`area_join_notify`、`chat`、`oopz`、`netease`、`redis`、`scheduler`、`reminder`、`music`、`command_cooldown`、`qq_music`、`bilibili_music`、`message_stats`。
+`/admin/api/config` 当前支持分组：`web_player`、`screen_share`、`auto_recall`、`area_join_notify`、`chat`、`oopz`、`netease`、`redis`、`scheduler`、`reminder`、`music`、`command_cooldown`、`qq_music`、`bilibili_music`、`message_stats`。
 
 ---
 
@@ -283,11 +291,13 @@ nginx/ssl/key.pem    # 私钥
 |------|------|
 | `src/web/web_player.py` | FastAPI 主应用实例、播放器 API 路由（`/api/*`）、共享状态（Redis / Netease 客户端） |
 | `src/web/web_player_admin.py` | Admin 路由入口：聚合 `web.admin` 包路由为 `admin_router`，对 `web_player` 与旧调用方保持稳定 facade |
-| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`scheduler`（定时消息、消息统计、提醒）/`plugins`（插件管理）/`members`（成员、频道、域配置、Bot 管理员、消息）/`shared`（共享工具） |
+| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`screen_share`（活动共享和停止控制）/`scheduler`（定时消息、消息统计、提醒）/`plugins`（插件管理）/`members`（成员、频道、域配置、Bot 管理员、消息）/`shared`（共享工具） |
+| `src/screen_share/` | 屏幕共享会话、AccessToken2、页面 API 和模块内 TypeScript 客户端源码 |
 | `src/web/web_player_config.py` | 配置常量引用、分组定义、基线值、config.py 写回与热更新 |
-| `src/web/assets/` | Web 播放器页面、Agora 浏览器页、Agora Web SDK 本地缓存和 Admin 页面资源 |
+| `src/web/assets/` | Web 播放器、Admin 页面以及随仓库发布的屏幕共享编译产物 |
 
 ## 相关文档
 
 - [系统架构](architecture.md) — Web 播放器与 Redis、music 模块的协作及 Redis 键、Web 命令格式
 - [配置说明](configuration.md) — `WEB_PLAYER_CONFIG` 等配置项
+- [屏幕共享](screen-share.md) — 声网配置、权限、会话生命周期和前端构建

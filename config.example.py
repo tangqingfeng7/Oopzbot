@@ -133,6 +133,17 @@ WEB_PLAYER_CONFIG = {
     "trusted_proxy_cidrs": ["127.0.0.1/32", "::1/128"],
 }
 
+# 网页屏幕共享
+SCREEN_SHARE_CONFIG = {
+    "enabled": False,
+    "agora_app_id": "",              # 声网项目 App ID（32 位十六进制）
+    "agora_app_certificate": "",     # 声网项目 App Certificate；不要提交真实值
+    "presenter_link_ttl_seconds": 600,
+    "session_max_seconds": 14400,
+    "rtc_token_ttl_seconds": 3600,
+    "default_quality": "1080p",      # 2k=最高画质；1080p=清晰优先；720p=流畅优先
+}
+
 # OneBot v11 旁路服务配置
 # 默认关闭。启用后，当前 Oopz Bot 会继续照常运行，同时额外提供 OneBot v11 HTTP / WebSocket 接口。
 ONEBOT_V11_CONFIG = {

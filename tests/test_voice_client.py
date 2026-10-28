@@ -20,6 +20,7 @@ class SdkVoiceControllerTest(unittest.IsolatedAsyncioTestCase):
         self.voice.join = AsyncMock(return_value={"ok": True})
         self.voice.leave = AsyncMock()
         self.voice.play_bytes = AsyncMock(return_value={"ok": True})
+        self.voice.play_url = AsyncMock(return_value={"ok": True})
         self.voice.stop = AsyncMock()
         self.voice.pause = AsyncMock(return_value=True)
         self.voice.resume = AsyncMock(return_value=True)
@@ -83,6 +84,62 @@ class SdkVoiceControllerTest(unittest.IsolatedAsyncioTestCase):
         await self.controller.play_audio("https://example.com/song.ogg", callback)
 
         callback.assert_awaited_once_with()
+
+    async def test_netease_remote_audio_uses_browser_without_python_download(self) -> None:
+        self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/flac"))
+
+        await self.controller.play_audio(
+            "http://m703.music.126.net/song.flac",
+            prefer_remote=True,
+        )
+
+        self.voice.play_url.assert_awaited_once_with(
+            "http://m703.music.126.net/song.flac"
+        )
+        self.controller._fetcher.fetch.assert_not_called()
+        self.voice.play_bytes.assert_not_awaited()
+
+    async def test_remote_audio_failure_falls_back_to_safe_download(self) -> None:
+        self.voice.play_url.return_value = {"ok": False, "error": "cors"}
+        self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/flac"))
+
+        await self.controller.play_audio(
+            "https://m703.music.126.net/song.flac",
+            prefer_remote=True,
+        )
+
+        self.voice.play_url.assert_awaited_once()
+        self.controller._fetcher.fetch.assert_called_once()
+        self.voice.play_bytes.assert_awaited_once_with(
+            b"audio", mime_type="audio/flac"
+        )
+
+    async def test_non_awaitable_remote_player_falls_back_to_safe_download(self) -> None:
+        self.voice.play_url = Mock(return_value={"ok": True})
+        self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/flac"))
+
+        await self.controller.play_audio(
+            "https://m703.music.126.net/song.flac",
+            prefer_remote=True,
+        )
+
+        self.voice.play_url.assert_called_once()
+        self.controller._fetcher.fetch.assert_called_once()
+        self.voice.play_bytes.assert_awaited_once_with(
+            b"audio", mime_type="audio/flac"
+        )
+
+    async def test_non_netease_remote_audio_keeps_safe_download(self) -> None:
+        self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/mpeg"))
+
+        await self.controller.play_audio(
+            "https://example.com/song.mp3",
+            prefer_remote=True,
+        )
+
+        self.voice.play_url.assert_not_awaited()
+        self.controller._fetcher.fetch.assert_called_once()
+        self.voice.play_bytes.assert_awaited_once()
 
     async def test_sdk_play_error_is_not_reported_as_success(self) -> None:
         self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/mpeg"))

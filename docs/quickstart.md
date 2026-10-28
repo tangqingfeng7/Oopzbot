@@ -9,8 +9,8 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会建虚拟环境、装依赖和浏览器、生成配置、检查并安装 Redis 与网易云音乐 API，
-再问一次 Oopz 账号密码就启动。装不上的组件会降级而不是中断（详见
+脚本会建虚拟环境、装依赖和浏览器、生成配置、检查屏幕共享网页产物，并检查安装 Redis 与网易云音乐 API，
+再问一次 Oopz 账号密码就启动。首次部署可选填写声网 App ID、不回显的 App Certificate 和对外 HTTPS 地址；留空则不启用屏幕共享。装不上的组件会降级而不是中断（详见
 [README 的一键部署说明](../README.md#一键部署推荐)）。
 
 想自己控制每一步，或者只想装其中一部分，就按下面的手动流程来。
@@ -18,8 +18,8 @@ chmod +x deploy.sh
 ## 环境要求（手动部署）
 
 - Python 3.10+
-- Redis 服务器（可选：连不上会自动退到内存队列，功能可用但重启后队列丢失）
-- Node.js 18+（运行网易云音乐 API 服务）
+- Redis 服务器（可选：连不上会自动退到内存队列，但屏幕共享会因权限状态不可靠而停用）
+- Node.js 18+（仅用于运行网易云音乐 API；屏幕共享正式部署使用已编译产物，不需要 Node.js）
 - **语音频道推流**：Playwright + Chromium，或 Selenium + Chrome/Edge（见下方说明）
 
 ## 1. 安装 Python 依赖
@@ -142,7 +142,7 @@ Docker 部署把 `config/runtime.py` 与 `config/private_key.py` 分别链接为
 
 镜像已在共享的 `PLAYWRIGHT_BROWSERS_PATH` 中安装 Chromium 和 Chromium
 Headless Shell，容器内的非 root Bot 可直接使用语音频道推流，无需再手工
-执行 `playwright install`。
+执行 `playwright install`。屏幕共享的 TypeScript 编译产物也会随镜像复制，Docker 构建会校验其完整性，镜像内不安装 Node.js。
 
 | 服务 | 端口 | 说明 |
 |------|------|------|

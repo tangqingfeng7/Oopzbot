@@ -650,6 +650,13 @@
       { id: "cfg_agora_app_id", path: "oopz.agora_app_id" },
       { id: "cfg_agora_timeout", path: "oopz.agora_init_timeout", buildDefault: true },
 
+      { id: "cfg_screen_share_enabled", path: "screen_share.enabled" },
+      { id: "cfg_screen_share_app_id", path: "screen_share.agora_app_id" },
+      { id: "cfg_screen_share_link_ttl", path: "screen_share.presenter_link_ttl_seconds" },
+      { id: "cfg_screen_share_session_max", path: "screen_share.session_max_seconds" },
+      { id: "cfg_screen_share_token_ttl", path: "screen_share.rtc_token_ttl_seconds" },
+      { id: "cfg_screen_share_quality", path: "screen_share.default_quality" },
+
       { id: "cfg_netease_base_url", path: "netease.base_url", placeholderFromDefault: true },
       { id: "cfg_netease_timeout", path: "netease.audio_download_timeout" },
       { id: "cfg_netease_retries", path: "netease.audio_download_retries" },
@@ -729,6 +736,7 @@
       CONFIG_FIELDS.forEach(function (field) {
         _loadField(config, field);
       });
+      AdminShell.refreshCustomSelect("cfg_screen_share_quality");
 
       // 特殊字段：关键词回复用键值编辑器渲染，代理拆成开关组。
       window._kwRender(config.chat?.keyword_replies || {});
@@ -739,6 +747,7 @@
       setSecretState("cfg_oopz_login_password", config.oopz?.login_password_configured);
       setSecretValue("cfg_netease_cookie", config.netease?.cookie || "", config.netease?.cookie_configured);
       setSecretState("cfg_redis_password", config.redis?.password_configured);
+      setSecretState("cfg_screen_share_certificate", config.screen_share?.agora_app_certificate_configured);
       setSecretValue("cfg_qq_music_cookie", config.qq_music?.cookie || "", config.qq_music?.cookie_configured);
       setSecretValue("cfg_bilibili_cookie", config.bilibili_music?.cookie || "", config.bilibili_music?.cookie_configured);
       neteaseQr.setSaveEnabled(false);
@@ -767,6 +776,7 @@
       const redisPassword = val("cfg_redis_password");
       const qqMusicCookie = val("cfg_qq_music_cookie");
       const bilibiliCookie = val("cfg_bilibili_cookie");
+      const screenShareCertificate = val("cfg_screen_share_certificate");
 
       if (adminPassword) {
         updates.web_player.admin_password = adminPassword;
@@ -782,6 +792,9 @@
       }
       if (bilibiliCookie) {
         updates.bilibili_music.cookie = bilibiliCookie;
+      }
+      if (screenShareCertificate) {
+        updates.screen_share.agora_app_certificate = screenShareCertificate;
       }
 
       return updates;
@@ -847,6 +860,7 @@
     initTabs();
     AdminShell.upgradeSelect("cfg_proxy_mode");
     AdminShell.upgradeSelect("cfg_proxy_scheme");
+    AdminShell.upgradeSelect("cfg_screen_share_quality");
     AdminShell.bootstrapAuth({
       page: "config",
       loggedInText: "已登录配置页",

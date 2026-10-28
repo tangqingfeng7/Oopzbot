@@ -1,20 +1,11 @@
 #!/usr/bin/env python3
 """一键部署并启动 Oopz Bot，Linux / macOS / Windows 通用。
-
-用法：
-    python3 deploy.py              # 交互式：缺什么装什么，缺凭据就问，最后启动
-    python3 deploy.py --no-input   # 无人值守：不提问，缺凭据就跳过启动
-    python3 deploy.py --no-start   # 只准备环境，不启动
-    python3 deploy.py --check      # 只体检，什么都不改
-
-设计取舍：装不上的东西一律降级而不是中断。Redis 连不上会退到内存队列，
-网易云 API 缺失只是没有音乐，浏览器缺失只是没有语音——都比整个跑不起来强。
-只有「Python 依赖装不上」和「没有 Oopz 凭据」会真正拦住启动。
 """
 
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 import os
 import platform
@@ -25,17 +16,19 @@ import subprocess
 import sys
 import venv
 from pathlib import Path
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parent
 VENV_DIR = ROOT / ".venv"
 IS_WINDOWS = os.name == "nt"
 MIN_PYTHON = (3, 10)
-# 原仓库 Binaryify/NeteaseCloudMusicApi 已因版权原因清空，clone 下来是个空壳。
-# 这个 fork 仍在维护，也是项目文档一直用的那个；拿不到时退到 compose 里的镜像。
 NETEASE_REPO = "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git"
 NETEASE_DOCKER_IMAGE = "moefurina/ncm-api:latest"
 NETEASE_DEFAULT_DIR = "NeteaseCloudMusicApi"
 REDIS_HOST, REDIS_PORT = "127.0.0.1", 6379
+SCREEN_SHARE_CLIENT_DIR = ROOT / "src" / "screen_share" / "client"
+SCREEN_SHARE_ASSET_DIR = ROOT / "src" / "web" / "assets" / "screen-share"
+SCREEN_SHARE_REQUIRED_ASSETS = ("index.html", "style.css", "app.js")
 
 _STEP = 0
 
@@ -180,6 +173,54 @@ def install_browser(python: Path) -> None:
 
 
 # --------------------------------------------------------------------------
+# 屏幕共享网页资源
+# --------------------------------------------------------------------------
+
+
+def screen_share_assets_ready() -> bool:
+    """正式部署只依赖仓库内已提交的编译产物，不要求 Node.js。"""
+    return all(
+        (SCREEN_SHARE_ASSET_DIR / name).is_file()
+        and (SCREEN_SHARE_ASSET_DIR / name).stat().st_size > 0
+        for name in SCREEN_SHARE_REQUIRED_ASSETS
+    )
+
+
+def setup_screen_share_assets(install: bool) -> None:
+    """校验屏幕共享页；仅当发行包缺产物时才尝试用本机 Node 恢复构建。"""
+    if screen_share_assets_ready():
+        say("屏幕共享网页资源已就绪（无需 Node.js）")
+        return
+    missing = [
+        name
+        for name in SCREEN_SHARE_REQUIRED_ASSETS
+        if not (SCREEN_SHARE_ASSET_DIR / name).is_file()
+        or (SCREEN_SHARE_ASSET_DIR / name).stat().st_size <= 0
+    ]
+    warn(f"屏幕共享网页资源不完整：{'、'.join(missing)}")
+    if not install:
+        warn("已跳过安装，屏幕共享暂不可用")
+        return
+    npm = "npm.cmd" if IS_WINDOWS else "npm"
+    if not SCREEN_SHARE_CLIENT_DIR.is_dir() or not shutil.which(npm):
+        warn("发行包应自带编译产物；当前又找不到 npm，无法自动恢复")
+        return
+    say("尝试从模块内 TypeScript 源码恢复屏幕共享网页")
+    commands = (
+        [npm, "ci"],
+        [npm, "run", "typecheck"],
+        [npm, "run", "build"],
+    )
+    if (
+        all(run_ok(command, cwd=SCREEN_SHARE_CLIENT_DIR) for command in commands)
+        and screen_share_assets_ready()
+    ):
+        say("屏幕共享网页资源已恢复")
+        return
+    warn("屏幕共享网页构建失败，Bot 其他功能仍可继续部署")
+
+
+# --------------------------------------------------------------------------
 # 配置文件
 # --------------------------------------------------------------------------
 
@@ -317,6 +358,52 @@ def set_config_field(content: str, section: str, key: str, value: str | bool) ->
     return content[:start] + new_block + content[end:], True
 
 
+def config_section_string(section: str, key: str, default: str = "") -> str:
+    """只读取指定顶层配置块的字符串字段，避免命中其他块的同名键。"""
+    path = ROOT / "config.py"
+    if not path.exists():
+        return default
+    content = path.read_text(encoding="utf-8")
+    span = _section_span(content, section)
+    if span is None:
+        return default
+    block = content[span[0] : span[1]]
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"([^"]*)"', block)
+    return match.group(1) if match else default
+
+
+def config_section_flag(section: str, key: str, default: bool = False) -> bool:
+    """只读取指定配置块的 Python 布尔字面量。"""
+    path = ROOT / "config.py"
+    if not path.exists():
+        return default
+    content = path.read_text(encoding="utf-8")
+    span = _section_span(content, section)
+    if span is None:
+        return default
+    block = content[span[0] : span[1]]
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*(True|False)', block)
+    return match.group(1) == "True" if match else default
+
+
+def valid_agora_credential(value: str) -> bool:
+    return bool(re.fullmatch(r"[0-9a-fA-F]{32}", str(value or "").strip()))
+
+
+def valid_screen_share_url(value: str) -> bool:
+    """公网必须 HTTPS；只保留浏览器允许的本机 HTTP 调试例外。"""
+    try:
+        parsed = urlparse(str(value or "").strip())
+    except ValueError:
+        return False
+    if parsed.scheme == "https" and bool(parsed.netloc):
+        return True
+    return bool(
+        parsed.scheme == "http"
+        and parsed.hostname in {"localhost", "127.0.0.1", "::1"}
+    )
+
+
 def set_admin_uids(content: str, uids: list[str]) -> tuple[str, bool]:
     """改写顶层的 ADMIN_UIDS 列表。"""
     match = re.search(r"^ADMIN_UIDS\s*=\s*\[[^\]]*\]", content, re.MULTILINE)
@@ -336,6 +423,59 @@ def ask(prompt: str, *, secret_hint: str = "") -> str:
         return ""
 
 
+def ask_secret(prompt: str, *, secret_hint: str = "") -> str:
+    """读取敏感项时不回显，防止 Certificate 出现在终端历史或录屏中。"""
+    suffix = f"（{secret_hint}）" if secret_hint else ""
+    try:
+        return getpass.getpass(f"  {prompt}{suffix}: ").strip()
+    except (EOFError, KeyboardInterrupt):
+        print()
+        return ""
+
+
+def configure_screen_share(content: str) -> tuple[str, bool]:
+    """首次部署的可选声网向导；任一项无效时不写入半套配置。"""
+    app_id = ask("声网 App ID", secret_hint="32 位十六进制；留空不启用屏幕共享")
+    if not app_id:
+        return content, False
+    certificate = ask_secret(
+        "声网 App Certificate",
+        secret_hint="32 位十六进制，输入不回显",
+    )
+    public_url = ask(
+        "Bot 对外 HTTPS 地址",
+        secret_hint="如 https://bot.example.com",
+    ).rstrip("/")
+    errors: list[str] = []
+    if not valid_agora_credential(app_id):
+        errors.append("App ID 必须是 32 位十六进制字符")
+    if not valid_agora_credential(certificate):
+        errors.append("App Certificate 必须是 32 位十六进制字符")
+    if not valid_screen_share_url(public_url):
+        errors.append("公网地址必须使用 HTTPS（只有 localhost 可使用 HTTP）")
+    if errors:
+        for error in errors:
+            warn(error)
+        warn("未启用屏幕共享，避免写入不完整配置")
+        return content, False
+
+    staged = content
+    updates: tuple[tuple[str, str, str | bool], ...] = (
+        ("SCREEN_SHARE_CONFIG", "enabled", True),
+        ("SCREEN_SHARE_CONFIG", "agora_app_id", app_id.lower()),
+        ("SCREEN_SHARE_CONFIG", "agora_app_certificate", certificate.lower()),
+        ("WEB_PLAYER_CONFIG", "url", public_url),
+        ("WEB_PLAYER_CONFIG", "cookie_secure", public_url.startswith("https://")),
+        ("WEB_PLAYER_CONFIG", "admin_cookie_secure", public_url.startswith("https://")),
+    )
+    for section, key, value in updates:
+        staged, ok = set_config_field(staged, section, key, value)
+        if not ok:
+            warn(f"配置模板缺少 {section}.{key}，未启用屏幕共享")
+            return content, False
+    return staged, True
+
+
 def prompt_optional_settings() -> None:
     """把常用的可选配置过一遍，全都可以直接回车跳过。"""
     path = ROOT / "config.py"
@@ -351,6 +491,10 @@ def prompt_optional_settings() -> None:
         if ok:
             content, _ = set_config_field(content, "WEB_PLAYER_CONFIG", "admin_enabled", True)
             changed.append("后台管理")
+
+    content, screen_share_enabled = configure_screen_share(content)
+    if screen_share_enabled:
+        changed.append("网页屏幕共享")
 
     netease_cookie = ask("网易云 Cookie", secret_hint="填了才能听 VIP 音质，可留空")
     if netease_cookie:
@@ -499,12 +643,14 @@ def setup_redis(install: bool) -> None:
         return
     if not install:
         warn("Redis 未运行，将使用内存队列（重启后队列丢失）")
+        warn("屏幕共享依赖真实 Redis，当前将拒绝创建共享")
         return
     say("Redis 未运行，尝试安装")
     if try_install_redis():
         say("Redis 就绪")
     else:
-        warn("Redis 装不上，Bot 会退到内存队列——功能可用，但重启后队列丢失")
+        warn("Redis 装不上，Bot 会退到内存队列，重启后队列丢失")
+        warn("屏幕共享将不可用；其他不依赖 Redis 持久权限状态的功能仍可继续")
 
 
 # --------------------------------------------------------------------------
@@ -683,11 +829,34 @@ def start_clash(python: Path) -> subprocess.Popen | None:
     return process
 
 
+def screen_share_readiness() -> tuple[bool, bool, list[str]]:
+    """返回（是否启用、是否就绪、不就绪原因），不回显任何凭据。"""
+    enabled = config_section_flag("SCREEN_SHARE_CONFIG", "enabled")
+    if not enabled:
+        return False, True, []
+    reasons: list[str] = []
+    if not valid_agora_credential(
+        config_section_string("SCREEN_SHARE_CONFIG", "agora_app_id")
+    ):
+        reasons.append("声网 App ID 未正确配置")
+    if not valid_agora_credential(
+        config_section_string("SCREEN_SHARE_CONFIG", "agora_app_certificate")
+    ):
+        reasons.append("声网 App Certificate 未正确配置")
+    if not valid_screen_share_url(config_section_string("WEB_PLAYER_CONFIG", "url")):
+        reasons.append("对外 Web 地址不是 HTTPS（或 localhost HTTP）")
+    if not redis_alive():
+        reasons.append("Redis 未就绪")
+    if not screen_share_assets_ready():
+        reasons.append("屏幕共享网页资源不完整")
+    return True, not reasons, reasons
+
+
 def report(python: Path) -> dict[str, bool]:
     checks = {
         "Python 依赖": python.exists(),
         "浏览器（语音）": browser_ready(python),
-        "Redis（队列持久化）": redis_alive(),
+        "Redis（队列持久化 / 屏幕共享）": redis_alive(),
         "网易云 API（点歌）": (netease_dir() / "app.js").exists(),
     }
     config_ok = (ROOT / "config.py").exists() and has_usable_credentials(read_credentials())
@@ -696,6 +865,15 @@ def report(python: Path) -> dict[str, bool]:
     print("环境体检")
     for name, ok in checks.items():
         print(f"  [{'OK' if ok else '--'}] {name}")
+    screen_enabled, screen_ready, screen_reasons = screen_share_readiness()
+    if not screen_enabled:
+        print("  [--] 屏幕共享（可选，未启用）")
+    else:
+        print(f"  [{'OK' if screen_ready else '!!'}] 屏幕共享")
+        for reason in screen_reasons:
+            print(f"       - {reason}")
+    # 屏幕共享是可选功能；未启用不应拦截 Bot 启动。
+    checks["屏幕共享"] = screen_ready
     return checks
 
 
@@ -756,6 +934,9 @@ def main() -> int:
     step("准备配置文件与目录")
     ensure_dirs()
     created = ensure_config_files()
+
+    step("检查屏幕共享网页资源")
+    setup_screen_share_assets(install=not skip_install)
 
     step("检查 Redis")
     setup_redis(install=not skip_install)

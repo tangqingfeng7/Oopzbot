@@ -26,6 +26,11 @@ def admin_config_page():
     return _render_admin_page("config")
 
 
+@router.get("/admin/screen-share", response_class=HTMLResponse)
+def admin_screen_share_page():
+    return _render_admin_page("screen-share")
+
+
 @router.get("/admin/stats", response_class=HTMLResponse)
 def admin_stats_page():
     return _render_admin_page("stats")

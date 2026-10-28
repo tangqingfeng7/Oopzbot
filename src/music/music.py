@@ -8,6 +8,7 @@ import threading
 import time
 import uuid
 from typing import Any, Protocol, cast
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
 from app.services.playback import PlaybackAreaResolver
 from config import OOPZ_CONFIG, WEB_PLAYER_CONFIG
@@ -1359,8 +1360,9 @@ class MusicHandler(PlaybackMixin):
 
         return {"code": "success", "song_data": song_data}
 
-    _COVER_PREFETCH_TIMEOUT = 5.0
+    _COVER_PREFETCH_TIMEOUT = 3.0
     _COVER_PREFETCH_TTL = 60.0
+    _NETEASE_COVER_SIZE = "300y300"
 
     def _cover_prefetch_key(self, song_data: dict) -> str | None:
         cover = song_data.get("cover")
@@ -1411,8 +1413,13 @@ class MusicHandler(PlaybackMixin):
                 timeout=self._COVER_PREFETCH_TIMEOUT,
             )
         except asyncio.TimeoutError:
-            logger.debug(f"封面预热超时，回退同步处理: {key}")
-            return None
+            # wait_for 外面包了 shield，超时不会自动停掉原任务。
+            # 如果返回 None，_commit_song_request 还会同步再上传一次，
+            # 导致两个大图上传并行超时，点歌通知被阻塞一分钟以上。
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            logger.debug("封面预热超时，已取消且不重复上传: %s", key)
+            return ([], None, False)
 
     async def _purge_cover_prefetch_later(self, key: str, task: asyncio.Task) -> None:
         await asyncio.sleep(self._COVER_PREFETCH_TTL)
@@ -1439,12 +1446,36 @@ class MusicHandler(PlaybackMixin):
             await ImageCache.increment_use(song_id, platform)
             return attachments, image_cache_id, cache_hit
 
-        up = await self.sender.upload_file_from_url(cover)
+        upload_url = self._cover_upload_url(str(cover), str(platform))
+        up = await self.sender.upload_file_from_url(upload_url)
         if up.get("code") == "success":
             att = up["data"]
             attachments = [att]
             image_cache_id = await ImageCache.save(song_id, platform, cover, att)
         return attachments, image_cache_id, cache_hit
+
+    @classmethod
+    def _cover_upload_url(cls, cover: str, platform: str) -> str:
+        """网易云封面上传使用 CDN 缩略图，避免下载并上传数 MB 原图。"""
+        if platform != _PLATFORM_NETEASE:
+            return cover
+        try:
+            parsed = urlsplit(cover)
+        except ValueError:
+            return cover
+        host = (parsed.hostname or "").lower().rstrip(".")
+        if parsed.scheme not in {"http", "https"} or not (
+            host == "music.126.net"
+            or host.endswith(".music.126.net")
+            or host == "music.163.com"
+            or host.endswith(".music.163.com")
+        ):
+            return cover
+        query = dict(parse_qsl(parsed.query, keep_blank_values=True))
+        query["param"] = cls._NETEASE_COVER_SIZE
+        return urlunsplit(
+            (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
+        )
 
     async def _build_song_request_text(self, song_data: dict, prefix: str = "") -> str:
         """统一构建点歌通知文本。prefix 为空时使用默认的 'XXX 点播了' 格式。"""

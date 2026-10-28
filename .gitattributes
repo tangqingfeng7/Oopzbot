@@ -1,1 +1,2 @@
 *.sh text eol=lf
+src/web/assets/screen-share/app.js whitespace=-blank-at-eol

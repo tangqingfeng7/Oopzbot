@@ -144,6 +144,14 @@ let currentSpeakerMuted = false;
 let activePlayback = null;
 
 window.agoraReady = () => typeof AgoraRTC !== "undefined";
+window.agoraWarmup = async () => {
+  try {
+    await loadAgoraSdk();
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, error: e?.message || String(e) };
+  }
+};
 window.agoraState = () => _state;
 
 function setState(nextState) {
@@ -322,6 +330,33 @@ function stopProcessAudioBufferSafely(track) {
   } catch (_) {}
 }
 
+function disposeStreamingMedia(playback) {
+  const media = playback?.media;
+  if (media) {
+    try {
+      media.pause();
+    } catch (_) {}
+    try {
+      media.removeAttribute("src");
+      media.load();
+      media.remove();
+    } catch (_) {}
+  }
+
+  try {
+    playback?.mediaSource?.disconnect();
+  } catch (_) {}
+  try {
+    playback?.mediaDestination?.disconnect();
+  } catch (_) {}
+  try {
+    playback?.mediaStreamTrack?.stop();
+  } catch (_) {}
+  try {
+    void playback?.audioContext?.close();
+  } catch (_) {}
+}
+
 async function cleanupPlaybackResources(
   playback,
   { stopProcessing = true, unpublish = true } = {}
@@ -333,6 +368,8 @@ async function cleanupPlaybackResources(
   if (stopProcessing) {
     stopProcessAudioBufferSafely(track);
   }
+
+  disposeStreamingMedia(playback);
 
   if (unpublish) {
     await unpublishTrackSafely(track);
@@ -378,7 +415,30 @@ async function finalizeStoppedPlayback(playback) {
 }
 
 function bindPlaybackEvents(playback) {
-  const { track, gen } = playback;
+  const { track, gen, media } = playback;
+
+  if (media) {
+    media.addEventListener("playing", () => {
+      if (!isCurrentPlayback(playback) || gen !== _playGen) return;
+      setState("playing");
+    });
+    media.addEventListener("pause", () => {
+      if (!isCurrentPlayback(playback) || gen !== _playGen || media.ended) return;
+      setState("paused");
+    });
+    media.addEventListener("ended", () => {
+      if (!isCurrentPlayback(playback) || gen !== _playGen) return;
+      setState("finished");
+      void finalizeStoppedPlayback(playback);
+    });
+    media.addEventListener("error", () => {
+      if (!isCurrentPlayback(playback) || gen !== _playGen) return;
+      console.error("[streaming media error]", media.error?.message || media.error?.code);
+      setState("finished");
+      void finalizeStoppedPlayback(playback);
+    });
+    return;
+  }
 
   track.on("source-state-change", (st) => {
     if (!isCurrentPlayback(playback)) return;
@@ -403,11 +463,45 @@ function bindPlaybackEvents(playback) {
   });
 }
 
-function makePlayback(track) {
+function makePlayback(track, streamingResources = {}) {
   return {
     gen: _playGen,
     track,
+    ...streamingResources,
   };
+}
+
+function waitForMediaCanPlay(media, gen, timeoutMs = 12000) {
+  if (media.readyState >= HTMLMediaElement.HAVE_FUTURE_DATA) {
+    return Promise.resolve();
+  }
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const finish = (error = null) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      clearInterval(supersededCheck);
+      media.removeEventListener("canplay", onCanPlay);
+      media.removeEventListener("error", onError);
+      error ? reject(error) : resolve();
+    };
+    const onCanPlay = () => finish();
+    const onError = () => finish(new Error(
+      `streaming media failed: ${media.error?.message || media.error?.code || "unknown"}`
+    ));
+    const timeout = setTimeout(
+      () => finish(new Error("streaming media initial buffer timed out")),
+      timeoutMs
+    );
+    const supersededCheck = setInterval(() => {
+      if (gen !== _playGen) finish(new Error("superseded"));
+    }, 50);
+
+    media.addEventListener("canplay", onCanPlay, { once: true });
+    media.addEventListener("error", onError, { once: true });
+  });
 }
 
 /* -------------------- Join / Leave -------------------- */
@@ -510,9 +604,83 @@ async function publishTrackAsPlayback(localTrack, gen) {
   };
 }
 
+async function publishStreamingUrlAsPlayback(url, gen) {
+  const Ctx = window.AudioContext || window.webkitAudioContext;
+  if (!Ctx) {
+    throw new Error("AudioContext is not supported in this browser");
+  }
+
+  const media = document.createElement("audio");
+  media.crossOrigin = "anonymous";
+  media.preload = "auto";
+  media.playsInline = true;
+  media.src = url;
+  media.style.display = "none";
+  document.body.appendChild(media);
+
+  const audioContext = new Ctx({ latencyHint: "playback" });
+  const mediaSource = audioContext.createMediaElementSource(media);
+  const mediaDestination = audioContext.createMediaStreamDestination();
+  mediaSource.connect(mediaDestination);
+
+  const mediaStreamTrack = mediaDestination.stream.getAudioTracks()[0];
+  if (!mediaStreamTrack) {
+    throw new Error("streaming media did not create an audio track");
+  }
+
+  const localTrack = AgoraRTC.createCustomAudioTrack({ mediaStreamTrack });
+  const playback = makePlayback(localTrack, {
+    media,
+    audioContext,
+    mediaSource,
+    mediaDestination,
+    mediaStreamTrack,
+  });
+
+  try {
+    media.load();
+    await waitForMediaCanPlay(media, gen);
+
+    if (gen !== _playGen) {
+      throw new Error("superseded");
+    }
+
+    activePlayback = playback;
+    bindPlaybackEvents(playback);
+    localTrack.setVolume(_currentVolume);
+    await client.publish([localTrack]);
+    await sendCurrentVoiceState(2);
+
+    if (!isCurrentPlayback(playback) || gen !== _playGen) {
+      throw new Error("superseded");
+    }
+
+    if (audioContext.state === "suspended") {
+      await audioContext.resume();
+    }
+    await media.play();
+    setState("playing");
+
+    return {
+      ok: true,
+      duration: Number.isFinite(media.duration) ? media.duration : 0,
+      agoraUid: currentAgoraUid,
+      streaming: true,
+    };
+  } catch (error) {
+    if (isCurrentPlayback(playback)) {
+      activePlayback = null;
+    }
+    await cleanupPlaybackResources(playback, {
+      stopProcessing: false,
+      unpublish: true,
+    });
+    throw error;
+  }
+}
+
 window.agoraPlayAudio = async (url) => {
   const gen = ++_playGen;
-  let localTrack = null;
 
   try {
     await loadAgoraSdk();
@@ -522,25 +690,8 @@ window.agoraPlayAudio = async (url) => {
     }
 
     await stopCurrentPlayback({ bumpGen: false, nextState: "joined" });
-
-    localTrack = await AgoraRTC.createBufferSourceAudioTrack({
-      source: url,
-      cacheOnlineFile: false,
-    });
-
-    return await publishTrackAsPlayback(localTrack, gen);
+    return await publishStreamingUrlAsPlayback(url, gen);
   } catch (e) {
-    if (localTrack) {
-      await cleanupPlaybackResources({ gen, track: localTrack }, {
-        stopProcessing: true,
-        unpublish: true,
-      });
-    }
-
-    if (activePlayback && activePlayback.track === localTrack) {
-      activePlayback = null;
-    }
-
     if (gen !== _playGen) {
       return { ok: false, error: "superseded" };
     }
@@ -601,14 +752,18 @@ window.agoraStopAudio = async () => {
 
 /* -------------------- Playback controls -------------------- */
 
-window.agoraPause = () => {
+window.agoraPause = async () => {
   const track = getCurrentTrack();
   if (!track || _state !== "playing") {
     return { ok: false, error: "not playing" };
   }
 
   try {
-    track.pauseProcessAudioBuffer();
+    if (activePlayback?.media) {
+      activePlayback.media.pause();
+    } else {
+      track.pauseProcessAudioBuffer();
+    }
     setState("paused");
     return { ok: true };
   } catch (e) {
@@ -616,14 +771,18 @@ window.agoraPause = () => {
   }
 };
 
-window.agoraResume = () => {
+window.agoraResume = async () => {
   const track = getCurrentTrack();
   if (!track || _state !== "paused") {
     return { ok: false, error: "not paused" };
   }
 
   try {
-    track.resumeProcessAudioBuffer();
+    if (activePlayback?.media) {
+      await activePlayback.media.play();
+    } else {
+      track.resumeProcessAudioBuffer();
+    }
     setState("playing");
     return { ok: true };
   } catch (e) {
@@ -638,7 +797,11 @@ window.agoraSeek = (time) => {
   }
 
   try {
-    track.seekAudioBuffer(time);
+    if (activePlayback?.media) {
+      activePlayback.media.currentTime = Math.max(0, Number(time) || 0);
+    } else {
+      track.seekAudioBuffer(time);
+    }
     return { ok: true };
   } catch (e) {
     return { ok: false, error: e?.message || String(e) };
@@ -672,7 +835,9 @@ window.agoraGetCurrentTime = () => {
   if (!track) return 0;
 
   try {
-    return track.getCurrentTime();
+    return activePlayback?.media
+      ? activePlayback.media.currentTime
+      : track.getCurrentTime();
   } catch (_) {
     return 0;
   }
@@ -687,11 +852,15 @@ window.agoraGetStatus = () => {
   let duration = 0;
 
   try {
-    currentTime = track ? track.getCurrentTime() : 0;
+    currentTime = activePlayback?.media
+      ? activePlayback.media.currentTime
+      : (track ? track.getCurrentTime() : 0);
   } catch (_) {}
 
   try {
-    duration = track ? track.duration : 0;
+    duration = activePlayback?.media
+      ? (Number.isFinite(activePlayback.media.duration) ? activePlayback.media.duration : 0)
+      : (track ? track.duration : 0);
   } catch (_) {}
 
   return {

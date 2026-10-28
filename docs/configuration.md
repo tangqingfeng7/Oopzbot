@@ -176,6 +176,20 @@ Copy-Item private_key.example.py private_key.py
 > **注意**：长期配置只认 `config.py`。管理后台 `/admin` -> 配置页面保存时会写回 `config.py`，并同步更新当前进程，不需要重启。
 > `trust_proxy_header` 不再兼容；检测到该旧项时启动会失败，并提示迁移到 `trusted_proxy_cidrs`。
 
+### 网页屏幕共享 (`SCREEN_SHARE_CONFIG`)
+
+| 配置项 | 说明 |
+|--------|------|
+| `enabled` | 是否启用网页屏幕共享（默认 `False`） |
+| `agora_app_id` | 自有声网项目的 32 位 App ID，不复用 Oopz 语音配置 |
+| `agora_app_certificate` | 声网 App Certificate；后台按 write-only 敏感字段处理 |
+| `presenter_link_ttl_seconds` | 私信发起链接的有效期（默认 `600` 秒） |
+| `session_max_seconds` | 单次共享最长时长（默认 `14400` 秒） |
+| `rtc_token_ttl_seconds` | RTC Token 有效期；网页会在过期前自动续期 |
+| `default_quality` | `2k` 最高画质、`1080p` 清晰优先或 `720p` 流畅优先 |
+
+此功能必须使用真实 Redis；Redis 降级为内存队列时会拒绝创建共享。对外 `WEB_PLAYER_CONFIG["url"]` 必须是 HTTPS 地址（本机开发可用 localhost）。声网控制台还必须开启“连麦鉴权”，才能在服务端强制观看者只读。运行参数位于“配置 → 音乐与平台 → 网页屏幕共享”，域级角色权限位于“域管理 → 域配置”。同一文字频道支持多人同时共享，每个用户同时最多一个会话；独立的“屏幕共享”后台页可观看、复制链接或结束指定会话。完整部署和权限说明见[屏幕共享](screen-share.md)。
+
 ### OneBot v11 旁路服务 (`ONEBOT_V11_CONFIG`)
 
 OneBot v11 旁路服务默认关闭。启用后，当前 Oopz Bot 会继续照常运行，同时额外提供 OneBot v11 HTTP / WebSocket 接口，适合接 NoneBot、AstrBot、Hoshino 等外部程序。
@@ -215,18 +229,20 @@ OneBot v11 旁路服务默认关闭。启用后，当前 Oopz Bot 会继续照�
 
 ### 域成员加入/退出通知 (`AREA_JOIN_NOTIFY`)
 
-用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息，并同步生成 OneBot v11 的群成员增减事件。默认通过域管理日志接口轮询加入/退出记录；如果显式配置为 `member_snapshot`，才会使用旧的成员列表快照对比方案。
+用户加入或退出当前域时，Bot 在公屏发送欢迎/再见消息，并同步生成 OneBot v11 的群成员增减事件。默认通过域管理日志接口轮询加入/退出记录；管理日志无权限或连续鉴权失败时会自动改用成员列表快照对比，也可以显式配置为 `member_snapshot`。
 
 | 配置项 | 说明 |
 |--------|------|
 | `enabled` | 是否启用（默认 `False`） |
 | `event_source` | 成员事件来源，默认 `operate_logs`。可选：`operate_logs`=轮询域管理日志；`member_snapshot`=轮询成员列表并对比快照 |
 | `message_template` | 加入时消息模板，占位符：`{name}`、`{uid}`（默认 `"欢迎 {name} 加入域～"`） |
-| `message_template_leave` | 退出时消息模板，占位符：`{name}`、`{uid}`（默认 `"{name} 已退出域"`） |
-| `poll_interval_seconds` | 轮询间隔（秒），`operate_logs` 最小 2，`member_snapshot` 最小 5；默认 2。遇到 429 会自动退避并临时放慢轮询 |
+| `message_template_leave` | 全局退出消息模板，支持 `{name}`、`{uid}` 或固定文本（默认 `"{name} 已退出域"`）；留空关闭继承此模板的域的退出提示，OneBot 成员事件仍推送 |
+| `poll_interval_seconds` | 轮询等待间隔（秒），实际最小 5；一次完整检测还需加上接口请求耗时。遇到 429 会自动退避并临时放慢轮询 |
 | `auto_assign_role_id` | 新人自动分配的身份组 ID，留空则不分配 |
 | `auto_assign_role_name` | 或用身份组名称匹配（优先使用 `auto_assign_role_id`） |
-| `member_fetch_max` | `member_snapshot` 模式下单次成员快照翻页上限，超过该人数会跳过该域的快照对比并告警；`operate_logs` 模式不使用 |
+| `member_fetch_max` | 单次成员快照翻页上限，包括管理日志不可用时的自动回退；超过该人数会跳过该域的快照对比并告警 |
+
+域级 `leave_message` 非空时优先使用该域模板，留空则继承全局 `message_template_leave`。退域昵称优先使用已有名称缓存，缓存缺失时再查询用户资料。首次快照只建立当前成员基线，不补发启动前的退域通知；两次快照之间离开又重新加入也无法通过快照识别。
 
 需配置 `default_area`、`default_channel`（或由 Bot 自动取第一个已加入域及第一个文字频道）。通知消息与 Bot 其他消息一致，默认是普通气泡；把 `use_announcement_style` 设为 `True`
 才会用公告样式（Bot 不是高级管理员时服务端会拒绝发公告）。
@@ -273,6 +289,7 @@ OneBot v11 旁路服务默认关闭。启用后，当前 Oopz Bot 会继续照�
 | `auto_assign_role_id` / `auto_assign_role_name` | 新人自动分配的身份组 ID / 名称 |
 | `admin_uids` | 该域独立管理员，空则继承全局 `ADMIN_UIDS` |
 | `plugins_enabled` / `plugins_disabled` | 该域启用 / 禁用的插件名列表（`plugins_enabled` 为空=全部启用） |
+| `screen_share_role_ids` | 允许发起和管理屏幕共享的域身份组 `roleID` 列表；角色改名不受影响 |
 
 ### 权限控制 (`ADMIN_UIDS`)
 

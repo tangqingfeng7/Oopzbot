@@ -40,10 +40,11 @@ async def admin_area_config_save(area_id: str, request: Request):
 
     from core.area_config import AreaConfigRegistry, get_area_registry
     reg = get_area_registry()
-    reg.update_config(area_id, body)
+    updated = reg.update_config(area_id, body)
+    normalized = AreaConfigRegistry.config_to_dict(updated)
 
     saved = cfg.read_area_overrides()
-    saved[area_id] = body
+    saved[area_id] = normalized
     cfg.write_area_overrides(saved)
 
     return JSONResponse({"ok": True, "config": AreaConfigRegistry.config_to_dict(reg.get(area_id))})

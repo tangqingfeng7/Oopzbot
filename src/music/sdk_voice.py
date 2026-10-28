@@ -6,8 +6,9 @@ import asyncio
 import inspect
 import time
 from collections import OrderedDict
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Awaitable, Mapping
+from typing import Any, cast
+from urllib.parse import urlsplit
 
 from core.http_constants import HTTP_TIMEOUT_DOWNLOAD
 from core.logger_config import get_logger
@@ -27,6 +28,7 @@ _ACTIVE_PLAYBACK_STATES = frozenset({"playing", "paused"})
 # 等预热的上限。宁可等，也好过在浏览器没起来时进频道导致 bot 不显示；
 # 但不能无限等，超时后照常进，至少还能听到声音。
 _WARMUP_WAIT_TIMEOUT = 60.0
+_NETEASE_REMOTE_AUDIO_SUFFIXES = ("music.126.net", "music.163.com")
 
 
 class SdkVoiceController:
@@ -141,6 +143,7 @@ class SdkVoiceController:
         on_started=None,
         *,
         headers: Mapping[str, str] | None = None,
+        prefer_remote: bool = False,
     ) -> dict[str, Any]:
         url = str(url or "").strip()
         if not url:
@@ -149,6 +152,35 @@ class SdkVoiceController:
         if pending is not None:
             await asyncio.gather(pending, return_exceptions=True)
         cached = self._preloaded.pop(url, None)
+        if cached is None and prefer_remote and self._is_netease_remote_audio(url):
+            play_url = getattr(self._voice, "play_url", None)
+            if callable(play_url):
+                started = time.monotonic()
+                try:
+                    pending_result = play_url(url)
+                    if not inspect.isawaitable(pending_result):
+                        raise TypeError("voice play_url() must return an awaitable")
+                    result = await cast(Awaitable[dict[str, Any]], pending_result)
+                except Exception as exc:
+                    logger.debug("浏览器直载网易云音频失败，回退安全下载: %s", exc)
+                else:
+                    if result and result.get("ok", False):
+                        logger.info(
+                            "网易云音频由语音浏览器直接加载，耗时 %.1fs",
+                            time.monotonic() - started,
+                        )
+                        if on_started is not None:
+                            callback_result = on_started()
+                            if inspect.isawaitable(callback_result):
+                                await callback_result
+                        self._playing = True
+                        self.playback_ended.clear()
+                        self._watch_playback_end()
+                        return result
+                    logger.debug(
+                        "浏览器直载网易云音频未成功，回退安全下载: %s",
+                        (result or {}).get("error") or "empty result",
+                    )
         if cached is None:
             # 没命中预加载就得现下，这段时间正是切歌空档的主要来源，记下来便于定位
             started = time.monotonic()
@@ -174,6 +206,21 @@ class SdkVoiceController:
             if inspect.isawaitable(callback_result):
                 await callback_result
         return result
+
+    @staticmethod
+    def _is_netease_remote_audio(url: str) -> bool:
+        """只允许网易云自有音频域名绕过 Python→Base64 的重复搬运。"""
+        try:
+            parsed = urlsplit(url)
+            host = (parsed.hostname or "").lower().rstrip(".")
+        except ValueError:
+            return False
+        if parsed.scheme not in {"http", "https"} or not host:
+            return False
+        return any(
+            host == suffix or host.endswith("." + suffix)
+            for suffix in _NETEASE_REMOTE_AUDIO_SUFFIXES
+        )
 
     def _watch_playback_end(self) -> None:
         """轮询浏览器状态，曲目自然播完时把 _playing 复位。

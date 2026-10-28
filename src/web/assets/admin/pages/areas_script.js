@@ -287,6 +287,28 @@
       AdminShell.refreshCustomSelect("ac_auto_role_select");
     }
 
+    function populateScreenShareRoles(selectedIds) {
+      const root = AdminShell.byId("ac_screen_share_roles");
+      if (!root) return;
+      const selected = new Set((selectedIds || []).map((value) => String(value)));
+      if (!areaRolesData.length) {
+        root.innerHTML = '<span class="a-am-empty">暂无可选身份组</span>';
+        return;
+      }
+      root.innerHTML = areaRolesData.map((role) => {
+        const id = String(role.id || "");
+        const name = String(role.name || id);
+        const checked = selected.has(id) ? " checked" : "";
+        return `<label class="a-am-item"><input type="checkbox" value="${esc(id)}"${checked} /> ${esc(name)} <small>(${esc(id)})</small></label>`;
+      }).join("");
+    }
+
+    function selectedScreenShareRoles() {
+      return Array.from(document.querySelectorAll("#ac_screen_share_roles input:checked"))
+        .map((el) => Number(el.value))
+        .filter((value) => Number.isInteger(value) && value > 0);
+    }
+
     function syncAreaAssistantSelects() {
       populateChannelSelect(getAcVal("ac_default_channel"));
       populateRoleSelect(getAcVal("ac_auto_role_id"), getAcVal("ac_auto_role_name"));
@@ -312,9 +334,11 @@
         const data = await AdminShell.req(`/admin/api/areas/${encodeURIComponent(currentArea)}/meta`);
         areaRolesData = data.roles || [];
         populateRoleSelect(getAcVal("ac_auto_role_id"), getAcVal("ac_auto_role_name"));
+        populateScreenShareRoles(window.__screenShareRoleIds || []);
       } catch (_) {
         areaRolesData = [];
         populateRoleSelect(getAcVal("ac_auto_role_id"), getAcVal("ac_auto_role_name"));
+        populateScreenShareRoles([]);
       }
     }
 
@@ -332,6 +356,8 @@
         setAcVal("ac_admin_uids", (c.admin_uids || []).join(", "));
         setAcVal("ac_plugins_enabled", (c.plugins_enabled || []).join(", "));
         setAcVal("ac_plugins_disabled", (c.plugins_disabled || []).join(", "));
+        window.__screenShareRoleIds = c.screen_share_role_ids || [];
+        populateScreenShareRoles(window.__screenShareRoleIds);
         const ann = c.use_announcement_style;
         const annVal = ann === true ? "true" : (ann === false ? "false" : "");
         setAcVal("ac_announcement_style", annVal);
@@ -365,6 +391,7 @@
         admin_uids: splitList(AdminShell.byId("ac_admin_uids").value || ""),
         plugins_enabled: splitList(AdminShell.byId("ac_plugins_enabled").value || ""),
         plugins_disabled: splitList(AdminShell.byId("ac_plugins_disabled").value || ""),
+        screen_share_role_ids: selectedScreenShareRoles(),
         use_announcement_style: annVal,
       };
       try {

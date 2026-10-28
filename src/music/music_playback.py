@@ -456,6 +456,7 @@ class PlaybackMixin:
                 url,
                 on_started=_on_audio_started,
                 headers=stream_headers,
+                prefer_remote=platform_name == "netease",
             )
             logger.info(f"已提交 Agora 推流任务: {name}")
             return
@@ -478,6 +479,7 @@ class PlaybackMixin:
                             new_url,
                             on_started=_on_audio_started,
                             headers=stream_headers,
+                            prefer_remote=platform_name == "netease",
                         )
                         logger.info(f"重新获取URL后推流成功: {name}")
                         return

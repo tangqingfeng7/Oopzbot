@@ -147,15 +147,18 @@ NeteaseCloud API (:3000)
 │   │   ├── area_join_notifier.py # 域成员加入/退出通知
 │   │   ├── scheduler_service.py # 定时任务服务
 │   │   └── scheduler_templates.py # 定时消息模板预设
+│   ├── screen_share/            # 网页屏幕共享会话、Token、API 与客户端源码
+│   │   └── client/             # TypeScript 客户端和构建配置
 │   ├── web/                     # Web 播放器与 Admin 后台
 │   │   ├── web_player.py        # FastAPI 主应用
 │   │   ├── web_player_admin.py  # Admin 路由入口（聚合 web.admin 包，对外稳定 facade）
 │   │   ├── web_player_config.py # Web / Admin 配置管理
 │   │   ├── web_link_token.py    # Web 播放器访问令牌
-│   │   ├── admin/               # Admin 后台路由包（pages / auth / config / music / scheduler / plugins / members / shared）
+│   │   ├── admin/               # Admin 后台路由包（含 screen_share 管理接口）
 │   │   └── assets/              # Web 前端资源
 │   │       ├── player.html      # Web 播放器前端
-│   │       └── admin/           # Admin 后台前端资源
+│   │       ├── admin/           # Admin 后台前端资源
+│   │       └── screen-share/    # 屏幕共享已编译页面资源
 │   │                            # （Agora RTC 页面已随 SDK 内置于
 │   │                            #   src/oopz_sdk/assets/voice/agora_player.html）
 │   ├── app/                     # 应用启动、运行时和服务编排
@@ -249,6 +252,7 @@ NeteaseCloud API (:3000)
 | `src/web/web_player_admin.py` | 9 行稳定 facade（外观入口）：调用 `create_admin_router()` 并对外导出 `admin_router` |
 | `src/web/admin/` | Admin 后台的实际路由包；按登录、页面、配置、音乐、定时任务、插件、成员与共享辅助拆分 |
 | `src/web/web_player_config.py` | 配置常量（`WEB_PLAYER_CONFIG` 引用）、分组定义、基线值、config.py 写回与热更新 |
+| `src/screen_share/` | 独立的屏幕共享业务模块；持有 Redis 会话状态、AccessToken2 签发、浏览器 API 和 TypeScript 源码 |
 
 `src/web/web_player.py` 仍从 facade 导入 `admin_router`，再通过
 `app.include_router(admin_router)` 挂载 `src/web/admin/` 组装的 Admin 路由。
@@ -301,6 +305,21 @@ sdk_voice.py → oopz_sdk 的 agora_player.html (Playwright 无头浏览器)
 Agora RTC (语音频道)
 ```
 
+屏幕共享与音乐 Web 播放器共用 FastAPI/Redis 基础设施，但不复用音乐队列，Bot 也不会加入语音频道：
+
+```text
+Oopz 文字频道命令
+  │  Bot 私信单次发起链接
+  ▼
+src/screen_share/web.py ──► src/screen_share/service.py ──► Redis 会话/令牌哈希
+  │                                  │
+  │ 发起端 host / 观看端 audience       └── AccessToken2（服务端签发）
+  ▼
+Agora RTC 独立屏幕共享频道
+  │
+  └── src/web/admin/screen_share.py 列出或结束指定会话
+```
+
 ### Redis 键约定
 
 `QueueManager(area)` 会把播放状态统一写入
@@ -320,6 +339,10 @@ Agora RTC (语音频道)
 | `music:web_active_area` | String | 全局 | 当前 Web 播放器关联的活跃域 |
 | `music:web_last_access` | String (timestamp) | 全局 | 播放器最近访问时间，用于空闲释放 |
 | `music:admin_session:<token>` | String | 全局键族 | Admin 登录会话存活标记，可配置 TTL |
+| `screen_share:session:<id>` | String (JSON) | 共享会话 | 会话状态、域/频道、发起者、心跳与业务过期时间 |
+| `screen_share:{presenter,auth,viewer}:<hash>` | String | 令牌映射 | 只保存链接或授权令牌的 SHA-256 哈希映射 |
+| `screen_share:user:<user_hash>` | String | 用户索引 | 保证每个用户同时最多一个会话 |
+| `screen_share:channel:<scope>:<session_id>` | String | 频道索引 | 同一文字频道的多会话成员索引 |
 
 历史全局播放键会保留在 Redis 中，但运行时不再读取、写入、迁移或删除它们。
 

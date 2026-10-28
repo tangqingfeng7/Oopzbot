@@ -7,6 +7,7 @@ from app.services.interaction.chat_interaction_service import ChatInteractionSer
 from app.services.interaction.common_command_service import CommonCommandService
 from app.services.interaction.help_service import HelpService
 from app.services.interaction.music_command_service import MusicCommandService
+from app.services.interaction.screen_share_command_service import ScreenShareCommandService
 from app.services.interaction.selection_service import SelectionService
 from app.services.interaction.setup_service import SetupService
 from app.services.plugins.plugin_management_service import PluginManagementService
@@ -40,6 +41,7 @@ class InteractionServices:
     music: MusicCommandService
     selection: SelectionService
     setup: SetupService
+    screen_share: ScreenShareCommandService
 
 
 @dataclass(frozen=True)
@@ -96,6 +98,7 @@ def _build_interaction_services(runtime: CommandRuntimeView) -> InteractionServi
         music=MusicCommandService(runtime),
         selection=SelectionService(),
         setup=SetupService(runtime),
+        screen_share=ScreenShareCommandService(runtime),
     )
 
 

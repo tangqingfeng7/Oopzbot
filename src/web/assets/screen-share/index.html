@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <meta name="color-scheme" content="dark" />
+  <title>Oopzbot 屏幕共享</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=Outfit:wght@400;500;600;700;800&family=Noto+Sans+SC:wght@400;500;600;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/admin-assets/admin-shell.css?v=21-screen-share-2" />
+  <link rel="stylesheet" href="/screen-share/assets/style.css?v=20260827-7" />
+</head>
+<body data-admin-page="screen-share">
+  <main class="app-shell">
+    <header class="topbar">
+      <div class="identity">
+        <div class="brand">OOPZBOT · SCREEN SHARE</div>
+        <div class="title-line">
+          <h1 id="title">屏幕共享</h1>
+          <span class="mode-badge" id="mode-badge">共享控制</span>
+        </div>
+        <p id="subtitle"></p>
+      </div>
+    </header>
+
+    <section class="workspace">
+      <section class="program-panel">
+        <div class="panel-bar" id="panel-bar" hidden>
+          <span><i class="status-dot"></i>共享预览</span>
+          <span id="output-profile">1080p · 30</span>
+        </div>
+        <section class="stage" id="stage">
+          <div class="placeholder">
+            <span class="screen-icon">▣</span>
+            <strong id="status">正在载入</strong>
+            <p id="detail"></p>
+          </div>
+        </section>
+      </section>
+
+      <aside class="control-panel" id="control-panel" hidden>
+        <section class="source-card">
+          <span class="panel-eyebrow">SCREEN SOURCE</span>
+          <h2>屏幕源</h2>
+          <p>选择窗口、浏览器标签页或整块屏幕；如果浏览器提供音频，将只共享系统声音。</p>
+        </section>
+
+        <section class="control-group">
+          <h3>视频输出</h3>
+          <label class="quality" hidden>画质
+            <select id="quality">
+              <option value="2k">2K</option>
+              <option value="1080p">1080p</option>
+              <option value="720p">720p</option>
+            </select>
+          </label>
+          <label class="quality" hidden>帧率
+            <select id="frame-rate">
+              <option value="30">30</option>
+              <option value="60">60</option>
+              <option value="120">120</option>
+              <option value="144">144</option>
+              <option value="240">240</option>
+            </select>
+          </label>
+        </section>
+
+        <section class="transport">
+          <button id="start" class="btn btn-primary primary" type="button" hidden>选择来源并开始共享</button>
+          <button id="stop" class="btn btn-danger danger" type="button" hidden>停止屏幕共享</button>
+        </section>
+      </aside>
+    </section>
+
+    <div class="viewer-controls" id="viewer-controls">
+      <span class="viewer-status"><i></i>屏幕共享</span>
+      <div class="viewer-actions">
+        <button id="play-audio" class="btn btn-primary primary" type="button" hidden>开启声音</button>
+        <button id="fullscreen" class="btn btn-ghost" type="button">全屏</button>
+      </div>
+    </div>
+    <footer>临时屏幕共享链接 · 请勿转发到目标频道之外</footer>
+  </main>
+  <script src="/screen-share/assets/app.js?v=20260827-9" defer></script>
+</body>
+</html>

@@ -151,12 +151,26 @@ HELP_TOPICS: dict[str, HelpTopic] = {
             "后台入口: /admin/setup",
         ),
     ),
+    "screen_share": HelpTopic(
+        key="screen_share",
+        title="屏幕共享",
+        description="通过临时网页链接发起和观看屏幕共享。",
+        aliases=("屏幕共享", "共享屏幕", "投屏"),
+        menu_label="共享",
+        menu_blurb="网页屏幕共享",
+        lines=(
+            "@bot 屏幕共享  私信获取单次发起链接",
+            "@bot 停止屏幕共享  停止当前频道共享",
+            "发起权限由后台域配置中的身份组控制",
+            "推流成功后 Bot 会在原频道发送观看链接",
+        ),
+    ),
 }
 
 
 # 总览菜单展示顺序（单一来源）；列出的主题必须存在于 HELP_TOPICS。
 MENU_ORDER: tuple[str, ...] = (
-    "music", "query", "reminder", "admin", "schedule", "plugin", "setup",
+    "music", "query", "reminder", "screen_share", "admin", "schedule", "plugin", "setup",
 )
 
 
@@ -209,6 +223,7 @@ COMMAND_SUGGESTIONS: tuple[tuple[str, str], ...] = (
     ("插件列表", "@bot 插件列表"),
     ("体检", "@bot 体检"),
     ("首启向导", "@bot 首启向导"),
+    ("屏幕共享", "@bot 屏幕共享"),
     ("禁言", "@bot 禁言 <用户> [分钟]"),
     ("/help", "/help [主题]"),
     ("/health", "/health"),

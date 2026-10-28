@@ -171,7 +171,17 @@ class SectionAwareConfigWriteTest(unittest.TestCase):
     SAMPLE = (
         'OOPZ_CONFIG = {\n    "proxy": "",\n}\n\n'
         'NETEASE_CLOUD = {\n    "cookie": "",   # 网易云\n}\n\n'
-        'WEB_PLAYER_CONFIG = {\n    "enabled": False,\n}\n\n'
+        'WEB_PLAYER_CONFIG = {\n'
+        '    "enabled": False,\n'
+        '    "url": "",\n'
+        '    "cookie_secure": False,\n'
+        '    "admin_cookie_secure": False,\n'
+        '}\n\n'
+        'SCREEN_SHARE_CONFIG = {\n'
+        '    "enabled": False,\n'
+        '    "agora_app_id": "",\n'
+        '    "agora_app_certificate": "",\n'
+        '}\n\n'
         'ONEBOT_V11_CONFIG = {\n    "enabled": False,\n}\n\n'
         'ADMIN_UIDS = [\n    # "用户UID",\n]\n'
     )
@@ -225,6 +235,147 @@ class SectionAwareConfigWriteTest(unittest.TestCase):
         self.assertTrue(namespace["WEB_PLAYER_CONFIG"]["enabled"])
         self.assertEqual(namespace["NETEASE_CLOUD"]["cookie"], 'has "quotes" inside')
         self.assertEqual(namespace["OOPZ_CONFIG"]["proxy"], "http://127.0.0.1:7890")
+
+
+class ScreenShareDeployTest(unittest.TestCase):
+    CONFIG = SectionAwareConfigWriteTest.SAMPLE
+
+    def test_first_run_writes_complete_screen_share_config(self) -> None:
+        app_id = "a" * 32
+        certificate = "b" * 32
+        with (
+            patch.object(
+                deploy,
+                "ask",
+                side_effect=[app_id, "https://bot.example.com/"],
+            ),
+            patch.object(deploy, "ask_secret", return_value=certificate),
+        ):
+            content, enabled = deploy.configure_screen_share(self.CONFIG)
+
+        self.assertTrue(enabled)
+        namespace: dict = {}
+        exec(compile(content, "config.py", "exec"), namespace)
+        self.assertTrue(namespace["SCREEN_SHARE_CONFIG"]["enabled"])
+        self.assertEqual(namespace["SCREEN_SHARE_CONFIG"]["agora_app_id"], app_id)
+        self.assertEqual(
+            namespace["SCREEN_SHARE_CONFIG"]["agora_app_certificate"],
+            certificate,
+        )
+        self.assertEqual(namespace["WEB_PLAYER_CONFIG"]["url"], "https://bot.example.com")
+        self.assertTrue(namespace["WEB_PLAYER_CONFIG"]["cookie_secure"])
+        self.assertTrue(namespace["WEB_PLAYER_CONFIG"]["admin_cookie_secure"])
+
+    def test_invalid_credentials_do_not_write_partial_config(self) -> None:
+        with (
+            patch.object(
+                deploy,
+                "ask",
+                side_effect=["bad-app-id", "http://public.example.com"],
+            ),
+            patch.object(deploy, "ask_secret", return_value="bad-certificate"),
+            patch.object(deploy, "warn"),
+        ):
+            content, enabled = deploy.configure_screen_share(self.CONFIG)
+
+        self.assertFalse(enabled)
+        self.assertEqual(content, self.CONFIG)
+
+    def test_public_url_requires_https_but_allows_localhost(self) -> None:
+        self.assertTrue(deploy.valid_screen_share_url("https://bot.example.com"))
+        self.assertTrue(deploy.valid_screen_share_url("http://localhost:8080"))
+        self.assertTrue(deploy.valid_screen_share_url("http://127.0.0.1:8080"))
+        self.assertFalse(deploy.valid_screen_share_url("http://bot.example.com"))
+        self.assertFalse(deploy.valid_screen_share_url("not-a-url"))
+
+    def test_committed_assets_do_not_require_node(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            asset_dir = Path(tmp)
+            for name in deploy.SCREEN_SHARE_REQUIRED_ASSETS:
+                (asset_dir / name).write_text("asset", encoding="utf-8")
+            with (
+                patch.object(deploy, "SCREEN_SHARE_ASSET_DIR", asset_dir),
+                patch.object(deploy, "run_ok") as run_ok,
+                patch.object(deploy, "say"),
+            ):
+                deploy.setup_screen_share_assets(install=True)
+            run_ok.assert_not_called()
+
+    def test_missing_assets_use_module_local_client_as_recovery_only(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            base = Path(tmp)
+            asset_dir = base / "assets"
+            client_dir = base / "client"
+            asset_dir.mkdir()
+            client_dir.mkdir()
+
+            def fake_run_ok(command: list[str], **kwargs: Any) -> bool:
+                self.assertEqual(kwargs.get("cwd"), client_dir)
+                if command[-1] == "build":
+                    for name in deploy.SCREEN_SHARE_REQUIRED_ASSETS:
+                        (asset_dir / name).write_text("asset", encoding="utf-8")
+                return True
+
+            with (
+                patch.object(deploy, "SCREEN_SHARE_ASSET_DIR", asset_dir),
+                patch.object(deploy, "SCREEN_SHARE_CLIENT_DIR", client_dir),
+                patch.object(deploy.shutil, "which", return_value="/usr/bin/npm"),
+                patch.object(deploy, "run_ok", side_effect=fake_run_ok) as run_ok,
+                patch.object(deploy, "say"),
+                patch.object(deploy, "warn"),
+            ):
+                deploy.setup_screen_share_assets(install=True)
+
+            self.assertEqual(
+                [call.args[0] for call in run_ok.call_args_list],
+                [
+                    ["npm", "ci"],
+                    ["npm", "run", "typecheck"],
+                    ["npm", "run", "build"],
+                ],
+            )
+
+    def test_readiness_checks_redis_https_credentials_and_assets(self) -> None:
+        import tempfile
+
+        content = self.CONFIG
+        for section, key, value in (
+            ("SCREEN_SHARE_CONFIG", "enabled", True),
+            ("SCREEN_SHARE_CONFIG", "agora_app_id", "a" * 32),
+            ("SCREEN_SHARE_CONFIG", "agora_app_certificate", "b" * 32),
+            ("WEB_PLAYER_CONFIG", "url", "https://bot.example.com"),
+        ):
+            content, ok = deploy.set_config_field(content, section, key, value)
+            self.assertTrue(ok)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            asset_dir = root / "assets"
+            asset_dir.mkdir()
+            (root / "config.py").write_text(content, encoding="utf-8")
+            for name in deploy.SCREEN_SHARE_REQUIRED_ASSETS:
+                (asset_dir / name).write_text("asset", encoding="utf-8")
+            with (
+                patch.object(deploy, "ROOT", root),
+                patch.object(deploy, "SCREEN_SHARE_ASSET_DIR", asset_dir),
+                patch.object(deploy, "redis_alive", return_value=True),
+            ):
+                enabled, ready, reasons = deploy.screen_share_readiness()
+
+        self.assertTrue(enabled)
+        self.assertTrue(ready)
+        self.assertEqual(reasons, [])
+
+    def test_docker_release_uses_compiled_assets_without_node_modules(self) -> None:
+        dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
+        dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
+        self.assertIn("/app/src/web/assets/screen-share/app.js", dockerfile)
+        self.assertNotIn("npm install", dockerfile)
+        self.assertIn("node_modules/", dockerignore)
 
 
 class EnvFileTest(unittest.TestCase):

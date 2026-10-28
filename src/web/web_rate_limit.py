@@ -238,10 +238,13 @@ def client_ip(request: ClientAddressRequest, trusted_proxy_cidrs=()) -> str:
 SEARCH_LIMITER = RateLimiter(max_requests=15, window_seconds=60)
 LOGIN_LIMITER = RateLimiter(max_requests=10, window_seconds=60)
 DEFAULT_LIMITER = RateLimiter(max_requests=200, window_seconds=60)
+SCREEN_SHARE_HEARTBEAT_LIMITER = RateLimiter(max_requests=30, window_seconds=60)
+SCREEN_SHARE_HEARTBEAT_IP_LIMITER = RateLimiter(max_requests=1200, window_seconds=60)
 
 PATH_LIMITERS: dict[str, RateLimiter] = {
     "/api/search": SEARCH_LIMITER,
     "/admin/api/login": LOGIN_LIMITER,
+    "/screen-share/api/presenter/heartbeat": SCREEN_SHARE_HEARTBEAT_LIMITER,
 }
 
 login_guard = LoginGuard()
@@ -253,7 +256,11 @@ def limiter_for(path: str) -> RateLimiter:
 
 def reset_all() -> None:
     """重置全部限流状态。仅供测试使用。"""
-    for limiter in {*PATH_LIMITERS.values(), DEFAULT_LIMITER}:
+    for limiter in {
+        *PATH_LIMITERS.values(),
+        DEFAULT_LIMITER,
+        SCREEN_SHARE_HEARTBEAT_IP_LIMITER,
+    }:
         limiter.reset()
     login_guard.reset()
 
@@ -262,6 +269,8 @@ __all__ = [
     "DEFAULT_LIMITER",
     "LOGIN_LIMITER",
     "PATH_LIMITERS",
+    "SCREEN_SHARE_HEARTBEAT_IP_LIMITER",
+    "SCREEN_SHARE_HEARTBEAT_LIMITER",
     "SEARCH_LIMITER",
     "ClientAddressRequest",
     "ClientAddressResolver",

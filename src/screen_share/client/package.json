@@ -1,0 +1,16 @@
+{
+  "name": "oopzbot-screen-share",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "esbuild app.ts --bundle --minify --target=chrome100,edge100 --outfile=../../web/assets/screen-share/app.js",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "agora-rtc-sdk-ng": "4.22.0"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "typescript": "5.9.3"
+  }
+}

@@ -83,6 +83,9 @@ COMMANDS: tuple[CommandSpec, ...] = (
     # --- 音乐候选选择（公开；其余音乐命令由音乐服务独立分发） ---
     CommandSpec("songsearch", ("/songsearch",), ("搜歌", "搜索歌曲"), help_topic="music"),
     CommandSpec("pick", ("/pick",), ("选择", "选歌"), help_topic="music"),
+    # 屏幕共享在业务层按域 roleID 授权，不能标成全局 Bot 管理员命令。
+    CommandSpec("screen_share", (), ("屏幕共享", "共享屏幕"), help_topic="screen_share"),
+    CommandSpec("screen_share_stop", (), ("停止屏幕共享", "结束屏幕共享"), help_topic="screen_share"),
     # --- 系统（公开） ---
     CommandSpec("help", ("/help",), ("帮助", "help", "指令", "命令"), help_topic="overview"),
     CommandSpec("health", ("/health", "/doctor"), ("体检", "系统体检", "健康检查"), help_topic="setup"),

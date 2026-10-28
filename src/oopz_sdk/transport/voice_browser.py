@@ -175,6 +175,11 @@ class BrowserVoiceTransport:
         )
         html_path = Path(__file__).resolve().parent.parent / "assets" / "voice" / "agora_player.html"
         await page.goto(html_path.as_uri())
+        warmup = await page.evaluate("() => window.agoraWarmup()")
+        if not warmup or not warmup.get("ok"):
+            raise RuntimeError(
+                f"Agora SDK warmup failed: {(warmup or {}).get('error') or 'empty result'}"
+            )
 
         self._page = page
         self._init_done.set()

@@ -197,6 +197,11 @@ class ProjectBrowserVoiceTransport(BrowserVoiceTransport):
             / "agora_player.html"
         )
         await page.goto(html_path.as_uri())
+        warmup = await page.evaluate("() => window.agoraWarmup()")
+        if not warmup or not warmup.get("ok"):
+            raise RuntimeError(
+                f"Agora SDK 预热失败: {(warmup or {}).get('error') or 'empty result'}"
+            )
         self._page = page
         self._init_done.set()
 
@@ -215,7 +220,6 @@ class ProjectBrowserVoiceTransport(BrowserVoiceTransport):
         from selenium import webdriver
         from selenium.webdriver.chrome.options import Options
         from selenium.webdriver.chrome.service import Service as ChromeService
-        from selenium.webdriver.support.ui import WebDriverWait
 
         options = Options()
         options.add_argument("--headless=new")
@@ -261,11 +265,18 @@ class ProjectBrowserVoiceTransport(BrowserVoiceTransport):
                 },
             )
             driver.get(self._voice_html_path().as_uri())
-            WebDriverWait(driver, 15).until(
-                lambda current: current.execute_script(
-                    "return typeof window.agoraReady === 'function' && window.agoraReady();"
-                )
+            warmup = driver.execute_async_script(
+                """
+                const done = arguments[arguments.length - 1];
+                Promise.resolve(window.agoraWarmup())
+                    .then(done)
+                    .catch((error) => done({ok: false, error: String(error)}));
+                """
             )
+            if not warmup or not warmup.get("ok"):
+                raise RuntimeError(
+                    f"Agora SDK 预热失败: {(warmup or {}).get('error') or 'empty result'}"
+                )
         except Exception:
             driver.quit()
             raise

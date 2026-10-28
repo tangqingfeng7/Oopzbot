@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import math
 import os
@@ -46,7 +47,11 @@ from core.redis_protocol import (
 from music.music_platform import MusicPlatform
 from music.netease import NeteaseCloud
 from web.web_link_token import get_active_area, get_token, set_token, touch_access
-from web.web_rate_limit import client_ip, limiter_for
+from web.web_rate_limit import (
+    SCREEN_SHARE_HEARTBEAT_IP_LIMITER,
+    client_ip,
+    limiter_for,
+)
 from web.web_request_context import cookie_secure_for
 
 if TYPE_CHECKING:
@@ -63,16 +68,40 @@ app = FastAPI(title="Oopz Music Player", docs_url=None, redoc_url=None)
 
 _WEB_ASSETS_DIR = os.path.join(cfg.PROJECT_ROOT, "src", "web", "assets")
 _ADMIN_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "admin")
+_SCREEN_SHARE_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "screen-share")
 
 
-def _mount_static_if_exists(route: str, directory: str, name: str) -> None:
+class _NoStoreStaticFiles(StaticFiles):
+    """避免屏幕共享页面的新旧 HTML、CSS 和 JS 被浏览器混用。"""
+
+    async def get_response(self, path: str, scope):
+        response = await super().get_response(path, scope)
+        response.headers["Cache-Control"] = "no-store, max-age=0"
+        response.headers["Pragma"] = "no-cache"
+        return response
+
+
+def _mount_static_if_exists(
+    route: str,
+    directory: str,
+    name: str,
+    *,
+    no_store: bool = False,
+) -> None:
     if os.path.isdir(directory):
-        app.mount(route, StaticFiles(directory=directory), name=name)
+        static_files = _NoStoreStaticFiles if no_store else StaticFiles
+        app.mount(route, static_files(directory=directory), name=name)
     else:
         logger.warning("Static assets directory missing, skip mount: %s", directory)
 
 
 _mount_static_if_exists("/admin-assets", _ADMIN_ASSETS_DIR, "admin-assets")
+_mount_static_if_exists(
+    "/screen-share/assets",
+    _SCREEN_SHARE_ASSETS_DIR,
+    "screen-share-assets",
+    no_store=True,
+)
 
 # ---------------------------------------------------------------------------
 # 共享状态（admin 模块通过公共函数访问）
@@ -291,9 +320,17 @@ cfg.bootstrap_area_overrides()
 async def _auth_web_api(request: Request, call_next):
     path = request.url.path or ""
 
-    if path.startswith(("/api/", "/admin/api/")):
+    if path.startswith(("/api/", "/admin/api/", "/screen-share/api/")):
         ip = client_ip(request, cfg.trusted_proxy_cidrs())
-        if not limiter_for(path).is_allowed(ip):
+        rate_key = ip
+        ip_allowed = True
+        if path == "/screen-share/api/presenter/heartbeat":
+            presenter_auth = request.cookies.get(PRESENTER_COOKIE_NAME, "")
+            if presenter_auth:
+                digest = hashlib.sha256(presenter_auth.encode("utf-8")).hexdigest()
+                rate_key = f"presenter:{digest}"
+            ip_allowed = SCREEN_SHARE_HEARTBEAT_IP_LIMITER.is_allowed(ip)
+        if not ip_allowed or not limiter_for(path).is_allowed(rate_key):
             return JSONResponse(
                 {"ok": False, "error": "请求过于频繁，请稍后再试"},
                 status_code=429,
@@ -813,9 +850,24 @@ async def index_with_token(token: str, request: Request):
 # 注册管理后台路由（放在所有定义之后以避免循环导入）
 # ---------------------------------------------------------------------------
 
+from screen_share.web import (  # noqa: E402
+    PRESENTER_COOKIE_NAME,
+)
+from screen_share.web import (  # noqa: E402
+    router as screen_share_router,
+)
+from screen_share.web import (  # noqa: E402
+    start_watchdog as start_screen_share_watchdog,
+)
+from screen_share.web import (  # noqa: E402
+    stop_watchdog as stop_screen_share_watchdog,
+)
 from web.web_player_admin import admin_router  # noqa: E402
 
 app.include_router(admin_router)
+app.include_router(screen_share_router)
+app.router.add_event_handler("startup", start_screen_share_watchdog)
+app.router.add_event_handler("shutdown", stop_screen_share_watchdog)
 
 
 # ---------------------------------------------------------------------------

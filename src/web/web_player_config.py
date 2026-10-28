@@ -43,6 +43,7 @@ CONFIG_GROUP_SOURCES: dict[str, str] = {
     "qq_music": "QQ_MUSIC_CONFIG",
     "bilibili_music": "BILIBILI_MUSIC_CONFIG",
     "message_stats": "MESSAGE_STATS_CONFIG",
+    "screen_share": "SCREEN_SHARE_CONFIG",
 }
 
 # ---------------------------------------------------------------------------
@@ -161,6 +162,15 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
     "message_stats": {
         "enabled": {"type": "bool", "default": True},
     },
+    "screen_share": {
+        "enabled": {"type": "bool", "default": False},
+        "agora_app_id": {"type": "str", "max_len": 32, "default": ""},
+        "agora_app_certificate": {"type": "str", "max_len": 32, "sensitive": True, "default": ""},
+        "presenter_link_ttl_seconds": {"type": "int", "min": 60, "max": 3600, "default": 600},
+        "session_max_seconds": {"type": "int", "min": 300, "max": 86400, "default": 14400},
+        "rtc_token_ttl_seconds": {"type": "int", "min": 300, "max": 86400, "default": 3600},
+        "default_quality": {"type": "str", "max_len": 16, "default": "1080p"},
+    },
 }
 
 # 由 schema 派生的「每分组默认值字典」—— 运行时兜底与默认值查询的唯一出处。
@@ -212,6 +222,7 @@ COMMAND_COOLDOWN_CONFIG = _GROUP_TARGETS["command_cooldown"]
 QQ_MUSIC_CONFIG = _GROUP_TARGETS["qq_music"]
 BILIBILI_MUSIC_CONFIG = _GROUP_TARGETS["bilibili_music"]
 MESSAGE_STATS_CONFIG = _GROUP_TARGETS["message_stats"]
+SCREEN_SHARE_CONFIG = _GROUP_TARGETS["screen_share"]
 
 # ---------------------------------------------------------------------------
 # 配置分组定义（target=运行时 dict，fields=schema；二者均派生自上方单一来源）

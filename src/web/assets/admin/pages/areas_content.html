@@ -54,8 +54,13 @@
             <input id="ac_default_channel" type="hidden" />
             <input id="ac_auto_role_id" type="hidden" />
             <input id="ac_auto_role_name" type="hidden" />
+            <div class="field field--wide">
+              <label>允许发起屏幕共享的身份组</label>
+              <div id="ac_screen_share_roles" class="a-am-grid"><span class="a-am-empty">先选择域后加载身份组</span></div>
+              <small style="color:var(--ink-faint)">域主和 Bot 管理员始终允许；其他成员需命中所选 roleID。</small>
+            </div>
             <div class="field field--wide"><label for="ac_welcome">入域欢迎消息</label><input id="ac_welcome" type="text" placeholder="欢迎 {name} 加入～" /></div>
-            <div class="field field--wide"><label for="ac_leave">退域消息</label><input id="ac_leave" type="text" placeholder="{name} 已退出域" /></div>
+            <div class="field field--wide"><label for="ac_leave">退域消息</label><input id="ac_leave" type="text" placeholder="留空继承全局退域消息" /></div>
             <div class="field field--wide"><label for="ac_admin_uids">管理员 UID（逗号分隔）</label><input id="ac_admin_uids" type="text" placeholder="空则继承全局" /></div>
             <div class="field field--wide"><label for="ac_plugins_enabled">启用插件（逗号分隔，空=全部）</label><input id="ac_plugins_enabled" type="text" /></div>
             <div class="field field--wide"><label for="ac_plugins_disabled">禁用插件（逗号分隔）</label><input id="ac_plugins_disabled" type="text" /></div>

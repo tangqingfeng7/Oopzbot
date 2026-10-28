@@ -1,0 +1,54 @@
+      <section id="panel" class="hidden table-stack">
+        <div class="metric-grid ss-metrics">
+          <article class="metric-card">
+            <p class="metric-card__label">正在共享</p>
+            <strong id="screenShareCount" class="metric-card__value">0</strong>
+            <p class="metric-card__copy">同一文字频道支持多人同时共享</p>
+          </article>
+          <article class="metric-card">
+            <p class="metric-card__label">链接权限</p>
+            <strong class="metric-card__value ss-link-policy">会话有效</strong>
+            <p class="metric-card__copy">共享结束后，后台观看链接立即失效</p>
+          </article>
+        </div>
+
+        <article class="surface-card">
+          <div class="section-head ss-page-head">
+            <div>
+              <h3 class="section-title">当前屏幕共享</h3>
+              <p class="section-copy">查看活动会话，并复制或打开后台临时签发的观看链接。</p>
+            </div>
+            <button class="btn btn-sm btn-ghost" type="button" data-action="refresh-screen-shares">刷新</button>
+          </div>
+          <div id="screenShareSessions" class="ss-admin-list">
+            <div class="empty-state">正在读取共享状态...</div>
+          </div>
+          <div id="screenShareMsg" class="msg"></div>
+        </article>
+      </section>
+
+      <div id="modalOverlay" class="m-modal-overlay" data-action="close-modal"></div>
+      <div id="modalDialog" class="m-modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+        <header class="m-modal__head">
+          <h3 id="modalTitle" class="m-modal__title">操作</h3>
+          <button class="btn btn-sm btn-ghost" type="button" data-action="close-modal">关闭</button>
+        </header>
+        <div id="modalBody" class="m-modal__body"></div>
+        <footer id="modalFooter" class="m-modal__foot"></footer>
+      </div>
+
+      <style>
+        .ss-metrics { grid-template-columns:repeat(2,minmax(0,1fr)); }
+        .ss-link-policy { font-size:24px; }
+        .ss-page-head { align-items:flex-start; }
+        .ss-admin-list { display:grid; gap:12px; padding:0 20px 20px; }
+        .ss-admin-row { display:grid; gap:12px; padding:16px; border:1px solid rgba(255,255,255,.09); border-radius:var(--radius-md); background:rgba(255,255,255,.035); }
+        .ss-admin-summary { display:flex; align-items:flex-start; justify-content:space-between; gap:12px; }
+        .ss-admin-title { display:flex; align-items:center; gap:9px; color:var(--ink); font-size:14px; font-weight:650; }
+        .ss-admin-dot { width:8px; height:8px; border-radius:50%; background:#55d68b; box-shadow:0 0 0 4px rgba(85,214,139,.12); }
+        .ss-admin-meta { display:flex; flex-wrap:wrap; gap:6px 16px; margin-top:8px; color:var(--ink-faint); font-size:12px; }
+        .ss-admin-time { flex:0 0 auto; color:var(--ink-muted); font-size:12px; }
+        .ss-admin-link { display:grid; grid-template-columns:minmax(0,1fr) auto auto auto; gap:8px; }
+        .ss-admin-link input { min-width:0; font-family:var(--font-mono); font-size:12px; }
+        @media (max-width:760px) { .ss-metrics { grid-template-columns:1fr; } .ss-admin-summary { align-items:stretch; flex-direction:column; } .ss-admin-link { grid-template-columns:repeat(3,1fr); } .ss-admin-link input { grid-column:1 / -1; } .ss-admin-link .btn { justify-content:center; } }
+      </style>

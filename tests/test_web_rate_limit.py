@@ -13,6 +13,7 @@ if str(SRC_ROOT) not in sys.path:
 from web.web_rate_limit import (  # noqa: E402
     DEFAULT_LIMITER,
     LOGIN_LIMITER,
+    SCREEN_SHARE_HEARTBEAT_LIMITER,
     SEARCH_LIMITER,
     ClientAddressRequest,
     ClientAddressResolver,
@@ -108,6 +109,10 @@ class LimiterRegistryTest(unittest.TestCase):
     def test_login_and_search_have_dedicated_buckets(self) -> None:
         self.assertIs(limiter_for("/admin/api/login"), LOGIN_LIMITER)
         self.assertIs(limiter_for("/api/search"), SEARCH_LIMITER)
+        self.assertIs(
+            limiter_for("/screen-share/api/presenter/heartbeat"),
+            SCREEN_SHARE_HEARTBEAT_LIMITER,
+        )
 
     def test_unknown_path_uses_default(self) -> None:
         self.assertIs(limiter_for("/api/status"), DEFAULT_LIMITER)

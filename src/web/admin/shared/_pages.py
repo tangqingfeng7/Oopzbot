@@ -63,6 +63,18 @@ _ADMIN_PAGES: dict[str, dict[str, Any]] = {
         "login_copy": "登录后调整后台配置。",
         "login_button": "进入配置中心",
     },
+    "screen-share": {
+        "page_title": "屏幕共享",
+        "page_id": "screen-share",
+        "brand_title": "屏幕共享",
+        "brand_copy": "集中查看活动共享、频道归属和临时观看链接。",
+        "topbar_actions": [
+            {"action": "refresh-screen-shares", "label": "刷新共享"},
+        ],
+        "login_title": "登录屏幕共享管理",
+        "login_copy": "登录后查看当前活动共享与观看链接。",
+        "login_button": "进入屏幕共享",
+    },
     "stats": {
         "page_title": "统计页",
         "page_id": "stats",

@@ -3,6 +3,7 @@
     { key: "dashboard", href: "/admin", label: "总览" },
     { key: "music", href: "/admin/music", label: "音乐" },
     { key: "config", href: "/admin/config", label: "配置" },
+    { key: "screen-share", href: "/admin/screen-share", label: "屏幕共享" },
     { key: "stats", href: "/admin/stats", label: "统计" },
     { key: "activity", href: "/admin/activity", label: "活跃" },
     { key: "scheduler", href: "/admin/scheduler", label: "定时" },

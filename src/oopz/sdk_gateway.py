@@ -899,6 +899,7 @@ class AsyncOopzGateway:
         return to_legacy(result)
 
     async def upload_file_from_url(self, image_url: str, **_kwargs: Any) -> dict[str, Any]:
+        started_at = time.monotonic()
         try:
             image_bytes, _content_type = await asyncio.to_thread(
                 SafeRemoteFetcher(proxy_value=self._proxy_value).fetch,
@@ -906,9 +907,20 @@ class AsyncOopzGateway:
                 max_bytes=MAX_IMAGE_DOWNLOAD_BYTES,
                 timeout=(10, 60),
             )
+            downloaded_at = time.monotonic()
             width, height, image_format = await asyncio.to_thread(self._image_metadata, image_bytes)
             ext = "." + (image_format or "webp").lower()
             uploaded = await self.bot.media.upload_bytes(image_bytes, file_type="IMAGE", ext=ext)
+            uploaded_at = time.monotonic()
+            logger.info(
+                "URL 图片上传完成: %dx%d, %.1f KiB, 下载 %.2fs, Oopz/COS %.2fs, 总计 %.2fs",
+                width,
+                height,
+                len(image_bytes) / 1024,
+                downloaded_at - started_at,
+                uploaded_at - downloaded_at,
+                uploaded_at - started_at,
+            )
             attachment = ImageAttachment.from_manually(
                 file_key=uploaded.file_key,
                 url=uploaded.url,

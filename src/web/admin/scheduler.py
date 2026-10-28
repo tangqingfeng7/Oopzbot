@@ -8,6 +8,7 @@ from web.admin.shared import (
     get_resolver,
     get_scheduled_template,
     list_scheduled_templates,
+    logger,
     read_json_body,
 )
 
@@ -151,6 +152,10 @@ async def admin_message_stats_ranking(
     # area_id 留空时跨全部域聚合，与日趋势/概览口径一致
     ranking = await MessageStatsDB.get_user_ranking(area_id, days=days, limit=limit)
     resolver = get_resolver()
+    try:
+        await resolver.ensure_users([item["user_id"] for item in ranking])
+    except Exception:
+        logger.warning("消息排行榜补全用户昵称失败", exc_info=True)
     for item in ranking:
         item["display_name"] = resolver.user(item["user_id"])
     return JSONResponse({"ok": True, "ranking": ranking})

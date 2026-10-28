@@ -90,6 +90,8 @@ class MentionCommandRouter:
             # 定时消息为「1 slash 命令 : 5 mention 动词」形态不对称，mention 子动作别名保留字面量（另见 _raw_rules）
             (("定时消息列表", "定时消息"), lambda: self._actions.scheduler.list_scheduled(channel, area)),
             (mention_of("reminders_list"), lambda: self._actions.scheduler.list_reminders(channel, area, user)),
+            (mention_of("screen_share"), lambda: self._services.interaction.screen_share.start(channel, area, user)),
+            (mention_of("screen_share_stop"), lambda: self._services.interaction.screen_share.stop(channel, area, user)),
         )
 
     def _arg_rules(self, channel: str, area: str, user: str):

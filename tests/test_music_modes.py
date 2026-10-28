@@ -325,6 +325,66 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("[player](https://example.test)", text)
         set_active_area.assert_awaited_once_with("area-B", redis_client=queue_client)
 
+    async def test_netease_cover_upload_uses_small_cdn_thumbnail(self) -> None:
+        self.handler.sender = AsyncMock()
+        attachment = {"fileKey": "cover-key", "width": 300, "height": 300}
+        self.handler.sender.upload_file_from_url.return_value = {
+            "code": "success",
+            "data": attachment,
+        }
+        song = {
+            "platform": "netease",
+            "song_id": "2053320168",
+            "cover": "https://p3.music.126.net/cover.png?token=keep",
+            "attachments": [],
+        }
+
+        with (
+            patch("music.music.ImageCache.get_by_source", new=AsyncMock(return_value=None)),
+            patch("music.music.ImageCache.save", new=AsyncMock(return_value=7)) as save,
+        ):
+            attachments, image_cache_id, cache_hit = await self.handler._resolve_song_attachments(song)
+
+        upload_url = self.handler.sender.upload_file_from_url.await_args.args[0]
+        self.assertIn("token=keep", upload_url)
+        self.assertIn("param=300y300", upload_url)
+        self.assertEqual(attachments, [attachment])
+        self.assertEqual(image_cache_id, 7)
+        self.assertFalse(cache_hit)
+        save.assert_awaited_once_with(
+            "2053320168",
+            "netease",
+            song["cover"],
+            attachment,
+        )
+
+    async def test_cover_prefetch_timeout_cancels_without_sync_retry(self) -> None:
+        song = {
+            "platform": "netease",
+            "song_id": "2053320168",
+            "cover": "https://p3.music.126.net/cover.png",
+        }
+        self.handler._cover_prefetch = {}
+        started = asyncio.Event()
+
+        async def never_finishes() -> tuple[list, int | None, bool]:
+            started.set()
+            await asyncio.Event().wait()
+            return ([], None, False)
+
+        task = asyncio.create_task(never_finishes())
+        key = self.handler._cover_prefetch_key(song)
+        assert key is not None
+        self.handler._cover_prefetch[key] = task
+        await started.wait()
+
+        with patch.object(MusicHandler, "_COVER_PREFETCH_TIMEOUT", 0.01):
+            result = await self.handler._consume_cover_prefetch(song)
+
+        self.assertEqual(result, ([], None, False))
+        self.assertTrue(task.cancelled())
+        self.assertNotIn(key, self.handler._cover_prefetch)
+
     async def test_start_playing_uses_explicit_area_queue(self) -> None:
         area_queue = AsyncMock()
         self.handler._get_queue = Mock(return_value=area_queue)
