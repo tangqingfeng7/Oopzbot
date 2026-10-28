@@ -133,7 +133,7 @@ async def build_sdk_config(
         jwt_token=str(OOPZ_CONFIG.get("jwt_token") or ""),
         private_key=_load_private_key(),
         base_url=str(OOPZ_CONFIG.get("base_url") or "https://gateway.oopz.cn"),
-        ws_url=str(OOPZ_CONFIG.get("ws_url") or "wss://ws.oopz.cn"),
+        ws_url=str(OOPZ_CONFIG.get("ws_url") or ""),
         app_version=str(OOPZ_CONFIG.get("app_version") or "69514"),
         channel=str(OOPZ_CONFIG.get("channel") or "Web"),
         platform=str(OOPZ_CONFIG.get("platform") or "windows"),

@@ -73,6 +73,19 @@ class StartupLoginDecisionTest(unittest.TestCase):
 class StartupLoginIntegrationTest(unittest.IsolatedAsyncioTestCase):
     """凭据新鲜时，启动不得发起登录，也不得改写凭据文件。"""
 
+    async def test_sdk_builder_keeps_automatic_route_pairing(self):
+        with (
+            patch.dict(sdk_config.OOPZ_CONFIG, {
+                "base_url": "https://gateway1.oopz.cn", "ws_url": "",
+            }),
+            patch.object(sdk_config, "_login_account", return_value=("", "")),
+            patch.object(sdk_config, "_load_private_key", return_value="test-key"),
+            patch.object(sdk_config, "_onebot_v11_config", AsyncMock(return_value=None)),
+            patch.object(sdk_config.OopzConfig, "ensure_credentials"),
+        ):
+            config, _proxy, _raw_proxy = await sdk_config.build_sdk_config()
+        self.assertEqual(config.ws_url, "wss://ws1.oopz.cn")
+
     async def test_fresh_credentials_skip_login_and_persist(self) -> None:
         login = AsyncMock()
         persist = AsyncMock()

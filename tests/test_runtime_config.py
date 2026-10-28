@@ -12,6 +12,39 @@ from app import runtime  # noqa: E402
 
 
 class RuntimeConfigValidationTest(unittest.TestCase):
+    def test_unset_route_environment_preserves_configured_routes(self) -> None:
+        config = {"base_url": "https://gateway2.oopz.cn", "ws_url": "wss://custom.example/ws"}
+        with (
+            mock.patch.object(runtime.runtime_config, "OOPZ_CONFIG", config),
+            mock.patch.dict("os.environ", {}, clear=True),
+        ):
+            runtime.apply_runtime_overrides()
+        self.assertEqual(config["base_url"], "https://gateway2.oopz.cn")
+        self.assertEqual(config["ws_url"], "wss://custom.example/ws")
+
+    def test_environment_can_select_official_routes_without_changing_credentials(self):
+        config = {"jwt_token": "test-token", "ws_url": "wss://ws.oopz.cn"}
+        with (
+            mock.patch.object(runtime.runtime_config, "OOPZ_CONFIG", config),
+            mock.patch.dict("os.environ", {
+                "BOT_OOPZ_BASE_URL": " https://gateway1.oopz.cn/ ",
+                "BOT_OOPZ_WS_URL": " wss://ws1.oopz.cn ",
+            }),
+        ):
+            runtime.apply_runtime_overrides()
+        self.assertEqual(config["base_url"], "https://gateway1.oopz.cn")
+        self.assertEqual(config["ws_url"], "wss://ws1.oopz.cn")
+        self.assertEqual(config["jwt_token"], "test-token")
+
+    def test_empty_websocket_environment_restores_automatic_pairing(self):
+        config = {"ws_url": "wss://ws.oopz.cn"}
+        with (
+            mock.patch.object(runtime.runtime_config, "OOPZ_CONFIG", config),
+            mock.patch.dict("os.environ", {"BOT_OOPZ_WS_URL": ""}),
+        ):
+            runtime.apply_runtime_overrides()
+        self.assertEqual(config["ws_url"], "")
+
     def test_rejects_removed_proxy_trust_switch(self) -> None:
         config = {
             "trust_proxy_header": False,
@@ -180,6 +213,11 @@ class DockerRuntimeConfigTest(unittest.TestCase):
         for variable in expected:
             with self.subTest(variable=variable):
                 self.assertIn(f'{variable}: "${{{variable}:-', compose)
+
+        # 空 YAML 值由 Compose 从 shell / .env 解析，区分未设置与显式空字符串。
+        for variable in ("BOT_OOPZ_BASE_URL", "BOT_OOPZ_WS_URL"):
+            with self.subTest(variable=variable):
+                self.assertIn(f"      {variable}:\n", compose)
 
     def test_docker_ci_runs_real_browsers_and_bind_mount_write(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/docker-build.yml").read_text(

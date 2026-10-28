@@ -3,6 +3,7 @@
 import asyncio
 import sys
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -20,13 +21,15 @@ from services.area_join_notifier import (  # noqa: E402
 
 class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
+        patches = ExitStack()
+        self.addCleanup(patches.close)
         with patch.object(AreaConfigRegistry, "_load"):
             self.registry = AreaConfigRegistry()
         self.registry.update_config("area-1", {"default_channel": "text-1"})
-        self.enterContext(patch("core.area_config.get_area_registry", return_value=self.registry))
+        patches.enter_context(patch("core.area_config.get_area_registry", return_value=self.registry))
         self.resolver = Mock()
         self.resolver.user_cached.return_value = "小明"
-        self.enterContext(patch("oopz.name_resolver.get_resolver", return_value=self.resolver))
+        patches.enter_context(patch("oopz.name_resolver.get_resolver", return_value=self.resolver))
         self.sender = Mock()
         self.sender.send_message = AsyncMock()
         self.sender.get_person_detail_full = AsyncMock(return_value={"error": "not found"})

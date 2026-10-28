@@ -4,6 +4,7 @@ import json
 import sys
 import tempfile
 import unittest
+from contextlib import ExitStack
 from pathlib import Path
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -19,18 +20,20 @@ class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self) -> None:
         self.directory = tempfile.TemporaryDirectory()
         self.addCleanup(self.directory.cleanup)
-        self.enterContext(patch("oopz.name_resolver.NAMES_FILE", str(
+        patches = ExitStack()
+        self.addCleanup(patches.close)
+        patches.enter_context(patch("oopz.name_resolver.NAMES_FILE", str(
             Path(self.directory.name) / "names.json",
         )))
-        self.enterContext(patch.object(NameResolver, "_instance", None))
-        self.enterContext(patch.object(NameResolver, "_load_config_names"))
+        patches.enter_context(patch.object(NameResolver, "_instance", None))
+        patches.enter_context(patch.object(NameResolver, "_load_config_names"))
         self.resolver = NameResolver()
         self.gateway = Mock()
         self.gateway.get_person_infos_batch = AsyncMock(return_value={})
         await self.resolver.bind_gateway(self.gateway)
         self.addAsyncCleanup(self.resolver.close)
-        self.enterContext(patch("web.admin.scheduler.get_resolver", return_value=self.resolver))
-        self.ranking = self.enterContext(patch(
+        patches.enter_context(patch("web.admin.scheduler.get_resolver", return_value=self.resolver))
+        self.ranking = patches.enter_context(patch(
             "web.admin.scheduler.MessageStatsDB.get_user_ranking", new_callable=AsyncMock,
         ))
 

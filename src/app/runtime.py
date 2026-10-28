@@ -75,6 +75,13 @@ def apply_runtime_overrides() -> None:
 
     oopz_cfg = getattr(runtime_config, "OOPZ_CONFIG", None)
     if isinstance(oopz_cfg, dict):
+        base_url = os.environ.get("BOT_OOPZ_BASE_URL", "").strip()
+        if base_url:
+            oopz_cfg["base_url"] = base_url.rstrip("/")
+        ws_url = os.environ.get("BOT_OOPZ_WS_URL")
+        if ws_url is not None:
+            # 空值显式恢复自动配对，兼容旧配置中固定的主线路地址。
+            oopz_cfg["ws_url"] = ws_url.strip()
         proxy = os.environ.get("BOT_OOPZ_PROXY")
         if proxy is not None:
             oopz_cfg["proxy"] = proxy

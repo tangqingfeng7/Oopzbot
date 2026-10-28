@@ -34,6 +34,7 @@ Copy-Item private_key.example.py private_key.py
 | `default_area` | 默认区域 ID |
 | `default_channel` | 默认频道 ID |
 | `base_url` | 网关 API 地址（默认 `https://gateway.oopz.cn`） |
+| `ws_url` | 留空时按 `base_url` 配对官方 WebSocket 线路；显式地址优先 |
 | `use_announcement_style` | Bot 发送消息默认是否使用公告样式（`styleTags: ["IMPORTANT"]`）。可在 admin 后台 → 域配置 → 公告样式 给单个域覆盖 |
 | `proxy` | 代理配置：留空走系统代理；`False` / `"direct"` 表示直连 |
 | `agora_app_id` | Oopz 语音频道使用的 Agora App ID |
@@ -42,6 +43,37 @@ Copy-Item private_key.example.py private_key.py
 `login_phone`、`login_password` 是主要登录配置。程序启动时如果这两项有值，会先用账号密码直接登录并刷新 `person_uid`、`device_id`、`jwt_token` 和 `private_key.py`。
 
 管理后台的“OOPZ 账号密码登录”使用同一套入口：页面里填了账号密码就用页面输入；页面留空时会改用 `config.py` 里的账号密码。后台会优先调用 Oopz 登录接口，遇到可重试问题时再回退到浏览器登录。
+
+### 官方备用线路
+
+主网关返回 HTTP 567 时，可以选择官方备用线路，避免 HTTP 已切换而事件连接仍使用主线路。
+在 `config.py` 中设置：
+
+```python
+OOPZ_CONFIG["base_url"] = "https://gateway1.oopz.cn"
+OOPZ_CONFIG["ws_url"] = ""  # 自动配对到 wss://ws1.oopz.cn。
+```
+
+使用 Docker Compose 时，可在项目根目录的 `.env` 中配置两项并重建容器：
+
+```dotenv
+BOT_OOPZ_BASE_URL=https://gateway1.oopz.cn
+BOT_OOPZ_WS_URL=wss://ws1.oopz.cn
+```
+
+修改后执行 `docker compose up -d --force-recreate bot`。
+若使用单独的 `docker.env` 文件，则执行
+`docker compose --env-file docker.env up -d --force-recreate bot`。
+未设置的线路变量不会传入容器，继续使用 `config.py` 中的配置。
+
+环境变量优先于 `config.py`；`BOT_OOPZ_WS_URL=` 空值可清除旧配置中的固定地址，恢复自动配对。
+配对仅在启动时创建 SDK 配置时执行。已知配对为 `gateway/ws`、`gateway1/ws1`、
+`gateway2/ws2`、`gateway-web1/ws-web1`，均使用 `.oopz.cn` 官方域名与 HTTPS/WSS。
+未知 HTTP 网关不会被猜测成新的 WebSocket 域名，未指定事件地址时仍使用主线路。
+
+这些设置只选择 API 与事件线路，不会改写账号密码登录接口。
+备用线路不保证在所有网络下可用；WebSocket 认证成功也不代表 HTTP 凭据有效，
+HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 
 ### 本地代理别名端口 (`PROXY_ALIAS_CONFIG`)
 
