@@ -222,9 +222,9 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 
 此功能必须使用真实 Redis；Redis 降级为内存队列时会拒绝创建共享。对外 `WEB_PLAYER_CONFIG["url"]` 必须是 HTTPS 地址（本机开发可用 localhost）。声网控制台还必须开启“连麦鉴权”，才能在服务端强制观看者只读。运行参数位于“配置 → 音乐与平台 → 网页屏幕共享”，域级角色权限位于“域管理 → 域配置”。同一文字频道支持多人同时共享，每个用户同时最多一个会话；独立的“屏幕共享”后台页可观看、复制链接或结束指定会话。完整部署和权限说明见[屏幕共享](screen-share.md)。
 
-### OneBot v11 旁路服务 (`ONEBOT_V11_CONFIG`)
+### SDK 内置 OneBot v11 服务 (`ONEBOT_V11_CONFIG`)
 
-OneBot v11 旁路服务默认关闭。启用后，当前 Oopz Bot 会继续照常运行，同时额外提供 OneBot v11 HTTP / WebSocket 接口，适合接 NoneBot、AstrBot、Hoshino 等外部程序。
+SDK 内置 OneBot v11 服务默认关闭。启用后，当前 Oopz Bot 会继续照常运行，同时额外提供 OneBot v11 HTTP / WebSocket 接口，适合接 NoneBot、AstrBot、Hoshino 等外部程序。
 
 | 配置项 | 说明 |
 |--------|------|
@@ -249,7 +249,7 @@ OneBot v11 旁路服务默认关闭。启用后，当前 Oopz Bot 会继续照�
 | `enable_set_group_kick_as_area_kick` | 是否启用 `set_group_kick`，会映射为移出域或封禁 |
 | `enable_set_group_leave_as_area_leave` | 是否启用 `set_group_leave`，会映射为离开对应 Oopz 域 |
 
-详细使用方式见 [OneBot v11 旁路适配](onebot-v11.md)。
+详细使用方式见 [SDK 内置 OneBot v11 适配](onebot-v11.md)。
 
 ### 自动撤回 (`AUTO_RECALL_CONFIG`)
 
@@ -387,7 +387,7 @@ Compose 的宿主配置文件位于 `config/runtime.py` 与
 | `BOT_DISABLE_VOICE` | 禁用语音推流 | 是 |
 | `BOT_DISABLE_AUTO_START_NETEASE` | 禁用自动启动网易云 API | 是 |
 | `BOT_LOG_FILE_LEVEL` / `BOT_LOG_CONSOLE_LEVEL` | 日志文件 / 控制台级别（默认 `DEBUG` / `INFO`） | 是 |
-| `ONEBOT_V11_ENABLED` | 覆盖 OneBot v11 旁路服务开关 | 否 |
+| `ONEBOT_V11_ENABLED` | 覆盖 SDK 内置 OneBot v11 服务开关 | 否 |
 
 `OOPZ_PASSWORD` 是账号凭据，`OOPZ_PHONE` 也属于账号身份信息；不要把它们写入
 版本控制或输出到日志。`OOPZ_DEBUG_WS_EVENTS` 的原始事件可能含消息、成员等

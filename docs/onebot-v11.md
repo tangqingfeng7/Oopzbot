@@ -1,7 +1,6 @@
 # Oopz-SDK OneBot v11 适配
 
-项目直接使用内置 Oopz-SDK v0.15.0 的 OneBot v11 adapter/server（注意 SDK 的
-本项目仅补齐消息历史、成员通知、管理员映射、成员列表上限和 heartbeat。它不会替换当前的 Oopz 命令、插件、音乐播放、Web 播放器和管理后台。
+项目使用 `oopz-sdk` 自带的 OneBot v11 adapter/server，负责协议转换与连接服务。`oopz/sdk_config.py` 直接构造 SDK 配置，`core/onebot_migration.py` 负责旧数据库升级。
 
 默认是关闭的。启用后，Bot 仍然照常连接 Oopz；同时把收到的 Oopz 消息转换成 OneBot v11 事件，给 NoneBot、AstrBot、Hoshino 等支持 OneBot v11 的程序使用。
 
@@ -32,16 +31,11 @@ ONEBOT_V11_CONFIG = {
     "ws_reverse_reconnect_interval": 3.0,
     "send_connect_event": True,
 
-    "heartbeat_enabled": True,
-    "heartbeat_interval": 15.0,
 
-    "member_list_max": 5000,
 
     "enable_area_scoped_group_ban": False,
     "enable_set_group_kick_as_area_kick": False,
     "enable_set_group_leave_as_area_leave": False,
-    "enable_set_group_admin_as_area_role": False,
-    "group_admin_role_id": 0,
 }
 ```
 
@@ -148,7 +142,7 @@ http://127.0.0.1:6700/get_status?access_token=your-token
 
 ## 映射规则
 
-Oopz 的 ID 多数是字符串，但 OneBot v11 常用数字 ID。旁路服务会把这些 ID 存到 SQLite，生成稳定的数字 ID。
+Oopz 的 ID 多数是字符串，但 OneBot v11 常用数字 ID。SDK 适配器会把这些 ID 存到 SQLite，生成稳定的数字 ID。
 
 | OneBot 字段 | Oopz 来源 |
 | --- | --- |
@@ -213,51 +207,9 @@ Oopz 私信消息会转成 OneBot v11 的 `private` 消息。
 }
 ```
 
-### 群成员增减
-
-Oopz 域成员加入/退出会转成 OneBot v11 的 `notice.group_increase` / `notice.group_decrease`。
-
-```json
-{
-  "post_type": "notice",
-  "notice_type": "group_increase",
-  "sub_type": "approve",
-  "group_id": 12345678,
-  "user_id": 87654321,
-  "operator_id": 87654321,
-  "extra": {
-    "oopz_area_id": "OOPZ_AREA_ID",
-    "oopz_user_id": "OOPZ_USER_ID"
-  }
-}
-```
-
-说明：
-
-- Oopz 的成员变更是「域级」事件，而 OneBot 的 `group` 对应「域 + 频道」。这里会把 `group_id` 映射到该域的**默认文字频道**（首个非语音频道，结果会缓存）；真实归属域可读 `extra.oopz_area_id`。
-- Oopz 协议**没有可靠的「域成员加入/退出」WS 事件**，因此适配器**不再从数字事件码猜测成员变更**：WS 路径仅当事件载荷显式带 `action=join` / `action=leave` 之类标识时才生成 `group_increase` / `group_decrease`，杜绝把语音/频道事件误报成成员增减。
-- `group_increase` / `group_decrease` 的**主要来源是旁路通知服务**（`services.area_join_notifier`）：默认按 `AREA_JOIN_NOTIFY.poll_interval_seconds` 周期轮询域管理日志接口，只消费 `AREA_SUBSCRIBE` / `AREA_UNSUBSCRIBE` 记录，再统一推送给 OneBot v11。因此需要 `AREA_JOIN_NOTIFY.enabled = True` 才会有成员增减事件，且事件有最长一个轮询周期的延迟。
-- 如果将 `AREA_JOIN_NOTIFY.event_source` 显式设为 `member_snapshot`，才会使用旧的成员列表快照对比方案；该模式会受 `member_fetch_max` 和成员列表接口稳定性影响。
-- 轮询发现退出时也会按 `AREA_JOIN_NOTIFY.message_template_leave` 发送退出消息；如果只想要 OneBot 事件、不想在频道里发退出提示，把该模板留空即可。
-
-### 心跳
-
-启用 `heartbeat_enabled` 后，会按 `heartbeat_interval`（秒）周期广播标准 `meta_event.heartbeat`，`interval` 字段为毫秒。正向 WebSocket、反向 WebSocket、HTTP POST 上报都会收到，便于 NoneBot2 等框架判活。
-
-```json
-{
-  "post_type": "meta_event",
-  "meta_event_type": "heartbeat",
-  "status": {"online": true, "good": true},
-  "interval": 15000
-}
-```
-
 ### 其他事件
 
-无法精确映射的 Oopz 事件会作为 `meta_event` 透传，原始内容放在 `payload` 里。
-
-> 目前可精确映射的事件：消息（群/私聊）、撤回、好友请求、成员增减、心跳/lifecycle。其余通知类事件（禁言、管理员变更、文件上传、戳一戳、入域审批 `request.group` 等）受限于 Oopz 协议暂未识别到对应事件码，统一走 `meta_event` 透传，待抓到真实事件样本后再精确映射。
+SDK 会跳过 Oopz 心跳（`HeartbeatEvent`）和服务端 ID 事件（`ServerIdEvent`）。除消息、撤回和好友请求外，其余 Oopz 事件以 `meta_event_type="oopz"` 推送，事件内容在 `payload` 中。
 
 ### 好友请求
 
@@ -300,7 +252,6 @@ Oopz 好友请求会转成 OneBot v11 `request.friend`：
 | `send_private_msg` | 发送 Oopz 私信 |
 | `delete_msg` / `recall_message` | 撤回消息 |
 | `get_msg` | 通过消息映射查询消息 |
-| `get_group_msg_history` | 拉取频道历史消息（`count` 控制条数，按时间正序返回） |
 
 ### 用户和群 action
 
@@ -313,7 +264,7 @@ Oopz 好友请求会转成 OneBot v11 `request.friend`：
 | `get_group_list` | 获取已加入域下的频道列表 |
 | `get_group_info` | 获取频道信息 |
 | `get_group_member_info` | 获取域成员信息 |
-| `get_group_member_list` | 获取域成员列表，最多返回 `member_list_max` 项 |
+| `get_group_member_list` | 获取域成员列表 |
 | `set_group_name` | 修改 Oopz 频道名 |
 | `cleanup_message_mapping` | 清理旧消息映射 |
 
@@ -326,7 +277,6 @@ Oopz 好友请求会转成 OneBot v11 `request.friend`：
 | `set_group_ban` | `enable_area_scoped_group_ban` | 禁言或解除禁言域成员 |
 | `set_group_kick` | `enable_set_group_kick_as_area_kick` | 移出域；`reject_add_request=true` 时封禁 |
 | `set_group_leave` | `enable_set_group_leave_as_area_leave` | 离开 `group_id` 对应的 Oopz 域 |
-| `set_group_admin` | `enable_set_group_admin_as_area_role` + `group_admin_role_id` | 给/取消成员在域内的指定身份组（`enable` 决定加/减） |
 
 ## 消息段支持
 
@@ -337,17 +287,26 @@ Oopz 好友请求会转成 OneBot v11 `request.friend`：
 | `text` | 普通文本 |
 | `at` | 转成 Oopz `mentionList` 和 `(met)uid(met)` |
 | `at` `qq=all` | 转成全体提及 |
-| `image` | 支持 `fileKey`、图片 URL、`file://` 本地文件 |
-| `reply` | 转成 Oopz `referenceMessageId`（引用回复，仅群消息；私信暂不支持引用） |
-| 未知消息段 | 转成普通文本占位，避免静默丢消息 |
+| `image` | 发送已上传的 Oopz 图片时，`data.file` 填文件键，`data.url` 填同一张图片的 URL |
+| `reply` 及其他未识别的数组消息段 | 作为占位文本发送 |
 
-接收方向：Oopz 消息里带 `referenceMessageId` 时，会还原成开头的 `reply` 消息段。事件里的 `message` 数组段与 `raw_message` 字符串一致：`raw_message` 会按 CQ 码还原（如 `[CQ:at,qq=12345]`），文本里的 `&`、`[`、`]` 会转义。
+例如，转发一张已上传的图片时，将原图的文件键和 URL 填入 `message` 数组：
+
+```json
+[
+  {"type": "image", "data": {"file": "OOPZ_FILE_KEY", "url": "https://example.com/image.png"}}
+]
+```
+
+接收消息时，从 `message` 数组读取提及和图片等结构化内容。`raw_message` 取自 Oopz 消息文本，不进行 CQ 编码。收到的引用消息不会生成 `reply` 段。
 
 字符串 CQ 码也会按同样规则解析，例如：
 
 ```text
 [CQ:at,qq=123456] hello
 ```
+
+在 Linux 上发送本地图片时，可使用字符串 `[CQ:image,file=file:///tmp/photo.png]`，路径指向 Bot 所在机器上的文件。
 
 如果请求里传 `auto_escape=true`，字符串里的 CQ 码不会解析，会按普通文本发送。
 

@@ -9,7 +9,7 @@
                        │
                        ▼
               ┌──────────────────┐
-              │  oopz_sdk (内置)  │  心跳保活 · 自动重连 · 凭据续期 · 事件解析
+              │  oopz_sdk (依赖)  │  心跳保活 · 自动重连 · 凭据续期 · 事件解析
               └────────┬─────────┘
                        │
                        ▼
@@ -62,7 +62,7 @@ NeteaseCloud API (:3000)
              │                                  │
    ┌─────────┴──────────┐                Agora RTC (语音频道)
    │  Nginx / OpenResty │                       │
-   │  :80 → 301 HTTPS   │       oopz_sdk 内置 agora_player.html
+   │  :80 → 301 HTTPS   │       项目 agora_player.html
    │  :443 (HTTPS+SSL)  │           浏览器自动化（Playwright/Selenium）
    └─────────┬──────────┘           音频推流/暂停/跳转/音量
              │
@@ -85,7 +85,7 @@ NeteaseCloud API (:3000)
 | 类别 | 技术 |
 |------|------|
 | 运行时 | Python 3.10+（CI 覆盖 3.10 / 3.11，镜像基于 3.11） |
-| 平台通信 | 内置 `oopz_sdk`（aiohttp WebSocket + HTTP） |
+| 平台通信 |`oopz_sdk`（aiohttp WebSocket + HTTP） |
 | Web 服务 | FastAPI + Uvicorn（Web 播放器 :8080）+ Nginx / OpenResty（反向代理 :80/:443） |
 | 队列 | `redis.asyncio`（播放队列 + 播放状态 + Web 命令通道），Redis 不可用时降级到进程内存 |
 | 数据库 | `aiosqlite`（缓存、统计） |
@@ -132,7 +132,6 @@ NeteaseCloud API (:3000)
 │   │   ├── bilibili_music.py    # B 站音频搜索
 │   │   ├── qq_music.py          # QQ 音乐适配
 │   │   └── sdk_voice.py         # 语音控制器（转调 SDK 的 Agora 浏览器桥）
-│   ├── oopz_sdk/                # OopzSDK 
 │   ├── oopz/                    # 项目与 SDK 之间的适配层
 │   │   ├── sdk_gateway.py       # AsyncOopzGateway：发送/上传/平台 API 的统一入口
 │   │   ├── sdk_config.py        # 项目配置 → OopzConfig，含启动期凭据续期策略
@@ -142,7 +141,6 @@ NeteaseCloud API (:3000)
 │   │   ├── area_events.py       # 域成员进出 WebSocket 事件的共享解析
 │   │   ├── remote_fetch.py      # 远端资源抓取
 │   │   └── name_resolver.py     # ID → 名称解析
-│   ├── onebot_v11/              # OneBot v11：配置转换 + SDK 能力补丁 + 数据迁移
 │   ├── services/                # 独立服务
 │   │   ├── area_join_notifier.py # 域成员加入/退出通知
 │   │   ├── scheduler_service.py # 定时任务服务
@@ -159,8 +157,8 @@ NeteaseCloud API (:3000)
 │   │       ├── player.html      # Web 播放器前端
 │   │       ├── admin/           # Admin 后台前端资源
 │   │       └── screen-share/    # 屏幕共享已编译页面资源
-│   │                            # （Agora RTC 页面已随 SDK 内置于
-│   │                            #   src/oopz_sdk/assets/voice/agora_player.html）
+│   │                            # （Agora RTC 页面位于
+│   │                            #   src/oopz/assets/voice/agora_player.html）
 │   ├── app/                     # 应用启动、运行时和服务编排
 │   └── domain/                  # 业务规则、插件契约和数据结构
 │
@@ -208,12 +206,11 @@ NeteaseCloud API (:3000)
 
 ## 模块拆分设计
 
-### Oopz 通信层：内置 SDK + 项目适配
+### Oopz 通信层：SDK
 
-平台协议本身（签名、WebSocket、事件模型、OneBot 适配器）由**SDK**
-`src/oopz_sdk/` 承担。该副本原则上与上游逐字一致，仅对已确认的上游缺陷打最小补丁。每一处偏离都由
-`tests/test_vendored_sdk_patches.py` 锁住，同步上游时补丁不会被静默覆盖；
-打了什么补丁，看该测试文件里的用例说明。
+平台协议本身（签名、WebSocket、事件模型、OneBot 适配器）由安装的
+`oopz-sdk` 提供。项目域服务扩展负责邀请查询与退域参数，
+语音页面位于 `src/oopz/assets/voice/agora_player.html`。
 
 `src/oopz/` 只放 SDK 覆盖不到的项目侧适配：
 
@@ -299,7 +296,7 @@ src/web/web_player.py ──► src/web/web_player_admin.py (facade)
 music.py + music_playback.py (BLPOP 异步任务，实时消费命令)
   │  调用 sdk_voice 方法
   ▼
-sdk_voice.py → oopz_sdk 的 agora_player.html (Playwright 无头浏览器)
+sdk_voice.py → 项目 agora_player.html (Playwright 无头浏览器)
   │  Agora Web SDK: 推流/暂停/跳转/音量
   ▼
 Agora RTC (语音频道)
