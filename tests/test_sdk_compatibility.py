@@ -14,10 +14,7 @@ from oopz_sdk.exceptions import OopzRateLimitError  # noqa: E402
 
 
 class RequireEnvReturnsValueTest(unittest.TestCase):
-    """上游 `_require_env` 缺少 return，环境变量已设置时返回 None。
-
-    后果是 `OopzConfig.from_env()` 静默产出空凭据。详见根目录 `issue.md`。
-    """
+    """环境变量中的凭据应完整进入 SDK 配置。"""
 
     def setUp(self) -> None:
         self._saved = {

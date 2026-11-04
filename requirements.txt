@@ -1,3 +1,4 @@
+oopz-sdk==0.16.0
 requests[socks]>=2.32,<3
 urllib3>=2.7,<3
 brotli>=1.2,<2
@@ -10,11 +11,11 @@ qrcode[pil]>=7.4,<9
 redis>=5.0,<8
 fastapi>=0.110,<1
 uvicorn[standard]>=0.30,<1
-aiohttp>=3.9,<4
+aiohttp>=3.11,<4
 aiohttp-socks>=0.10,<1
 aiosqlite>=0.20,<1
 python-multipart>=0.0.12,<1
-playwright>=1.40,<2
+playwright>=1.58.0,<2
 selenium>=4.20,<5
 webdriver-manager>=4.0,<5
 pydantic>=2.0,<3

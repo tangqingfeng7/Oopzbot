@@ -122,11 +122,6 @@ class BackgroundServiceRunner:
                 await notifier.stop(timeout=timeout)
             except Exception as exc:
                 logger.warning("停止区域通知时出现异常: %s", exc)
-        if context.onebot_v11 is not None:
-            try:
-                await context.onebot_v11.stop(timeout=timeout)
-            except Exception as exc:
-                logger.warning("停止 OneBot v11 补充任务时出现异常: %s", exc)
 
     async def stop_plugins(self, timeout: float = 5.0) -> None:
         context = self._context

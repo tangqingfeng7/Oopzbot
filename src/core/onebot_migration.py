@@ -1,4 +1,4 @@
-"""OneBot v11 旧数据库到 Oopz-SDK v0.15.0 的事务迁移。"""
+"""OneBot v11 旧数据库迁移。"""
 
 from __future__ import annotations
 

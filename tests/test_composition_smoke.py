@@ -270,7 +270,6 @@ class AppContextBuilderCompositionTest(unittest.IsolatedAsyncioTestCase):
             patch.object(module, "SdkVoiceController"),
             patch.object(module, "CommandHandler", return_value=handler),
             patch.object(module, "get_resolver") as get_resolver,
-            patch.object(module, "find_sdk_onebot_v11", return_value=None),
             patch.object(module, "start_area_join_notifier", return_value=None),
             patch.object(module, "MessageDispatcher", return_value=dispatcher),
         ):

@@ -18,7 +18,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from oopz_sdk.services.area import AreaService  # noqa: E402
+from oopz.sdk_services import ProjectAreaService as AreaService  # noqa: E402
 
 
 class AreaLeaveSdkTest(unittest.IsolatedAsyncioTestCase):

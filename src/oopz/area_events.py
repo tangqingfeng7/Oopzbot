@@ -1,10 +1,3 @@
-"""Shared parsing for Oopz area member enter/leave WebSocket events.
-
-These helpers are used both by the area-join notifier (welcome/leave messages)
-and by the OneBot v11 adapter (group_increase / group_decrease notices), so the
-event taxonomy lives in one place.
-"""
-
 from __future__ import annotations
 
 import json

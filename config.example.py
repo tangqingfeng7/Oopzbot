@@ -144,8 +144,8 @@ SCREEN_SHARE_CONFIG = {
     "default_quality": "1080p",      # 2k=最高画质；1080p=清晰优先；720p=流畅优先
 }
 
-# OneBot v11 旁路服务配置
-# 默认关闭。启用后，当前 Oopz Bot 会继续照常运行，同时额外提供 OneBot v11 HTTP / WebSocket 接口。
+# oopz-sdk 内置 OneBot v11 服务配置
+# 默认关闭。启用后由 SDK 提供 OneBot v11 HTTP / WebSocket 接口。
 ONEBOT_V11_CONFIG = {
     "enabled": False,
     "host": "127.0.0.1",
@@ -172,20 +172,10 @@ ONEBOT_V11_CONFIG = {
     "ws_reverse_reconnect_interval": 3.0,
     "send_connect_event": True,
 
-    # OneBot 级心跳元事件（部分框架靠它判活），间隔单位秒
-    "heartbeat_enabled": True,
-    "heartbeat_interval": 15.0,
-
-    # get_group_member_list 单次返回成员上限（0 表示不限制）
-    "member_list_max": 5000,
-
     # 高风险群管理动作默认关闭；开启后会映射到 Oopz 域级操作
     "enable_area_scoped_group_ban": False,
     "enable_set_group_kick_as_area_kick": False,
     "enable_set_group_leave_as_area_leave": False,
-    # set_group_admin 映射为给/取消域身份组；需同时配置 group_admin_role_id
-    "enable_set_group_admin_as_area_role": False,
-    "group_admin_role_id": 0,
 }
 
 # Bot 消息自动撤回配置

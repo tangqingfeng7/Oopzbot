@@ -15,7 +15,6 @@ class AppContext:
     handler: CommandHandler
     client: AsyncOopzGateway
     notifier_callback: Any | None = None
-    onebot_v11: Any | None = None
     voice: Any | None = None
     dispatcher: Any | None = None
     supervisor: Any | None = None

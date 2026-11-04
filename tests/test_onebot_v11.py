@@ -22,15 +22,6 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from onebot_v11.config import OneBotV11ServerConfig as ProjectOneBotConfig  # noqa: E402
-from onebot_v11.sdk_integration import (  # noqa: E402
-    OneBotV11Supplement,
-    find_sdk_onebot_v11,
-)
-from onebot_v11.sdk_migration import (  # noqa: E402
-    SDK_BACKUP_SUFFIX,
-    migrate_onebot_v11_database,
-)
 from oopz_sdk.adapters.onebot.v11.adapter import OneBotV11Adapter  # noqa: E402
 from oopz_sdk.adapters.onebot.v11.server import (  # noqa: E402
     OneBotV11Server,
@@ -47,6 +38,11 @@ from oopz_sdk.adapters.onebot.v11.types import (  # noqa: E402
 )
 from oopz_sdk.client.bot import OopzBot  # noqa: E402
 
+from core.onebot_migration import (  # noqa: E402
+    SDK_BACKUP_SUFFIX,
+    migrate_onebot_v11_database,
+)
+
 
 def _listen_port(server: Any) -> int:
     """从 aiohttp 站点拿实际监听端口。
@@ -57,8 +53,8 @@ def _listen_port(server: Any) -> int:
     return server.sockets[0].getsockname()[1]
 
 
-# SDK v0.15.0 的同步 IdStore/MessageStore 在 Python 3.14 会由 sqlite3 报告
-# ResourceWarning；项目保持内置 SDK 源码不变，因此测试仅屏蔽这一条上游告警。
+# SDK v0.16.0 的同步 IdStore/MessageStore 在 Python 3.14 会由 sqlite3 报告
+# ResourceWarning；项目使用安装版 SDK，因此测试仅屏蔽这一条上游告警。
 warnings.filterwarnings("ignore", message="unclosed database.*", category=ResourceWarning)
 
 
@@ -193,117 +189,6 @@ class OneBotSdkAdapterTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("get_msg", response["data"])
         self.assertIn("send_group_msg", response["data"])
 
-    async def test_supplement_adds_history_action_and_mapping(self) -> None:
-        gateway = SimpleNamespace(
-            get_channel_messages=AsyncMock(
-                return_value=[
-                    {
-                        "person": "user-2",
-                        "messageId": "history-2",
-                        "timestamp": "1770000002000000",
-                        "content": "second",
-                    },
-                    {
-                        "person": "user-1",
-                        "messageId": "history-1",
-                        "timestamp": "1770000001000000",
-                        "content": "first",
-                    },
-                ]
-            )
-        )
-        supplement = OneBotV11Supplement(self.adapter, gateway, ProjectOneBotConfig())
-        group_id = self.adapter.ids.createId(make_group_source(area="area-1", channel="channel-1")).number
-        response = await self.adapter.call_action("get_group_msg_history", {"group_id": group_id, "count": 2})
-        messages = response["data"]["messages"]
-        self.assertEqual([item["raw_message"] for item in messages], ["first", "second"])
-        self.assertEqual(messages[0]["group_id"], group_id)
-        stored = self.adapter.store.get(str(messages[0]["message_id"]))
-        self.assertIsNotNone(stored)
-        assert stored is not None
-        self.assertEqual(stored.oopz_message_id, "history-1")
-        await supplement.stop()
-
-    async def test_supplement_history_clamps_count(self) -> None:
-        gateway = SimpleNamespace(get_channel_messages=AsyncMock(return_value=[]))
-        supplement = OneBotV11Supplement(self.adapter, gateway, ProjectOneBotConfig())
-        group_id = self.adapter.ids.createId(make_group_source(area="area-1", channel="channel-1")).number
-        await self.adapter.call_action("get_group_msg_history", {"group_id": group_id, "count": 9999})
-        gateway.get_channel_messages.assert_awaited_once_with(
-            area="area-1", channel="channel-1", size=100
-        )
-        await supplement.stop()
-
-    async def test_supplement_caps_group_member_list(self) -> None:
-        original = AsyncMock(return_value=[{"user_id": 1}, {"user_id": 2}, {"user_id": 3}])
-        self.adapter._actions["get_group_member_list"] = original
-        supplement = OneBotV11Supplement(
-            self.adapter,
-            SimpleNamespace(),
-            ProjectOneBotConfig(member_list_max=2),
-        )
-        response = await self.adapter.call_action("get_group_member_list", {"group_id": 1})
-        self.assertEqual(response["data"], [{"user_id": 1}, {"user_id": 2}])
-        await supplement.stop()
-        self.assertIs(self.adapter._actions["get_group_member_list"], original)
-
-    async def test_supplement_stop_removes_project_only_actions(self) -> None:
-        supplement = OneBotV11Supplement(
-            self.adapter,
-            SimpleNamespace(),
-            ProjectOneBotConfig(member_list_max=0),
-        )
-        self.assertIn("get_group_msg_history", self.adapter._actions)
-        await supplement.stop()
-        self.assertNotIn("get_group_msg_history", self.adapter._actions)
-
-    async def test_find_sdk_adapter(self) -> None:
-        bot = SimpleNamespace(adapters=[SimpleNamespace(protocol="other"), self.adapter])
-        self.assertIs(find_sdk_onebot_v11(bot), self.adapter)
-
-    async def test_supplement_set_group_admin_maps_role(self) -> None:
-        gateway = SimpleNamespace(edit_user_role=AsyncMock(return_value={"status": True}))
-        config = ProjectOneBotConfig(enable_set_group_admin_as_area_role=True, group_admin_role_id=77)
-        supplement = OneBotV11Supplement(self.adapter, gateway, config)
-        group_id = self.adapter.ids.createId(make_group_source(area="area-1", channel="channel-1")).number
-        user_id = self.adapter.ids.createId(make_user_source("user-1")).number
-        response = await self.adapter.call_action(
-            "set_group_admin",
-            {"group_id": group_id, "user_id": user_id, "enable": True},
-        )
-        self.assertEqual(response["status"], "ok")
-        gateway.edit_user_role.assert_awaited_once_with("user-1", 77, add=True, area="area-1")
-        await supplement.stop()
-
-    async def test_supplement_emits_member_notice(self) -> None:
-        gateway = SimpleNamespace(
-            get_area_channels=AsyncMock(return_value=[{"channels": [{"id": "channel-1", "type": "TEXT"}]}])
-        )
-        supplement = OneBotV11Supplement(self.adapter, gateway, ProjectOneBotConfig())
-        await supplement.emit_member_change("join", "area-1", "user-1")
-        event = self.adapter._event_queue[-1]
-        self.assertEqual(event["notice_type"], "group_increase")
-        self.assertEqual(event["extra"]["oopz_user_id"], "user-1")
-
-    async def test_supplement_ignores_self_member_notice(self) -> None:
-        gateway = SimpleNamespace(get_area_channels=AsyncMock(return_value=[]))
-        supplement = OneBotV11Supplement(self.adapter, gateway, ProjectOneBotConfig())
-        await supplement.emit_member_change("join", "area-1", "bot-uid")
-        self.assertEqual(list(self.adapter._event_queue), [])
-
-    async def test_supplement_heartbeat_dispatches(self) -> None:
-        gateway = SimpleNamespace()
-        config = ProjectOneBotConfig(heartbeat_enabled=True, heartbeat_interval=0.01)
-        supplement = OneBotV11Supplement(self.adapter, gateway, config)
-
-        async def stop_after_event(_payload):
-            supplement._stop_event.set()
-
-        self.adapter.add_event_sink(stop_after_event)
-        await supplement._heartbeat_loop()
-        event = self.adapter._event_queue[-1]
-        self.assertEqual(event["meta_event_type"], "heartbeat")
-        self.assertTrue(event["status"]["online"])
 
 
 class OneBotMigrationTest(unittest.IsolatedAsyncioTestCase):

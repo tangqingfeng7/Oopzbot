@@ -30,20 +30,19 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         self.assertNotIn("Webintosh", source)
 
     def test_agora_page_exports_every_method_python_calls(self) -> None:
-        """语音页已随 SDK 内置，浏览器桥两侧必须对齐。
-
-        原来的清单是「这些已删方法不要回来」，页面搬进 SDK 后这个方向不再由本仓库
-        决定；真正会在运行时炸的是反向缺口——Python 调了页面没导出的方法。
-        """
+        """项目语音页面提供 SDK 浏览器桥调用的全部方法。"""
         import re
 
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
-        bridge = _read("src/oopz_sdk/transport/voice_browser.py")
+        page = _read("src/oopz/assets/voice/agora_player.html")
+        import oopz_sdk.transport.voice_browser as voice_browser
+
+        bridge = Path(voice_browser.__file__).read_text(encoding="utf-8")
 
         exported = set(re.findall(r"window\.(agora[A-Za-z]+)\s*=", page))
         # 只取被当作函数调用的名字，属性访问（如 agoraUid）不在导出契约内
-        called = set(re.findall(r"(agora[A-Za-z]+)\s*\(", bridge))
+        called = set(re.findall(r'(?:_run_on_browser|_prepare_and_play)\(\s*"(agora[A-Za-z]+)"', bridge))
 
+        self.assertTrue(called)
         self.assertEqual(
             called - exported,
             set(),
@@ -56,7 +55,7 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         页面必须在无 track 时也记住音量，并在新 track 开始前应用，
         否则实际音量会一直是 Agora 默认值，直到用户再拖一次滑块。
         """
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        page = _read("src/oopz/assets/voice/agora_player.html")
         publish_start = page.index("async function publishTrackAsPlayback")
         publish_end = page.index("window.agoraPlayAudio", publish_start)
         publish_body = page[publish_start:publish_end]
@@ -75,7 +74,7 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
 
     def test_agora_remote_audio_streams_before_the_full_file_is_downloaded(self) -> None:
         """远程无损音频应使用媒体流音轨，不能退回整首下载解码后才发布。"""
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        page = _read("src/oopz/assets/voice/agora_player.html")
         stream_start = page.index("async function publishStreamingUrlAsPlayback")
         stream_end = page.index("window.agoraPlayAudio", stream_start)
         stream_body = page[stream_start:stream_end]
@@ -93,7 +92,7 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         self.assertNotIn("createBufferSourceAudioTrack", remote_body)
 
     def test_agora_streaming_media_keeps_controls_and_cleanup(self) -> None:
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        page = _read("src/oopz/assets/voice/agora_player.html")
 
         self.assertIn("disposeStreamingMedia(playback);", page)
         self.assertIn("activePlayback.media.pause();", page)
@@ -103,18 +102,16 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         self.assertIn('media.addEventListener("error"', page)
 
     def test_voice_browser_warmup_loads_agora_sdk_before_first_join(self) -> None:
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        page = _read("src/oopz/assets/voice/agora_player.html")
         project_transport = _read("src/oopz/sdk_transport.py")
-        sdk_transport = _read("src/oopz_sdk/transport/voice_browser.py")
 
         self.assertIn("window.agoraWarmup = async () =>", page)
         self.assertIn("await loadAgoraSdk();", page)
-        for source in (project_transport, sdk_transport):
-            goto = source.index("await page.goto(html_path.as_uri())")
-            warmup = source.index('await page.evaluate("() => window.agoraWarmup()")', goto)
-            ready = source.index("self._page = page", warmup)
-            self.assertLess(goto, warmup)
-            self.assertLess(warmup, ready)
+        goto = project_transport.index("await page.goto(html_path.as_uri())")
+        warmup = project_transport.index('await page.evaluate("() => window.agoraWarmup()")', goto)
+        ready = project_transport.index("self._page = page", warmup)
+        self.assertLess(goto, warmup)
+        self.assertLess(warmup, ready)
 
         self.assertIn("Promise.resolve(window.agoraWarmup())", project_transport)
 
@@ -125,7 +122,7 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
         网关接受了身份包。服务端随后会把 bot 从语音成员列表移除，表现为仍能
         听到音乐但频道里看不到 bot。旧 SDK 的裸 WebSocket 仅保留为兼容回退。
         """
-        page = _read("src/oopz_sdk/assets/voice/agora_player.html")
+        page = _read("src/oopz/assets/voice/agora_player.html")
         send_start = page.index("async function sendVoiceStateRaw")
         send_end = page.index("async function sendCurrentVoiceState", send_start)
         send_body = page[send_start:send_end]

@@ -1,4 +1,4 @@
-"""OOPZ 凭据热更新：统一受控重建项目内置 SDK 会话。"""
+"""OOPZ 凭据热更新：统一受控重建SDK 会话。"""
 
 from __future__ import annotations
 

@@ -6,8 +6,6 @@ from bot.command_handler import CommandHandler
 from core.logger_config import get_logger
 from core.message_dispatcher import MessageDispatcher
 from music.sdk_voice import SdkVoiceController
-from onebot_v11.config import get_onebot_v11_config
-from onebot_v11.sdk_integration import OneBotV11Supplement, find_sdk_onebot_v11
 from oopz.errors import SensitiveContentError
 from oopz.name_resolver import get_resolver
 from oopz.sdk_gateway import AsyncOopzGateway
@@ -86,26 +84,8 @@ class AppContextBuilder:
             await gateway.start(supervisor)
             await gateway.populate_names()
 
-            onebot_adapter = find_sdk_onebot_v11(gateway.bot)
-            onebot_v11 = (
-                OneBotV11Supplement(
-                    onebot_adapter,
-                    gateway,
-                    get_onebot_v11_config(),
-                )
-                if onebot_adapter is not None
-                else None
-            )
-            if onebot_v11 is not None:
-                onebot_v11.start(supervisor)
-
-            async def on_member_change(action: str, area: str, uid: str) -> None:
-                if onebot_v11 is not None:
-                    await onebot_v11.emit_member_change(action, area, uid)
-
             notifier = start_area_join_notifier(
                 sender=gateway,
-                on_member_change=on_member_change,
                 supervisor=supervisor,
             )
             return AppContext(
@@ -113,7 +93,6 @@ class AppContextBuilder:
                 handler=handler,
                 client=gateway,
                 notifier_callback=notifier,
-                onebot_v11=onebot_v11,
                 voice=voice,
                 dispatcher=dispatcher,
                 supervisor=supervisor,

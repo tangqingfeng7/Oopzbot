@@ -21,8 +21,6 @@ if str(SRC_ROOT) not in sys.path:
 from core.http_constants import HTTP_TIMEOUT_API, HTTP_TIMEOUT_API_SLOW  # noqa: E402
 
 _HTTP_VERBS = {"get", "post", "put", "delete", "patch", "head", "request", "ws_connect"}
-# 内置 SDK 副本与上游逐字一致，其超时策略不由本仓库负责
-_VENDORED = "oopz_sdk"
 
 
 class TimeoutTierTest(unittest.TestCase):
@@ -140,14 +138,9 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
     timeout」规则不再适用；真正要挡住的是两处都没有、请求彻底无界。
     """
 
-    def _project_files(self):
-        for path in SRC_ROOT.rglob("*.py"):
-            if _VENDORED not in path.parts:
-                yield path
-
     def test_no_unbounded_outbound_call(self) -> None:
         offenders = []
-        for path in self._project_files():
+        for path in SRC_ROOT.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
 
             # 把「无超时的会话」按其赋值目标记下来，才能和调用方精确配对；
@@ -187,7 +180,7 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
     def test_requests_style_calls_always_pass_timeout(self) -> None:
         """requests 没有会话级默认超时，漏传就是无限等待。"""
         offenders = []
-        for path in self._project_files():
+        for path in SRC_ROOT.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             if "import requests" not in source:
                 continue

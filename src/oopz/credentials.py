@@ -1,5 +1,3 @@
-"""把 Oopz-SDK 登录凭据原子写回本项目现有配置格式。"""
-
 from __future__ import annotations
 
 import asyncio

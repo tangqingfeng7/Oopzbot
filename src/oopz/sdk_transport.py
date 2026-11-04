@@ -1,8 +1,4 @@
-"""Oopz-SDK 的本地异步传输扩展。
-
-SDK 0.15.0 原生支持 HTTP 代理，但没有处理项目已有的 system/direct/SOCKS
-语义，也没有 WebSocket 收包水位检测。这里仅扩展传输装配，不复制协议逻辑。
-"""
+"""项目的代理、接口权限与浏览器语音传输扩展。"""
 
 from __future__ import annotations
 
@@ -14,6 +10,15 @@ from typing import Any
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
+from oopz_sdk.config import OopzConfig
+from oopz_sdk.exceptions import OopzApiError, OopzAuthError, OopzConnectionError
+from oopz_sdk.transport.http import HttpResponse, HttpTransport
+from oopz_sdk.transport.voice_browser import (
+    _DEFAULT_BROWSER_ARGS,
+    BrowserVoiceTransport,
+)
+from oopz_sdk.transport.ws import WebSocketTransport
+from oopz_sdk.utils.payload import safe_json
 
 from core.http_constants import HTTP_CONNECT_TIMEOUT
 from core.proxy_utils import (
@@ -21,14 +26,6 @@ from core.proxy_utils import (
     get_playwright_proxy,
     get_selenium_proxy_argument,
 )
-from oopz_sdk.config import OopzConfig
-from oopz_sdk.exceptions import OopzAuthError, OopzConnectionError
-from oopz_sdk.transport.http import HttpTransport
-from oopz_sdk.transport.voice_browser import (
-    _DEFAULT_BROWSER_ARGS,
-    BrowserVoiceTransport,
-)
-from oopz_sdk.transport.ws import WebSocketTransport
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +51,24 @@ class ProjectHttpTransport(HttpTransport):
     def __init__(self, config: OopzConfig, signer, *, auth_manager, proxy: ProxySettings):
         super().__init__(config, signer, auth_manager=auth_manager)
         self.project_proxy = proxy
+
+    async def request(self, method: str, url_path: str, body=None, **kwargs) -> HttpResponse:
+        response = await super().request(method, url_path, body=body, **kwargs)
+        # 域操作日志会用 401 表示缺少管理权限，交由通知服务处理，避免轮询触发重登。
+        if (
+            method.upper() == "GET"
+            and url_path == "/client/v1/area/v1/operateLogs"
+            and response.status_code == 401
+        ):
+            payload = safe_json(response)
+            detail = self._error_message(payload, default="HTTP 401")
+            raise OopzApiError(
+                f"域操作日志请求失败 (HTTP 401): {detail}",
+                status_code=401,
+                payload=payload,
+                response=response,
+            )
+        return response
 
     async def _ensure_client_session(self) -> aiohttp.ClientSession:
         if self._client_session is None or self._client_session.closed:
@@ -188,14 +203,7 @@ class ProjectBrowserVoiceTransport(BrowserVoiceTransport):
             f"window.AGORA_SDK_URL = {self.config.voice_agora_sdk_url!r};"
         )
 
-        import oopz_sdk.transport.voice_browser as voice_browser_module
-
-        html_path = (
-            Path(voice_browser_module.__file__).resolve().parent.parent
-            / "assets"
-            / "voice"
-            / "agora_player.html"
-        )
+        html_path = self._voice_html_path()
         await page.goto(html_path.as_uri())
         warmup = await page.evaluate("() => window.agoraWarmup()")
         if not warmup or not warmup.get("ok"):
@@ -207,14 +215,7 @@ class ProjectBrowserVoiceTransport(BrowserVoiceTransport):
 
     @staticmethod
     def _voice_html_path() -> Path:
-        import oopz_sdk.transport.voice_browser as voice_browser_module
-
-        return (
-            Path(voice_browser_module.__file__).resolve().parent.parent
-            / "assets"
-            / "voice"
-            / "agora_player.html"
-        )
+        return Path(__file__).resolve().parent / "assets" / "voice" / "agora_player.html"
 
     def _init_selenium_browser(self) -> None:
         from selenium import webdriver

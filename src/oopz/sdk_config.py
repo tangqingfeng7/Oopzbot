@@ -1,14 +1,10 @@
-"""把 Oopzbot 的现有配置装配成 Oopz-SDK 配置。"""
-
 from __future__ import annotations
 
 import os
 import time
+from pathlib import Path
 from typing import Any
 
-from config import DEFAULT_HEADERS, OOPZ_CONFIG
-from core.logger_config import get_logger
-from core.proxy_utils import ProxySettings, resolve_proxy_settings_with_env
 from oopz_sdk import HeartbeatConfig, OopzConfig, ProxyConfig
 from oopz_sdk.auth import OopzLoginCredentials, login_with_password
 from oopz_sdk.auth.manager import DEFAULT_REFRESH_THRESHOLD_SECONDS
@@ -20,6 +16,12 @@ from oopz_sdk.config.settings import (
 )
 from oopz_sdk.exceptions import OopzAuthError
 from oopz_sdk.utils.jwt import decode_jwt_payload
+
+from config import DEFAULT_HEADERS, OOPZ_CONFIG
+from core.logger_config import get_logger
+from core.onebot_migration import migrate_onebot_v11_database
+from core.paths import PROJECT_ROOT_PATH
+from core.proxy_utils import ProxySettings, resolve_proxy_settings_with_env
 
 logger = get_logger("OopzSdkConfig")
 
@@ -57,42 +59,73 @@ def _sdk_proxy(settings: ProxySettings) -> ProxyConfig:
     )
 
 
-async def _onebot_v11_config() -> OneBotV11Config:
-    from onebot_v11.config import get_onebot_v11_config
-    from onebot_v11.sdk_migration import migrate_onebot_v11_database
+def _as_bool(value: Any, default: bool = False) -> bool:
+    if value is None:
+        return default
+    if isinstance(value, bool):
+        return value
+    return str(value).strip().lower() in {"1", "true", "yes", "on", "y"}
 
-    current = get_onebot_v11_config()
-    if current.enabled:
-        # 必须先完成事务迁移再构造 OopzBot；SDK adapter 的构造函数会立刻打开该库。
-        await migrate_onebot_v11_database(current.db_path)
-    post_timeout = float(current.http_post_timeout or 0.0)
-    if post_timeout <= 0:
-        post_timeout = 10.0
-    return OneBotV11Config(
-        enabled=current.enabled,
+
+def _as_list(value: Any) -> list[str]:
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, (list, tuple, set)):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return []
+
+
+def _resolve_db_path(value: Any) -> str:
+    raw = str(value or "").strip()
+    if not raw:
+        return str(PROJECT_ROOT_PATH / "data" / "onebot_v11.sqlite3")
+    path = Path(raw)
+    if not path.is_absolute():
+        path = PROJECT_ROOT_PATH / path
+    return str(path)
+
+
+async def _onebot_v11_config() -> OneBotV11Config:
+    try:
+        import config as app_config
+        raw = getattr(app_config, "ONEBOT_V11_CONFIG", {}) or {}
+    except Exception:
+        raw = {}
+
+    env_enabled = os.environ.get("ONEBOT_V11_ENABLED")
+    enabled = _as_bool(env_enabled, _as_bool(raw.get("enabled"), False))
+
+    db_path = _resolve_db_path(raw.get("db_path"))
+    cfg = OneBotV11Config(
         auto_start_server=True,
         platform="oopz",
-        self_id=str(OOPZ_CONFIG.get("person_uid") or ""),
-        db_path=current.db_path,
-        host=current.host,
-        port=current.port,
-        access_token=current.access_token,
-        secret=current.secret,
-        enable_http=current.enable_http,
-        enable_ws=current.enable_ws,
-        enable_http_post=current.enable_http_post,
-        enable_ws_reverse=current.enable_ws_reverse,
-        http_post_urls=list(current.http_post_urls),
-        http_post_timeout=post_timeout,
-        ws_reverse_url=current.ws_reverse_url,
-        ws_reverse_api_url=current.ws_reverse_api_url,
-        ws_reverse_event_url=current.ws_reverse_event_url,
-        ws_reverse_reconnect_interval=current.ws_reverse_reconnect_interval,
-        send_connect_event=current.send_connect_event,
-        enable_area_scoped_group_ban=current.enable_area_scoped_group_ban,
-        enable_set_group_leave_as_area_leave=current.enable_set_group_leave_as_area_leave,
-        enable_set_group_kick_as_area_kick=current.enable_set_group_kick_as_area_kick,
+        enabled=enabled,
+        host=str(raw.get("host") or "127.0.0.1"),
+        port=int(raw.get("port") or 6700),
+        access_token=str(raw.get("access_token") or ""),
+        secret=str(raw.get("secret") or ""),
+        db_path=db_path,
+        enable_http=_as_bool(raw.get("enable_http"), True),
+        enable_ws=_as_bool(raw.get("enable_ws"), True),
+        enable_http_post=_as_bool(raw.get("enable_http_post"), False),
+        enable_ws_reverse=_as_bool(raw.get("enable_ws_reverse"), False),
+        http_post_urls=_as_list(raw.get("http_post_urls")),
+        http_post_timeout=float(raw.get("http_post_timeout") or 0.0),
+        ws_reverse_url=str(raw.get("ws_reverse_url") or ""),
+        ws_reverse_api_url=str(raw.get("ws_reverse_api_url") or ""),
+        ws_reverse_event_url=str(raw.get("ws_reverse_event_url") or ""),
+        ws_reverse_reconnect_interval=float(raw.get("ws_reverse_reconnect_interval") or 3.0),
+        send_connect_event=_as_bool(raw.get("send_connect_event"), True),
+        enable_area_scoped_group_ban=_as_bool(raw.get("enable_area_scoped_group_ban"), False),
+        enable_set_group_kick_as_area_kick=_as_bool(raw.get("enable_set_group_kick_as_area_kick"), False),
+        enable_set_group_leave_as_area_leave=_as_bool(raw.get("enable_set_group_leave_as_area_leave"), False),
     )
+    cfg.http_post_timeout = max(0.0, cfg.http_post_timeout) or 10.0
+    if cfg.enabled:
+        await migrate_onebot_v11_database(db_path)
+    return cfg
 
 
 def _startup_login_needed(config: OopzConfig) -> bool:

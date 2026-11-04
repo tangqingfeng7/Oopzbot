@@ -23,7 +23,7 @@ if str(SRC_ROOT) not in sys.path:
 from core import database  # noqa: E402
 from core.database import AreaInviteRequestDB, init_database  # noqa: E402
 from oopz.sdk_gateway import AsyncOopzGateway  # noqa: E402
-from oopz_sdk.services.area import AreaService  # noqa: E402
+from oopz.sdk_services import ProjectAreaService as AreaService  # noqa: E402
 from services.area_invite_inbox import (  # noqa: E402
     capture_private_area_invites,
     extract_area_invite_codes,

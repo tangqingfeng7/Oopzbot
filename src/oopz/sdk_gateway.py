@@ -1,5 +1,4 @@
-"""基于 oopz-sdk 的项目异步网关。
-"""
+"""基于 oopz-sdk 的项目异步网关。"""
 
 from __future__ import annotations
 
@@ -13,8 +12,14 @@ import os
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, cast
 
+from oopz_sdk import OopzBot
+from oopz_sdk.auth import OopzLoginCredentials
+from oopz_sdk.exceptions import OopzApiError, OopzError
+from oopz_sdk.models import Attachment, ImageAttachment
+from oopz_sdk.models.attachment import AudioAttachment
+from oopz_sdk.models.message import MentionInfo
 from PIL import Image
 from pydantic import BaseModel
 
@@ -23,13 +28,8 @@ from core.logger_config import get_logger
 from oopz.errors import SensitiveContentError, is_sensitive_rejection
 from oopz.remote_fetch import SafeRemoteFetcher
 from oopz.sdk_config import build_sdk_config
+from oopz.sdk_services import ProjectAreaService, install_project_services
 from oopz.sdk_transport import install_project_transports
-from oopz_sdk import OopzBot
-from oopz_sdk.auth import OopzLoginCredentials
-from oopz_sdk.exceptions import OopzApiError, OopzError
-from oopz_sdk.models import Attachment, ImageAttachment
-from oopz_sdk.models.attachment import AudioAttachment
-from oopz_sdk.models.message import MentionInfo
 
 logger = get_logger("AsyncOopzGateway")
 
@@ -178,6 +178,7 @@ class AsyncOopzGateway:
         )
         bot.on_private_message(self._handle_sdk_private_message)
         install_project_transports(bot, proxy, proxy_value)
+        install_project_services(bot)
         self.bot = bot
         self.raw = bot
         self.signer = bot.rest.signer
@@ -570,7 +571,8 @@ class AsyncOopzGateway:
 
     async def get_area_invite_detail(self, code: str) -> dict[str, Any]:
         try:
-            return to_legacy(await self.bot.areas.get_invite_detail(str(code).strip()))
+            areas = cast(ProjectAreaService, self.bot.areas)
+            return to_legacy(await areas.get_invite_detail(str(code).strip()))
         except Exception as exc:
             return {"error": str(exc)}
 

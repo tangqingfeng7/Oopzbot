@@ -10,8 +10,8 @@ import json
 import sys
 import unittest
 from pathlib import Path
-from typing import Any, cast
-from unittest.mock import AsyncMock, Mock
+from typing import cast
+from unittest.mock import AsyncMock
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -20,7 +20,7 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from oopz_sdk.auth.signer import Signer  # noqa: E402
-from oopz_sdk.exceptions import OopzApiError, OopzAuthError, OopzRateLimitError  # noqa: E402
+from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError  # noqa: E402
 from oopz_sdk.testing.factories import make_config  # noqa: E402
 from oopz_sdk.transport.http import HttpResponse, HttpTransport  # noqa: E402
 from oopz_sdk.utils.payload import coerce_bool  # noqa: E402
@@ -111,19 +111,6 @@ class RequestJsonSemanticsTest(unittest.IsolatedAsyncioTestCase):
             await transport.request_json("GET", "/x")
         self.assertEqual(ctx.exception.status_code, 429)
 
-    async def test_auth_retry_can_be_disabled_for_permission_scoped_endpoint(self) -> None:
-        """管理日志用 401 表示无权限时不能反复重登并轮换全局 token。"""
-        transport = self._transport(_response(401, {"message": "HTTP 401"}))
-        auth_manager = Mock()
-        auth_manager.token_version = 7
-        auth_manager.handle_auth_error = AsyncMock(return_value=True)
-        transport._auth_manager = auth_manager
-
-        with self.assertRaises(OopzAuthError):
-            await transport.request_json("GET", "/permission-scoped", retry_auth=False)
-
-        auth_manager.handle_auth_error.assert_not_awaited()
-        cast(Any, transport.request).assert_awaited_once()
 
 
 class RequestDataSemanticsTest(unittest.IsolatedAsyncioTestCase):

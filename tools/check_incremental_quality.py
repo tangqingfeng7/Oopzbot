@@ -234,8 +234,6 @@ def run_ruff(changed: dict[Path, ChangedFile]) -> list[str]:
             ruff,
             "check",
             "--output-format=json",
-            # 显式点名的路径默认会绕过配置里的 exclude，内置 SDK 因此会被扫进来；
-            # 那份副本要与上游逐字一致，其风格问题不由本仓库负责。
             "--force-exclude",
             *[str(path) for path in sorted(changed)],
         ]

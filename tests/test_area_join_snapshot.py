@@ -10,7 +10,6 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 from core.area_config import AreaConfig, AreaConfigRegistry  # noqa: E402
-from oopz_sdk.services.area import AreaService  # noqa: E402
 from services.area_join_notifier import (  # noqa: E402
     OPERATE_LOG_MEMBER_OP_TYPES,
     AreaOperateLogCursor,
@@ -168,24 +167,6 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(changes)
         self.assertFalse(rate_limited)
         self.assertTrue(is_operate_log_permission_denied(error))
-
-
-class AreaOperateLogServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_permission_scoped_401_does_not_enable_global_auth_retry(self) -> None:
-        transport = Mock()
-        transport.request_data = AsyncMock(return_value={"logs": []})
-        service = AreaService(Mock(), Mock(), transport, Mock(), Mock())
-
-        logs = await service.get_area_operate_logs(
-            "area-1",
-            offset=0,
-            op_types=["AREA_SUBSCRIBE", "AREA_UNSUBSCRIBE"],
-        )
-
-        self.assertEqual(logs, [])
-        kwargs = transport.request_data.await_args.kwargs
-        self.assertFalse(kwargs["retry_auth"])
-        self.assertEqual(kwargs["params"]["area"], "area-1")
 
 
 class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
