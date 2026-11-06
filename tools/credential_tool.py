@@ -1,31 +1,20 @@
 import asyncio
 import json
 import os
-import re
 import sys
 import time
 
+from oopz_sdk.utils.jwt import jwt_expired
+
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+sys.path.insert(0, os.path.join(PROJECT_ROOT, "src"))
+sys.path.insert(0, PROJECT_ROOT)
 BROWSER_DATA_DIR = os.path.join(PROJECT_ROOT, ".oopz_capture_credentials")
 OOPZ_WEB_URL = "https://web.oopz.cn"
 
 WS_EVENT_AUTH = 253
 
-
-def _is_jwt_expired(token: str) -> bool:
-    """解码 JWT payload，检查 exp 是否已过期（不校验签名）"""
-    try:
-        import base64
-        payload_b64 = token.split(".")[1]
-        payload_b64 += "=" * (4 - len(payload_b64) % 4)
-        payload = json.loads(base64.urlsafe_b64decode(payload_b64))
-        exp = payload.get("exp")
-        if exp is None:
-            return False
-        return exp <= time.time()
-    except Exception:
-        return False
 
 
 def ensure_playwright():
@@ -376,7 +365,7 @@ async def capture_credentials() -> dict[str, str | None]:
                 print(f"  [✓] 设备 ID:   {credentials['device_id']}")
             sig = h.get("oopz-signature")
             if sig and not credentials["jwt_token"]:
-                if _is_jwt_expired(sig):
+                if jwt_expired(sig):
                     if not request_warned_expired:
                         request_warned_expired = True
                         print("  [!] 检测到过期 JWT，已跳过。请在浏览器中重新登录以获取新 Token")
@@ -409,7 +398,7 @@ async def capture_credentials() -> dict[str, str | None]:
                         print(f"  [✓] 设备 ID (ws):   {credentials['device_id']}")
                     ws_sig = body.get("signature")
                     if ws_sig and not credentials["jwt_token"]:
-                        if _is_jwt_expired(ws_sig):
+                        if jwt_expired(ws_sig):
                             if not frame_warned_expired:
                                 frame_warned_expired = True
                                 print("  [!] 检测到过期 JWT (ws)，已跳过。请在浏览器中重新登录以获取新 Token")
@@ -439,7 +428,7 @@ async def capture_credentials() -> dict[str, str | None]:
 
         has_headers = all(credentials[k] for k in ("person_uid", "device_id", "jwt_token"))
         if has_headers:
-            print("\n  请求头凭据已全部捕获！")
+            print("\n  请求头凭据已全部捕获!")
 
         # ---------- 提取 RSA 私钥 ----------
         # 等待页面完成 API 调用（触发 sign），给钩子时间捕获密钥
@@ -582,7 +571,7 @@ async def _retry_with_clear(page) -> str | None:
             captured = await page.evaluate(JS_GET_CAPTURED)
             pem = captured.get("pem")
             if pem:
-                print("  [✓] RSA 私钥:  刷新后通过钩子成功捕获！")
+                print("  [✓] RSA 私钥:  刷新后通过钩子成功捕获!")
                 return pem
             events = captured.get("events", [])
             if events and i % 3 == 0:
@@ -634,62 +623,14 @@ def display_results(credentials):
 
 def save_config(credentials):
     """将捕获的凭据写入 config.py 和 private_key.py"""
-    config_path = os.path.join(PROJECT_ROOT, "config.py")
-    pk_path = os.path.join(PROJECT_ROOT, "private_key.py")
-    saved = []
+    from oopz.credentials import save_credentials
 
-    # ---- 更新 config.py ----
-    has_config = any(credentials.get(k) for k in ("person_uid", "device_id", "jwt_token"))
-    if has_config:
-        if os.path.exists(config_path):
-            with open(config_path, encoding="utf-8") as f:
-                content = f.read()
-
-            replacements = {
-                "device_id": credentials.get("device_id"),
-                "person_uid": credentials.get("person_uid"),
-                "jwt_token": credentials.get("jwt_token"),
-            }
-            for key, value in replacements.items():
-                if value:
-                    content = re.sub(
-                        rf'("{key}"\s*:\s*)"[^"]*"',
-                        rf'\1"{value}"',
-                        content,
-                    )
-
-            with open(config_path, "w", encoding="utf-8") as f:
-                f.write(content)
-            saved.append("config.py")
-        else:
-            print("  [!] config.py 不存在，请先从 config.example.py 复制")
-
-    # ---- 更新 private_key.py ----
+    saved = save_credentials(credentials, require_private_key=False)
     pem = credentials.get("private_key_pem")
-    if pem:
-        pk_content = (
-            '"""RSA 私钥（由 credential_tool.py 自动生成）"""\n'
-            "\n"
-            "from cryptography.hazmat.primitives import serialization\n"
-            "from cryptography.hazmat.backends import default_backend\n"
-            "\n"
-            f'PRIVATE_KEY_PEM = b"""{pem}"""\n'
-            "\n"
-            "\n"
-            "def get_private_key():\n"
-            '    """加载并返回 RSA 私钥对象"""\n'
-            "    return serialization.load_pem_private_key(\n"
-            "        PRIVATE_KEY_PEM,\n"
-            "        password=None,\n"
-            "        backend=default_backend(),\n"
-            "    )\n"
-        )
-        with open(pk_path, "w", encoding="utf-8") as f:
-            f.write(pk_content)
-        saved.append("private_key.py")
 
     # ---- 保存凭据摘要 txt ----
     txt_path = os.path.join(PROJECT_ROOT, "data", "credentials.txt")
+    os.makedirs(os.path.dirname(txt_path), exist_ok=True)
     with open(txt_path, "w", encoding="utf-8") as f:
         f.write("Oopz Bot 凭据\n")
         f.write(f"生成时间: {time.strftime('%Y-%m-%d %H:%M:%S')}\n")
@@ -726,7 +667,7 @@ def main():
     if "--save" in sys.argv:
         save_config(credentials)
     else:
-        print("  是否保存到配置文件？")
+        print("  是否保存到配置文件?")
         print("  将更新: config.py (UID/设备ID/Token) + private_key.py (RSA 私钥)")
         choice = input("\n  输入 y 确认保存，其他键跳过: ").strip().lower()
         if choice == "y":
@@ -736,7 +677,7 @@ def main():
 
     print()
     print("=" * 60)
-    print("  完成！")
+    print("  完成!")
     print("=" * 60)
 
 

@@ -10,11 +10,11 @@ from typing import Any
 
 from cryptography.hazmat.backends import default_backend
 from cryptography.hazmat.primitives import serialization
+from oopz_sdk.auth import OopzLoginCredentials
+from oopz_sdk.exceptions import OopzPasswordLoginError
 
 from core.config_file_store import config_file_write_lock, replace_text_files_atomically
 from core.paths import PROJECT_ROOT
-from oopz_sdk.auth import OopzLoginCredentials
-from oopz_sdk.exceptions import OopzPasswordLoginError
 
 CONFIG_PATH = os.path.join(PROJECT_ROOT, "config.py")
 CONFIG_EXAMPLE_PATH = os.path.join(PROJECT_ROOT, "config.example.py")
@@ -93,20 +93,24 @@ def _apply_runtime(credentials: Mapping[str, Any]) -> None:
             continue
 
 
-def save_credentials(credentials: OopzLoginCredentials | Mapping[str, Any]) -> list[str]:
+def save_credentials(
+    credentials: OopzLoginCredentials | Mapping[str, Any], *, require_private_key: bool = True,
+) -> list[str]:
+    """成对原子保存登录凭据；手动捕获允许只更新已取得的字段。"""
     payload = credentials_payload(credentials)
     pem = str(payload.get("private_key_pem") or payload.get("private_key") or "").strip()
-    if not pem:
+    if require_private_key and not pem:
         raise OopzPasswordLoginError("缺少 RSA 私钥，无法写入 private_key.py")
     with config_file_write_lock():
-        replace_text_files_atomically(
-            (
-                (CONFIG_PATH, _updated_config_content(payload)),
-                (PRIVATE_KEY_PATH, _private_key_module_content(pem)),
-            )
-        )
+        updates = []
+        if any(payload.get(key) for key in OOPZ_CONFIG_CREDENTIAL_FIELDS):
+            updates.append((CONFIG_PATH, _updated_config_content(payload)))
+        if pem:
+            updates.append((PRIVATE_KEY_PATH, _private_key_module_content(pem)))
+        if updates:
+            replace_text_files_atomically(updates)
     _apply_runtime(payload)
-    return ["config.py", "private_key.py"]
+    return [os.path.basename(path) for path, _content in updates]
 
 
 async def persist_credentials(

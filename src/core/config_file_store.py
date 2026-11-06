@@ -55,7 +55,7 @@ def _write_unique_sibling(
     )
     temp_path = Path(raw_path)
     try:
-        os.fchmod(fd, mode)
+        os.chmod(temp_path, mode)
         with os.fdopen(fd, "wb") as file:
             file.write(data)
             file.flush()

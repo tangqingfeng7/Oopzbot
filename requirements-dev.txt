@@ -1,5 +1,6 @@
 -r requirements.txt
 
 httpx>=0.27,<1
+httpx2>=2,<3
 pyright>=1.1,<2
 ruff>=0.16,<0.17
