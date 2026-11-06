@@ -53,7 +53,7 @@ jobs:
           import os
           from pathlib import Path
           from playwright.sync_api import sync_playwright
-          from core.browser_launch import VOICE_STREAM_ARGS
+          from oopz_sdk.transport.voice_browser import _DEFAULT_BROWSER_ARGS
 
           assert os.getuid() == 1000, os.getuid()
           assert os.getgid() == 1000, os.getgid()
@@ -80,7 +80,7 @@ jobs:
               for name, options in launches:
                   browser = playwright.chromium.launch(
                       headless=True,
-                      args=VOICE_STREAM_ARGS,
+                      args=list(_DEFAULT_BROWSER_ARGS),
                       **options,
                   )
                   page = browser.new_page()

@@ -42,7 +42,9 @@ Copy-Item private_key.example.py private_key.py
 
 `login_phone`、`login_password` 是主要登录配置。程序启动时如果这两项有值，会先用账号密码直接登录并刷新 `person_uid`、`device_id`、`jwt_token` 和 `private_key.py`。
 
-管理后台的“OOPZ 账号密码登录”使用同一套入口：页面里填了账号密码就用页面输入；页面留空时会改用 `config.py` 里的账号密码。后台会优先调用 Oopz 登录接口，遇到可重试问题时再回退到浏览器登录。
+管理后台的“OOPZ 账号密码登录”使用同一套入口：页面里填了账号密码就用页面输入；页面留空时会改用 `config.py` 里的账号密码。后台通过 SDK 调用 Oopz 登录接口，失败时显示实际原因。需要人工完成网页验证时，运行 `tools/credential_tool.py` 获取并保存凭据；工具使用 SDK 判断 JWT 是否过期。
+
+凭据工具与应用共用保存逻辑。只捕获到部分字段时，未取得的字段和私钥保持原值；同时取得配置凭据和私钥时成对原子写入，失败整体回滚。工具仍会保存 `data/credentials.txt`，便于人工查看捕获结果。
 
 ### 官方备用线路
 
@@ -381,7 +383,7 @@ Compose 的宿主配置文件位于 `config/runtime.py` 与
 | `BOT_WEB_TRUSTED_PROXY_CIDRS` | 逗号分隔的可信反向代理 CIDR；Compose 根据两个 Nginx IP 生成 | 固定注入 |
 | `BOT_OOPZ_PROXY` | Oopz 代理地址 | 是 |
 | `OOPZ_PHONE` / `OOPZ_PASSWORD` | 启动及 HTTP/WS 认证失效时自动刷新 Oopz 凭据；两项分别优先于 `OOPZ_CONFIG.login_phone` / `login_password`，其次才是兼容字段 `phone` / `password` | 否 |
-| `BOT_CHROMIUM_EXECUTABLE_PATH` / `CHROME_BIN` | 指定 Oopz Playwright 登录流程使用的 Chromium；前者优先，路径不存在时警告并回退到 Playwright 默认浏览器 | 否 |
+| `BOT_CHROMIUM_EXECUTABLE_PATH` / `CHROME_BIN` | 指定语音 Playwright 后端使用的 Chromium 路径，前者优先；未设置时使用 Playwright 默认浏览器 | 否 |
 | `CHROME_PATH` | 仅用于 Windows 语音推流的 Selenium Chrome 回退；在 webdriver-manager 和 Selenium Manager 的默认 Chrome 尝试均失败后才使用 | 否 |
 | `OOPZ_DEBUG_WS_EVENTS` | `1` / `true` / `yes` / `on`（不区分大小写）时记录收到的原始 WebSocket 事件 body；在模块导入时读取，修改后需重启 | 否 |
 | `BOT_DISABLE_VOICE` | 禁用语音推流 | 是 |

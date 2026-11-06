@@ -103,7 +103,7 @@ class DeadCodeCleanupContractsTest(unittest.TestCase):
 
     def test_voice_browser_warmup_loads_agora_sdk_before_first_join(self) -> None:
         page = _read("src/oopz/assets/voice/agora_player.html")
-        project_transport = _read("src/oopz/sdk_transport.py")
+        project_transport = _read("src/music/voice_browser.py")
 
         self.assertIn("window.agoraWarmup = async () =>", page)
         self.assertIn("await loadAgoraSdk();", page)
