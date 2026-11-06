@@ -1,5 +1,3 @@
-"""基于 SDK 网关的异步 ID 到名称缓存。"""
-
 from __future__ import annotations
 
 import asyncio
@@ -11,14 +9,14 @@ from core.logger_config import get_logger
 from core.paths import DATA_DIR
 
 if TYPE_CHECKING:
-    from oopz.sdk_gateway import AsyncOopzGateway
+    from app.infrastructure.gateways.sender_gateway import SenderGateway
 
 logger = get_logger("NameResolver")
 NAMES_FILE = os.path.join(DATA_DIR, "names.json")
 
 
 class NameResolver:
-    """名称读取保持纯内存；缺失用户通过注入的 SDK 网关显式异步补全。"""
+    """人工名称优先；自动用户资料统一使用 SDK 的有效期缓存。"""
 
     _instance: NameResolver | None = None
     _MAX_UNNAMED_USERS = 5000
@@ -33,11 +31,12 @@ class NameResolver:
             return
         self._data: dict[str, dict[str, str]] = {
             "users": {},
+            "user_overrides": {},
             "channels": {},
             "areas": {},
         }
-        self._pending_uids: set[str] = set()
-        self._gateway: AsyncOopzGateway | None = None
+        self._config_users: dict[str, str] = {}
+        self._gateway: SenderGateway | None = None
         self._dirty = False
         self._revision = 0
         self._loaded = False
@@ -50,12 +49,15 @@ class NameResolver:
         if self._loaded:
             return
         file_data = await asyncio.to_thread(self._read_names_file)
-        for category in ("users", "channels", "areas"):
+        for category in ("users", "user_overrides", "channels", "areas"):
             values = file_data.get(category)
             if isinstance(values, dict):
                 self._data[category].update(
-                    {str(key): str(value or "") for key, value in values.items()}
+                    {str(key): ("" if category == "users" else str(value or "")) for key, value in values.items()}
                 )
+                if category == "users" and any(values.values()):
+                    self._mark_dirty()
+        self._load_config_names()
         self._loaded = True
         logger.info(
             "已加载名称映射: %d 个用户, %d 个频道, %d 个区域",
@@ -64,7 +66,7 @@ class NameResolver:
             sum(bool(value) for value in self._data["areas"].values()),
         )
 
-    async def bind_gateway(self, gateway: AsyncOopzGateway) -> None:
+    async def bind_gateway(self, gateway: SenderGateway) -> None:
         self._gateway = gateway
         await self.start()
 
@@ -75,7 +77,12 @@ class NameResolver:
     def user_cached(self, uid: str, *, fallback: bool = True) -> str:
         if not uid:
             return ""
-        return self._data["users"].get(uid) or (self._short_id(uid) if fallback else "")
+        name = self._config_users.get(uid) or self._data["user_overrides"].get(uid)
+        if not name and self._gateway is not None:
+            person = self._gateway.bot.person.cache.get_userinfo(uid)
+            if person is not None:
+                name = person.name
+        return name or (self._short_id(uid) if fallback else "")
 
     def channel(self, channel_id: str) -> str:
         return self._get("channels", channel_id)
@@ -84,7 +91,7 @@ class NameResolver:
         return self._get("areas", area_id)
 
     def set_user(self, uid: str, name: str) -> None:
-        self._set("users", uid, name)
+        self._set("user_overrides", uid, name)
 
     def set_channel(self, channel_id: str, name: str) -> None:
         self._set("channels", channel_id, name)
@@ -96,7 +103,8 @@ class NameResolver:
         if not name:
             return None
         expected = name.casefold()
-        for uid, current in self._data["users"].items():
+        for uid in dict.fromkeys([*self._config_users, *self._data["user_overrides"], *self._data["users"]]):
+            current = self.user_cached(uid, fallback=False)
             if current and current.casefold() == expected:
                 return uid
         return None
@@ -133,30 +141,14 @@ class NameResolver:
         if not unique:
             return {}
         to_fetch = [
-            uid
-            for uid in unique
-            if not self._data["users"].get(uid) and uid not in self._pending_uids
+            uid for uid in unique
+            if not (self._config_users.get(uid) or self._data["user_overrides"].get(uid))
         ]
-        self._pending_uids.update(to_fetch)
-        try:
-            if to_fetch and self._gateway is not None:
-                people = await self._gateway.get_person_infos_batch(to_fetch)
-                for uid, person in people.items():
-                    name = str(
-                        person.get("name")
-                        or person.get("nickname")
-                        or person.get("displayName")
-                        or ""
-                    ).strip()
-                    if name:
-                        self._data["users"][uid] = name
-                        self._dirty = True
-                        self._revision += 1
-                if people:
-                    self._schedule_save()
-        finally:
-            self._pending_uids.difference_update(to_fetch)
-        return {uid: self._data["users"].get(uid, "") for uid in unique}
+        if to_fetch and self._gateway is not None:
+            await self._gateway.bot.person.get_person_infos_batch(to_fetch)
+            for uid in to_fetch:
+                self.register_id("users", uid)
+        return {uid: self.user_cached(uid, fallback=False) for uid in unique}
 
     async def flush(self) -> None:
         task = self._save_task
@@ -183,7 +175,7 @@ class NameResolver:
     def get_stats(self) -> dict[str, int]:
         return {
             "users_total": len(self._data["users"]),
-            "users_named": sum(bool(value) for value in self._data["users"].values()),
+            "users_named": sum(bool(self.user_cached(uid, fallback=False)) for uid in self._data["users"]),
             "channels_total": len(self._data["channels"]),
             "channels_named": sum(bool(value) for value in self._data["channels"].values()),
             "areas_total": len(self._data["areas"]),
@@ -240,7 +232,11 @@ class NameResolver:
             for category in ("users", "channels", "areas"):
                 values = NAME_MAP.get(category)
                 if isinstance(values, dict):
-                    self._data[category].update(values)
+                    if category == "users":
+                        self._config_users = dict(values)
+                        self._data["users"].update(dict.fromkeys(values, ""))
+                    else:
+                        self._data[category].update(values)
         except (ImportError, AttributeError):
             pass
 
