@@ -15,7 +15,7 @@ from fastapi.responses import JSONResponse
 from core.redis_protocol import PlaybackCommandStore, RedisDataStore
 
 if TYPE_CHECKING:
-    from oopz.sdk_gateway import AsyncOopzGateway
+    from app.infrastructure.gateways.sender_gateway import SenderGateway
 
 
 def require_sender(func):
@@ -51,12 +51,12 @@ async def _get_redis() -> RedisDataStore:
     return await get_redis()
 
 
-def _get_sender() -> AsyncOopzGateway | None:
+def _get_sender() -> SenderGateway | None:
     from web.web_player import get_sender
     return get_sender()
 
 
-def _require_sender() -> AsyncOopzGateway:
+def _require_sender() -> SenderGateway:
     """返回已初始化的 sender。
 
     路由装饰器负责把正常的未初始化状态转换为 503；这里保留一次防御性检查，

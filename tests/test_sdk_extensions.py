@@ -1,5 +1,6 @@
 """安装版 SDK 与项目接口扩展的接入测试。"""
 
+import gc
 import json
 import sys
 import tempfile
@@ -17,9 +18,8 @@ from oopz_sdk.exceptions import OopzApiError
 from oopz_sdk.testing.factories import make_config
 from oopz_sdk.transport.http import HttpResponse, HttpTransport
 
+from app.infrastructure.oopz_connection import ProjectHttpTransport, install_project_transports
 from core.proxy_utils import ProxySettings
-from oopz.sdk_services import install_project_services
-from oopz.sdk_transport import ProjectHttpTransport, install_project_transports
 
 
 def response(status, payload):
@@ -70,7 +70,7 @@ class ProjectHttpAuthTest(unittest.IsolatedAsyncioTestCase):
 
 
 class OneBotSharedServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_sdk_onebot_leave_uses_project_service(self):
+    async def test_sdk_onebot_leave_sends_area_as_query(self):
         with tempfile.TemporaryDirectory() as directory:
             config = make_config()
             config.onebot_v11 = OneBotV11Config(
@@ -80,7 +80,6 @@ class OneBotSharedServiceTest(unittest.IsolatedAsyncioTestCase):
             )
             bot = OopzBot(config)
             install_project_transports(bot, ProxySettings(mode="direct"), None)
-            install_project_services(bot)
             self.assertIs(bot.areas, bot.rest.areas)
             self.assertIs(bot.areas.transport, bot.rest.transport)
             adapter = bot.adapters[0]
@@ -98,19 +97,21 @@ class OneBotSharedServiceTest(unittest.IsolatedAsyncioTestCase):
                 self.assertNotIn("set_group_admin", actions)
             finally:
                 await bot.stop()
+                # SDK IdStore 的 SQLite 连接由垃圾回收释放，先释放再清理临时目录。
+                gc.collect()
 
 
 class OneBotConfigTest(unittest.IsolatedAsyncioTestCase):
-    async def test_sdk_config_defaults_keep_existing_connection_settings(self):
+    async def test_session_config_defaults_keep_existing_connection_settings(self):
         import config
-        from oopz import sdk_config
+        from app.lifecycle import oopz_session as session_config
 
         with (
-            patch.object(config, "ONEBOT_V11_CONFIG", {}),
+            patch.object(config, "ONEBOT_V11_CONFIG", {}, create=True),
             patch.dict("os.environ", {"ONEBOT_V11_ENABLED": "0"}),
-            patch.object(sdk_config, "migrate_onebot_v11_database", AsyncMock()) as migrate,
+            patch.object(session_config, "migrate_onebot_v11_database", AsyncMock()) as migrate,
         ):
-            result = await sdk_config._onebot_v11_config()
+            result = await session_config._onebot_v11_config()
         self.assertIsInstance(result, OneBotV11Config)
         self.assertFalse(result.enabled)
         self.assertFalse(result.enable_http_post)
@@ -120,20 +121,20 @@ class OneBotConfigTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(Path(result.db_path).is_absolute())
         migrate.assert_not_awaited()
 
-    async def test_enabled_sdk_config_migrates_resolved_database(self):
+    async def test_enabled_session_config_migrates_resolved_database(self):
         import config
-        from oopz import sdk_config
+        from app.lifecycle import oopz_session as session_config
 
         with (
             patch.object(config, "ONEBOT_V11_CONFIG", {
                 "enabled": False, "db_path": "data/onebot-test.sqlite3",
                 "http_post_urls": "http://localhost:8081, http://localhost:8082",
                 "enable_ws_reverse": "true", "http_post_timeout": 5,
-            }),
+            }, create=True),
             patch.dict("os.environ", {"ONEBOT_V11_ENABLED": "1"}),
-            patch.object(sdk_config, "migrate_onebot_v11_database", AsyncMock()) as migrate,
+            patch.object(session_config, "migrate_onebot_v11_database", AsyncMock()) as migrate,
         ):
-            result = await sdk_config._onebot_v11_config()
+            result = await session_config._onebot_v11_config()
         self.assertTrue(result.enabled)
         self.assertTrue(result.enable_ws_reverse)
         self.assertEqual(result.http_post_urls, ["http://localhost:8081", "http://localhost:8082"])

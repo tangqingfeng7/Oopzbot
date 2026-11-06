@@ -15,4 +15,7 @@ class MessageLookupService:
             if message.get("messageId") == message_id and message.get("timestamp"):
                 return message["timestamp"]
 
-        return await self._sender.find_message_timestamp(message_id, area=area, channel=channel)
+        for message in await self._sender.bot.messages.get_channel_messages(area, channel):
+            if message.message_id == message_id:
+                return message.timestamp or None
+        return None

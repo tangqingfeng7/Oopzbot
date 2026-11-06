@@ -110,12 +110,12 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             app = bootstrap_module.BotApplication()
             context = Mock()
             app._context = context
-            app._install_signal_handlers()
-
             loop = asyncio.get_running_loop()
-            handle = loop._signal_handlers.get(signal.SIGTERM)  # type: ignore[attr-defined]
-            self.assertIsNotNone(handle, "SIGTERM 必须注册到事件循环上")
-            handle._run()
+            with patch.object(loop, "add_signal_handler") as register:
+                app._install_signal_handlers()
+            handlers = {call.args[0]: call.args[1:] for call in register.call_args_list}
+            callback, *args = handlers[signal.SIGTERM]
+            callback(*args)
 
             # 信号处理器只负责记录意图，真正的关停交给主循环，
             # 否则会在任意线程/信号上下文里动客户端状态
@@ -135,11 +135,13 @@ class BotApplicationCompositionTest(unittest.IsolatedAsyncioTestCase):
             patch.object(bootstrap_module, "TaskSupervisor"),
         ):
             app = bootstrap_module.BotApplication()
-            app._install_signal_handlers()
-
             loop = asyncio.get_running_loop()
-            loop._signal_handlers[signal.SIGTERM]._run()  # type: ignore[attr-defined]
-            loop._signal_handlers[signal.SIGINT]._run()  # type: ignore[attr-defined]
+            with patch.object(loop, "add_signal_handler") as register:
+                app._install_signal_handlers()
+            handlers = {call.args[0]: call.args[1:] for call in register.call_args_list}
+            for signum in (signal.SIGTERM, signal.SIGINT):
+                callback, *args = handlers[signum]
+                callback(*args)
 
             self.assertEqual(app._stop_signal, signal.SIGTERM, "第二个信号不应覆盖首个原因")
 
@@ -259,6 +261,8 @@ class AppContextBuilderCompositionTest(unittest.IsolatedAsyncioTestCase):
 
         gateway = AsyncMock()
         gateway._proxy_value = None
+        gateway.bind_auto_recall_scheduler = Mock()
+        session = AsyncMock(sender=gateway)
         handler = Mock()
         handler.start = AsyncMock()
         handler.services.safety.recall_scheduler = sentinel.recall_scheduler
@@ -266,8 +270,8 @@ class AppContextBuilderCompositionTest(unittest.IsolatedAsyncioTestCase):
         supervisor = Mock()
 
         with (
-            patch.object(module.AsyncOopzGateway, "create", AsyncMock(return_value=gateway)),
-            patch.object(module, "SdkVoiceController"),
+            patch.object(module.OopzSession, "create", AsyncMock(return_value=session)),
+            patch.object(module, "AudioPlayback"),
             patch.object(module, "CommandHandler", return_value=handler),
             patch.object(module, "get_resolver") as get_resolver,
             patch.object(module, "start_area_join_notifier", return_value=None),
@@ -288,14 +292,16 @@ class AppContextBuilderCompositionTest(unittest.IsolatedAsyncioTestCase):
 
         gateway = AsyncMock()
         gateway._proxy_value = None
-        gateway.populate_names = AsyncMock(side_effect=RuntimeError("boom"))
+        gateway.bind_auto_recall_scheduler = Mock()
+        session = AsyncMock(sender=gateway)
+        gateway.bot.areas.populate_names = AsyncMock(side_effect=RuntimeError("boom"))
         handler = Mock()
         handler.start = AsyncMock()
         handler.infrastructure.plugins.stop = AsyncMock()
 
         with (
-            patch.object(module.AsyncOopzGateway, "create", AsyncMock(return_value=gateway)),
-            patch.object(module, "SdkVoiceController"),
+            patch.object(module.OopzSession, "create", AsyncMock(return_value=session)),
+            patch.object(module, "AudioPlayback"),
             patch.object(module, "CommandHandler", return_value=handler),
             patch.object(module, "get_resolver") as get_resolver,
             patch.object(module, "MessageDispatcher") as dispatcher_cls,

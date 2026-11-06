@@ -1,14 +1,15 @@
 from __future__ import annotations
 
+from app.infrastructure.gateways.sender_gateway import SenderGateway
 from app.lifecycle.context import AppContext
+from app.lifecycle.oopz_session import OopzSession
 from app.lifecycle.task_supervisor import TaskSupervisor
 from bot.command_handler import CommandHandler
 from core.logger_config import get_logger
 from core.message_dispatcher import MessageDispatcher
-from music.sdk_voice import SdkVoiceController
+from music.music_playback import AudioPlayback
 from oopz.errors import SensitiveContentError
 from oopz.name_resolver import get_resolver
-from oopz.sdk_gateway import AsyncOopzGateway
 from services.area_invite_inbox import capture_private_area_invites
 from services.area_join_notifier import AreaJoinNotifier, start_area_join_notifier
 
@@ -16,15 +17,16 @@ logger = get_logger("AppContext")
 
 
 class AppContextBuilder:
-    """在当前事件循环组装 SDK 网关、命令分发和补充服务。"""
+    """在当前事件循环组装 SDK 会话、应用发送器和命令服务。"""
 
     async def build(self, supervisor: TaskSupervisor) -> AppContext:
         dispatcher = MessageDispatcher(workers=4, maxsize=512)
         dispatcher.start()
 
-        # 两个回调在网关创建时就要传入，届时处理器与通知器尚未组装完成；闭包按引用
+        # 回调在会话创建时传入，届时处理器与通知器尚未组装完成；闭包按引用
         # 读取下面的局部变量，因此启动期的事件会命中 None 分支而不是空指针。
-        gateway: AsyncOopzGateway | None = None
+        gateway: SenderGateway | None = None
+        session: OopzSession | None = None
         handler: CommandHandler | None = None
         notifier: AreaJoinNotifier | None = None
 
@@ -61,16 +63,18 @@ class AppContextBuilder:
                 dispatcher.submit("__other_events__", current, event, data)
 
         try:
-            gateway = await AsyncOopzGateway.create(
+            session = await OopzSession.create(
                 on_chat_message=dispatch_chat,
                 on_private_message=dispatch_private_message,
                 on_other_event=dispatch_other_event,
             )
-            voice = SdkVoiceController(
+            gateway = session.sender
+            voice = AudioPlayback(
                 gateway.bot.voice,
                 proxy_value=gateway._proxy_value,
                 supervisor=supervisor,
             )
+            session.voice = voice
             handler = CommandHandler(
                 gateway,
                 voice_client=voice,
@@ -81,8 +85,9 @@ class AppContextBuilder:
             gateway.bind_auto_recall_scheduler(
                 handler.services.safety.recall_scheduler
             )
-            await gateway.start(supervisor)
-            await gateway.populate_names()
+            await session.start(supervisor)
+            resolver = get_resolver()
+            await gateway.bot.areas.populate_names(set_area=resolver.set_area, set_channel=resolver.set_channel)
 
             notifier = start_area_join_notifier(
                 sender=gateway,
@@ -91,7 +96,7 @@ class AppContextBuilder:
             return AppContext(
                 sender=gateway,
                 handler=handler,
-                client=gateway,
+                client=session,
                 notifier_callback=notifier,
                 voice=voice,
                 dispatcher=dispatcher,
@@ -100,7 +105,7 @@ class AppContextBuilder:
         except BaseException:
             if handler is not None:
                 await handler.infrastructure.plugins.stop(timeout=2.0)
-            if gateway is not None:
-                await gateway.stop()
+            if session is not None:
+                await session.stop()
             await dispatcher.stop(timeout=2.0)
             raise

@@ -1,11 +1,11 @@
 from app.infrastructure import PluginHost, build_bot_infrastructure
+from app.infrastructure.gateways.sender_gateway import SenderGateway
 from app.services.registry import build_command_service_registry
 from app.services.runtime import CommandRuntime
 from config import OOPZ_CONFIG
 from core.constants import build_mention
 from core.database import MessageStatsDB, cn_today
 from core.logger_config import get_logger
-from oopz.sdk_gateway import AsyncOopzGateway
 
 _stats_logger = get_logger("MessageStats")
 
@@ -16,7 +16,7 @@ _BOT_MENTION = build_mention(_BOT_UID) if _BOT_UID else ""
 class CommandHandler:
     """Coordinates the command runtime and dispatch pipeline."""
 
-    def __init__(self, sender: AsyncOopzGateway, voice_client=None, supervisor=None):
+    def __init__(self, sender: SenderGateway, voice_client=None, supervisor=None):
         # 组装逻辑集中在这里，其他命令链路只依赖运行时对象。
         self._runtime = CommandRuntime(
             build_bot_infrastructure(

@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from oopz_sdk.auth import OopzLoginCredentials
+
 import web.web_player_config as cfg
 from core.logger_config import get_logger
 from oopz.credentials import credentials_payload
-from oopz_sdk.auth import OopzLoginCredentials
 
 from ._runtime import _get_sender
 
@@ -50,14 +51,14 @@ def _apply_oopz_config_updates(
 async def _refresh_oopz_runtime(
     credentials: OopzLoginCredentials,
 ) -> dict[str, bool]:
-    """应用新凭据，并由稳定网关对象原子切换到底层 SDK 会话。"""
+    """应用新凭据，并重建应用发送器使用的 SDK 会话。"""
     config_updated = _apply_oopz_config_updates(credentials)
     gateway = _get_sender()
     if gateway is None:
         return {"config": config_updated, "sdk_session": False}
     rebuild = getattr(gateway, "rebuild_credentials", None)
     if rebuild is None:
-        raise RuntimeError("当前发送端不是 AsyncOopzGateway，无法热重建 SDK 会话")
+        raise RuntimeError("当前发送端未绑定会话，无法热更新凭据")
     await rebuild(credentials)
 
     try:

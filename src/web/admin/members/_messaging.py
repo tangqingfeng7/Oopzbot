@@ -32,10 +32,7 @@ async def admin_send_message(request: Request):
 
     try:
         resp = await sender.send_message(text, area=area, channel=channel, auto_recall=False, styleTags=[])
-        result = resp.json()
-        if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
-            return JSONResponse({"ok": False, "error": result.get("message") or "发送失败"})
-        return JSONResponse({"ok": True, "message": "消息已发送"})
+        return JSONResponse({"ok": True, "message": "消息已发送", "messageId": resp.message_id, "timestamp": resp.timestamp})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -59,9 +56,6 @@ async def admin_send_announcement(request: Request):
 
     try:
         resp = await sender.send_message(text, area=area, channel=channel, auto_recall=False, styleTags=["IMPORTANT"])
-        result = resp.json()
-        if not result.get("status") and result.get("code") not in (0, "0", 200, "200", "success"):
-            return JSONResponse({"ok": False, "error": result.get("message") or "发送失败"})
-        return JSONResponse({"ok": True, "message": "公告已发送"})
+        return JSONResponse({"ok": True, "message": "公告已发送", "messageId": resp.message_id, "timestamp": resp.timestamp})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})

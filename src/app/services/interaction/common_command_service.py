@@ -13,7 +13,11 @@ class CommonCommandService:
         """查看各语音频道的在线成员。"""
         resolver = get_resolver()
 
-        channel_members = await self._sender.get_voice_channel_members(area=area)
+        try:
+            channel_members = (await self._sender.bot.channels.get_voice_channel_members(area)).channel_members
+        except Exception as exc:
+            await self._sender.send_message(f"查询语音频道成员失败: {exc}", channel=channel, area=area)
+            return
         if not channel_members:
             await self._sender.send_message("当前没有语音频道在线成员", channel=channel, area=area)
             return
@@ -28,14 +32,9 @@ class CommonCommandService:
             channel_name = resolver.channel(channel_id)
             lines.append(f"{channel_name} ({len(members)}人):")
             for member in members:
-                if isinstance(member, dict):
-                    uid = member.get("uid", member.get("id", ""))
-                    is_bot = member.get("isBot", False)
-                    name = resolver.user(uid)
-                    suffix = " [Bot]" if is_bot else ""
-                    lines.append(f"  - {name}{suffix}")
-                else:
-                    lines.append(f"  - {resolver.user(str(member))}")
+                name = resolver.user(member.uid)
+                suffix = " [Bot]" if member.is_bot else ""
+                lines.append(f"  - {name}{suffix}")
             total_online += len(members)
 
         if total_online == 0:
@@ -76,13 +75,14 @@ class CommonCommandService:
 
     async def show_daily_speech(self, channel: str, area: str) -> None:
         """获取并展示每日一句名言。"""
-        data = await self._sender.get_daily_speech()
-        if "error" in data:
-            await self._sender.send_message(f"获取每日一句失败: {data['error']}", channel=channel, area=area)
+        try:
+            data = await self._sender.bot.general.get_daily_speech()
+        except Exception as exc:
+            await self._sender.send_message(f"获取每日一句失败: {exc}", channel=channel, area=area)
             return
 
-        words = data.get("words", "")
-        author = data.get("author", "")
+        words = data.words
+        author = data.author
 
         if words:
             text = f"「{words}」"

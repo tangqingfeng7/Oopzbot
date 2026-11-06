@@ -24,39 +24,10 @@ class TargetResolutionService:
             return []
 
         sender = self._sender()
-        if sender is None or not hasattr(sender, "get_area_members"):
-            return []
-
-        page_size = 100
-        max_fetch = 1000
-        seen: set[str] = set()
-        ordered_uids: list[str] = []
-
-        for start in range(0, max_fetch, page_size):
-            data = await sender.get_area_members(
-                area=area,
-                offset_start=start,
-                offset_end=start + page_size - 1,
-                quiet=True,
-            )
-            if not isinstance(data, dict) or "error" in data:
-                return []
-
-            members = data.get("members", []) or []
-            for member in members:
-                uid = (member.get("uid") or member.get("id") or "").strip()
-                if not uid or uid in seen:
-                    continue
-                seen.add(uid)
-                ordered_uids.append(uid)
-
-            total_count = int(data.get("totalCount") or 0)
-            if len(members) < page_size:
-                break
-            if total_count and len(ordered_uids) >= total_count:
-                break
-
-        return ordered_uids
+        if sender is None:
+            raise RuntimeError("成员查询服务未初始化")
+        members = await sender.bot.areas.get_all_area_members(area, page_size=100, max_pages=10)
+        return list(dict.fromkeys(member.uid.strip() for member in members if member.uid.strip()))
 
     async def _resolve_from_area_members(self, name: str, area: str | None) -> str | None:
         """在当前域内做一次安全的模糊匹配，只接受唯一命中。"""

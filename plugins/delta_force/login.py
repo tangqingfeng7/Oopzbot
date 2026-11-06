@@ -94,17 +94,15 @@ class DeltaForceLoginManager:
                     logger.warning("DeltaForceLogin: temp private channel send failed: %s", exc)
                     if temp_channel_id:
                         with contextlib.suppress(Exception):
-                            await handler.sender.delete_channel(temp_channel_id, area=area)
+                            deleted = await handler.sender.bot.channels.delete_channel(area, temp_channel_id)
+                            if not deleted.ok:
+                                raise RuntimeError(deleted.message or "删除临时频道被拒绝") from None
                         temp_channel_id = ""
             else:
                 try:
-                    dm_result = await handler.sender.upload_and_send_private_image(user, qr_path, text=notice)
-                    delivered = "error" not in dm_result
-                    if delivered:
-                        delivery_message = "已通过私信发送二维码，请查收并完成扫码确认。"
-                    else:
-                        delivery_error = self._format_dm_error(dm_result)
-                        logger.warning("DeltaForceLogin: private delivery failed: %s", delivery_error)
+                    await handler.sender.upload_and_send_private_image(user, qr_path, text=notice)
+                    delivered = True
+                    delivery_message = "已通过私信发送二维码，请查收并完成扫码确认。"
                 except Exception as exc:
                     delivery_error = f"异常: {exc}"
                     logger.warning("DeltaForceLogin: private image send failed: %s", exc)
@@ -153,7 +151,9 @@ class DeltaForceLoginManager:
                     self._sessions.pop(user, None)
                 if temp_channel_id:
                     with contextlib.suppress(Exception):
-                        await handler.sender.delete_channel(temp_channel_id, area=area)
+                        deleted = await handler.sender.bot.channels.delete_channel(area, temp_channel_id)
+                        if not deleted.ok:
+                            raise RuntimeError(deleted.message or "删除临时频道被拒绝") from None
                 await self._cleanup_path(qr_path)
 
     async def cancel_all(self) -> None:
@@ -174,7 +174,9 @@ class DeltaForceLoginManager:
             area = str(item.get("area") or "")
             if temp_channel and sender is not None:
                 with contextlib.suppress(Exception):
-                    await sender.delete_channel(temp_channel, area=area)
+                    deleted = await sender.bot.channels.delete_channel(area, temp_channel)
+                    if not deleted.ok:
+                        raise RuntimeError(deleted.message or "删除临时频道被拒绝") from None
             await self._cleanup_path(item.get("path"))
         if tasks:
             await asyncio.gather(*tasks, return_exceptions=True)
@@ -226,9 +228,11 @@ class DeltaForceLoginManager:
             except Exception as exc:
                 logger.warning("DeltaForceLogin: temp channel send failed: %s", exc)
         elif delivery_mode != "temp_channel":
-            result = await handler.sender.send_private_message(user, text)
-            if "error" not in result:
+            try:
+                await handler.sender.bot.messages.send_private_message(text, target=user)
                 return
+            except Exception as exc:
+                logger.warning("DeltaForceLogin: private message send failed: %s", exc)
         if allow_public_fallback:
             try:
                 await handler.sender.send_message(text, channel=channel, area=area)
@@ -377,7 +381,9 @@ class DeltaForceLoginManager:
             with contextlib.suppress(asyncio.TimeoutError):
                 await asyncio.wait_for(stop_event.wait(), timeout=self._success_notice_delay)
         try:
-            await handler.sender.delete_channel(temp_channel, area=area)
+            deleted = await handler.sender.bot.channels.delete_channel(area, temp_channel)
+            if not deleted.ok:
+                raise RuntimeError(deleted.message or "删除临时频道被拒绝") from None
         except Exception as exc:
             logger.warning("DeltaForceLogin: delete temp channel failed: %s", exc)
 
@@ -409,19 +415,3 @@ class DeltaForceLoginManager:
                 logger.debug("DeltaForceLogin: skip stale qr cleanup for %s: %s", path, exc)
         if removed:
             logger.info("DeltaForceLogin: 已清理 %s 个过期二维码文件", removed)
-
-    @staticmethod
-    def _format_dm_error(result: object) -> str:
-        if not isinstance(result, dict):
-            return "未知错误"
-        reason = str(result.get("debug_reason") or "").strip()
-        if reason == "open_session_missing_channel":
-            return "已打开私信会话，但未解析到会话 channel"
-        if reason == "send_dm_http_error":
-            return f"私信接口返回错误：{str(result.get('error') or '')[:80]}"
-        if reason == "send_dm_unconfirmed":
-            return f"私信接口返回了 HTTP 200，但未确认投递成功：{str(result.get('error') or '')[:80]}"
-        if reason == "missing_channel":
-            return "私信 channel 不可用"
-        error = str(result.get("error") or "").strip()
-        return error[:80] if error else "未知错误"

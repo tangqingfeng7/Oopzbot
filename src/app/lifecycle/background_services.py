@@ -68,19 +68,19 @@ class BackgroundServiceRunner:
 
                 fallback = str(OOPZ_CONFIG.get("default_area") or "").strip()
                 if not fallback:
-                    areas = await sender.get_joined_areas(quiet=True)
+                    areas = await sender.bot.areas.get_joined_areas()
                     if areas:
-                        fallback = str(areas[0].get("id") or "").strip()
+                        fallback = areas[0].area_id.strip()
                 area_ids = [fallback] if fallback else []
             total = 0
             for area in area_ids:
                 if not area:
                     continue
-                result = await sender.get_area_members(area=area, quiet=True)
-                if "error" not in result:
-                    total += int(result.get("fetchedCount", 0) or 0)
-                else:
-                    logger.debug("成员缓存预热失败 (area=%s): %s", area[:8], result.get("error"))
+                try:
+                    page = await sender.bot.areas.get_area_members(area)
+                    total += len(page.members)
+                except Exception as exc:
+                    logger.debug("成员缓存预热失败 (area=%s): %s", area[:8], exc)
             if total:
                 logger.info("成员缓存预热完成: %d 个域, 共 %d 人", len(area_ids), total)
         except Exception:

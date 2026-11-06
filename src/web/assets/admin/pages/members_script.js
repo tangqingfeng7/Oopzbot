@@ -576,8 +576,15 @@
             "</tr>"
           );
         }).join("");
-        AdminShell.byId("blockRows").innerHTML =
-          rows || '<tr><td colspan="3" class="empty-state">暂无封禁</td></tr>';
+        var partial = data.partial || [];
+        var warning = partial.length
+          ? '<tr><td colspan="3" class="empty-state">结果不完整，以下域查询失败：' +
+            partial.map(function (item) { return esc(item.areaName || item.areaId) + "（" + esc(item.error) + "）"; }).join("、") +
+            '</td></tr>'
+          : "";
+        AdminShell.byId("blockRows").innerHTML = warning +
+          (rows || '<tr><td colspan="3" class="empty-state">' +
+            (partial.length ? "已成功查询的域暂无封禁" : "暂无封禁") + '</td></tr>');
       } catch (e) {
         AdminShell.animateNumber("blockedCount", 0);
         var card = AdminShell.byId("blocksCard");

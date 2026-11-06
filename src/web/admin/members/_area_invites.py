@@ -21,14 +21,6 @@ def extract_area_invite_code(value: object) -> str:
     return normalize_area_invite_code(value)
 
 
-def _is_success(result: dict[str, Any]) -> bool:
-    if result.get("error"):
-        return False
-    if "ok" in result:
-        return bool(result["ok"])
-    if "status" in result:
-        return bool(result["status"])
-    return True
 
 
 async def _resolve_invite(sender, value: object) -> tuple[str, dict[str, Any]]:
@@ -45,8 +37,8 @@ async def _resolve_invite(sender, value: object) -> tuple[str, dict[str, Any]]:
     if not area_id:
         raise RuntimeError("邀请信息中缺少域 ID")
 
-    joined_areas = await sender.get_joined_areas(quiet=True)
-    joined = any(str(item.get("id") or "").strip() == area_id for item in joined_areas)
+    joined_areas = await sender.bot.areas.get_joined_areas()
+    joined = any(item.area_id.strip() == area_id for item in joined_areas)
 
     reason = ""
     if not is_area_invite:
@@ -111,11 +103,14 @@ def _stored_invite(row: dict[str, Any], joined_area_ids: set[str]) -> dict[str, 
 async def admin_area_invite_list():
     sender = _require_sender()
     rows = await AreaInviteRequestDB.list_pending()
-    joined_areas = await sender.get_joined_areas(quiet=True)
+    try:
+        joined_areas = await sender.bot.areas.get_joined_areas()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     joined_ids = {
-        str(item.get("id") or "").strip()
+        item.area_id.strip()
         for item in joined_areas
-        if str(item.get("id") or "").strip()
+        if item.area_id.strip()
     }
     return JSONResponse(
         {"ok": True, "invites": [_stored_invite(row, joined_ids) for row in rows]},
@@ -153,13 +148,12 @@ async def admin_area_invite_accept(request: Request):
             status_code=409,
         )
 
-    result = await sender.enter_area(area=invite["area"], recover=False)
-    if not isinstance(result, dict) or not _is_success(result):
-        error = result.get("error") if isinstance(result, dict) else "响应格式异常"
-        return JSONResponse(
-            {"ok": False, "error": f"接受邀请失败: {error or 'Oopz 拒绝了请求'}"},
-            status_code=502,
-        )
+    try:
+        result = await sender.bot.areas.enter_area(area=invite["area"], recover=False)
+        if not result.ok:
+            raise RuntimeError(result.message or "Oopz 拒绝了请求")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": f"接受邀请失败: {exc}"}, status_code=502)
 
     await AreaInviteRequestDB.mark_processed(code, "accepted")
     # 让域管理页立即看到新加入的域，不等待列表缓存自然过期。
@@ -171,7 +165,7 @@ async def admin_area_invite_accept(request: Request):
     invite["reason"] = "Bot 已经加入该域"
     return {
         "ok": True,
-        "message": result.get("message") or f"Bot 已加入「{invite['areaName'] or invite['area']}」",
+        "message": result.message or f"Bot 已加入「{invite['areaName'] or invite['area']}」",
         "invite": invite,
     }
 

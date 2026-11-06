@@ -12,6 +12,8 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk.models import OperationResult  # noqa: E402
+
 from core.redis_keys import (  # noqa: E402
     CURRENT,
     PLAY_STATE,
@@ -102,12 +104,13 @@ class EditUserRoleLockTest(unittest.IsolatedAsyncioTestCase):
     """
 
     def _gateway(self):
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._role_locks = {}
         gateway.bot = AsyncMock()
-        gateway.bot.areas.edit_user_role = AsyncMock(return_value={"status": True})
+        gateway.bot.areas.cache = mock.Mock()
+        gateway.bot.areas.edit_user_role = AsyncMock(return_value=OperationResult())
         gateway._default_area = lambda area=None: area or "area-default"
         return gateway
 
@@ -147,7 +150,7 @@ class EditUserRoleLockTest(unittest.IsolatedAsyncioTestCase):
             inside.set()
             await asyncio.wait_for(release.wait(), timeout=2)
             order.append("exit")
-            return {"status": True}
+            return OperationResult()
 
         gateway.bot.areas.edit_user_role = AsyncMock(side_effect=slow_edit)
 

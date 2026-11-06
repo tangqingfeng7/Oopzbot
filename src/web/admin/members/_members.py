@@ -5,6 +5,7 @@ import time
 
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
+from oopz_sdk.models import AreaMembersPage, UserInfo
 
 from web.admin.shared import (
     MessageStatsDB,
@@ -45,14 +46,17 @@ async def admin_areas_list():
     sender = _get_sender()
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
-    areas = await sender.get_joined_areas(quiet=True)
+    try:
+        areas = await sender.bot.areas.get_joined_areas()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     items = []
     for a in areas:
         items.append({
-            "id": a.get("id", ""),
-            "name": a.get("name", ""),
-            "code": a.get("code", ""),
-            "avatar": a.get("avatar", ""),
+            "id": a.area_id,
+            "name": a.name,
+            "code": a.code,
+            "avatar": a.avatar,
         })
     resp = {"ok": True, "areas": items}
     _areas_cache.set("all", resp)
@@ -74,28 +78,20 @@ async def admin_area_meta(area_id: str):
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
 
-    area_info = await sender.get_area_info(area=resolved_area)
-    if not isinstance(area_info, dict) or "error" in area_info:
-        err = area_info.get("error") if isinstance(area_info, dict) else "获取域信息失败"
-        return JSONResponse({"ok": False, "error": err or "获取域信息失败"})
+    try:
+        area_info = await sender.bot.areas.get_area_info(resolved_area)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
 
-    roles = []
-    for role in area_info.get("roleList") or []:
-        role_id = role.get("roleID")
-        if role_id is None:
-            continue
-        roles.append({
-            "id": str(role_id),
-            "name": str(role.get("name", "") or ""),
-            "sort": int(role.get("sort", 0) or 0),
-            "type": int(role.get("type", 0) or 0),
-        })
+    roles = [{
+        "id": str(role.role_id), "name": role.name, "sort": role.sort, "type": role.type,
+    } for role in area_info.role_list]
     roles.sort(key=lambda item: (-item["sort"], item["name"], item["id"]))
 
     resp = {
         "ok": True,
         "area": resolved_area,
-        "home_page_channel_id": str(area_info.get("homePageChannelId", "") or ""),
+        "home_page_channel_id": area_info.home_page_channel_id,
         "roles": roles,
     }
     _area_meta_cache.set(resolved_area, resp)
@@ -113,12 +109,8 @@ async def _area_name_map() -> dict[str, str]:
     sender = _get_sender()
     if not sender:
         return {}
-    try:
-        areas = await sender.get_joined_areas(quiet=True)
-    except Exception:
-        logger.debug("获取已加入域失败", exc_info=True)
-        return {}
-    return {a.get("id", ""): (a.get("name") or a.get("id", "")) for a in areas if a.get("id")}
+    areas = await sender.bot.areas.get_joined_areas()
+    return {a.area_id: (a.name or a.area_id) for a in areas if a.area_id}
 
 
 @router.get("/admin/api/members")
@@ -148,46 +140,44 @@ async def admin_members_list(
     if not resolved_area:
         return JSONResponse({"ok": False, "error": "未找到可用域 ID，请检查配置"})
 
-    result = await sender.get_area_members(area=resolved_area, offset_start=offset, offset_end=offset + limit - 1, quiet=True)
-    if "error" in result:
-        await asyncio.sleep(1)
-        result = await sender.get_area_members(area=resolved_area, offset_start=offset, offset_end=offset + limit - 1)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
+    try:
+        page = await sender.bot.areas.get_area_members(
+            area=resolved_area, offset_start=offset, offset_end=offset + limit - 1,
+        )
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
 
-    members = result.get("members") or []
-    total = result.get("totalCount") or result.get("userCount", len(members))
-    online = result.get("onlineCount", 0)
-    is_stale = result.get("stale", False)
+    members = page.members
+    total = page.total_count or len(members)
+    online = sum(item.count for item in page.role_count if item.role != -1)
+    if not page.role_count:
+        online = sum(member.online == 1 for member in page.members)
 
-    uids = [m.get("uid", "") for m in members if m.get("uid")]
+    uids = [m.uid for m in members if m.uid]
     person_map: dict = {}
     if uids:
         try:
-            person_map = await sender.get_person_infos_batch(uids)
+            person_map = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
         except Exception:
             logger.debug("批量获取用户信息失败", exc_info=True)
 
     area_info = None
     try:
-        area_info = await sender.get_area_info(area=resolved_area)
+        area_info = await sender.bot.areas.get_area_info(area=resolved_area)
     except Exception:
         logger.debug("获取域信息失败 (area=%s)", resolved_area[:8] if resolved_area else "")
     role_name_map: dict[int, str] = {}
-    if area_info and isinstance(area_info, dict) and "error" not in area_info:
-        for r in area_info.get("roleList") or []:
-            rid = r.get("roleID")
-            if rid is not None:
-                role_name_map[int(rid)] = r.get("name", "")
+    if area_info:
+        role_name_map = {role.role_id: role.name for role in area_info.role_list}
 
     if keyword:
         kw = keyword.lower()
         filtered = []
         for m in members:
-            uid = m.get("uid", "")
-            pi = person_map.get(uid, {})
-            name = pi.get("name", "") or uid[:8]
-            if kw in name.lower() or kw in uid.lower() or kw in (pi.get("pid") or "").lower():
+            uid = m.uid
+            pi = person_map.get(uid)
+            name = get_resolver().user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8]
+            if kw in name.lower() or kw in uid.lower() or kw in ((pi.pid if pi else "") or "").lower():
                 filtered.append(m)
         members = filtered
         total = len(filtered)
@@ -197,20 +187,20 @@ async def admin_members_list(
 
     items = []
     for m in members:
-        uid = m.get("uid", "")
-        pi = person_map.get(uid, {})
-        role_id = m.get("role", 0)
+        uid = m.uid
+        pi = person_map.get(uid)
+        role_id = m.role
         items.append({
             "uid": uid,
-            "name": pi.get("name") or uid[:8],
-            "avatar": pi.get("avatar", ""),
-            "pid": pi.get("pid", ""),
-            "online": m.get("online", 0) == 1,
+            "name": get_resolver().user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8],
+            "avatar": (pi.avatar if pi else ""),
+            "pid": (pi.pid if pi else ""),
+            "online": m.online == 1,
             "role": role_id,
             "roleName": role_name_map.get(int(role_id), "") if role_id else "",
-            "roleSort": m.get("roleSort", 0),
-            "playingState": m.get("playingState", ""),
-            "displayType": m.get("displayType", ""),
+            "roleSort": m.role_sort,
+            "playingState": m.playing_state,
+            "displayType": m.display_type,
             "is_bot_admin": uid in admin_set,
         })
     resp_data: dict = {
@@ -221,8 +211,6 @@ async def admin_members_list(
         "offset": offset,
         "limit": limit,
     }
-    if is_stale:
-        resp_data["stale"] = True
     if not keyword:
         _members_resp_cache.set(cache_key, resp_data)
     return JSONResponse(resp_data)
@@ -241,19 +229,22 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
     cache_key = f"{ALL_AREAS}:pool"
     pool = _members_resp_cache.get(cache_key)
     if pool is None:
-        names = await _area_name_map()
+        try:
+            names = await _area_name_map()
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
         if not names:
             return JSONResponse({"ok": False, "error": "未找到任何已加入的域"})
 
-        async def one(area_id: str) -> tuple[str, dict]:
+        async def one(area_id: str) -> tuple[str, AreaMembersPage | None]:
             try:
-                return area_id, await sender.get_area_members(
+                return area_id, await sender.bot.areas.get_area_members(
                     area=area_id, offset_start=0,
-                    offset_end=_CROSS_AREA_FETCH_LIMIT - 1, quiet=True,
+                    offset_end=_CROSS_AREA_FETCH_LIMIT - 1,
                 )
             except Exception as exc:
                 logger.debug("跨域取成员失败 area=%s: %s", area_id[:8], exc)
-                return area_id, {"error": str(exc)}
+                return area_id, None
 
         results = await asyncio.gather(*(one(aid) for aid in names))
 
@@ -262,54 +253,54 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
         by_uid: dict[str, dict] = {}
         failed: list[str] = []
         for area_id, result in results:
-            if not isinstance(result, dict) or "error" in result:
+            if result is None:
                 failed.append(names.get(area_id, area_id))
                 continue
-            members = result.get("members") or []
-            uids = [m.get("uid", "") for m in members if m.get("uid")]
+            members = result.members
+            uids = [m.uid for m in members if m.uid]
             person_map: dict = {}
             if uids:
                 try:
-                    person_map = await sender.get_person_infos_batch(uids)
+                    person_map = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
                 except Exception:
                     logger.debug("跨域批量取用户信息失败 area=%s", area_id[:8], exc_info=True)
             for m in members:
-                uid = m.get("uid", "")
+                uid = m.uid
                 if not uid:
                     continue
                 membership = {
                     "areaId": area_id,
                     "areaName": names.get(area_id, area_id),
-                    "role": m.get("role", 0),
-                    "roleSort": m.get("roleSort", 0),
+                    "role": m.role,
+                    "roleSort": m.role_sort,
                 }
                 entry = by_uid.get(uid)
                 if entry is None:
-                    info = person_map.get(uid, {})
+                    info = person_map.get(uid)
                     by_uid[uid] = {
                         "uid": uid,
-                        "name": info.get("name") or uid[:8],
-                        "avatar": info.get("avatar", ""),
-                        "pid": info.get("pid", ""),
-                        "online": m.get("online", 0) == 1,
-                        "role": m.get("role", 0),
+                        "name": get_resolver().user_cached(uid, fallback=False) or (info.name if info else "") or uid[:8],
+                        "avatar": (info.avatar if info else ""),
+                        "pid": (info.pid if info else ""),
+                        "online": m.online == 1,
+                        "role": m.role,
                         "roleName": "",
-                        "roleSort": m.get("roleSort", 0),
-                        "playingState": m.get("playingState", ""),
-                        "displayType": m.get("displayType", ""),
+                        "roleSort": m.role_sort,
+                        "playingState": m.playing_state,
+                        "displayType": m.display_type,
                         "areas": [membership],
                     }
                     continue
                 entry["areas"].append(membership)
                 # 在任一域在线就算在线；权限取各域中最高的，避免合并后被低权限域盖掉
-                if m.get("online", 0) == 1:
+                if m.online == 1:
                     entry["online"] = True
-                    if m.get("playingState"):
-                        entry["playingState"] = m.get("playingState", "")
-                        entry["displayType"] = m.get("displayType", "")
-                if m.get("roleSort", 0) > entry["roleSort"]:
-                    entry["roleSort"] = m.get("roleSort", 0)
-                    entry["role"] = m.get("role", 0)
+                    if m.playing_state:
+                        entry["playingState"] = m.playing_state
+                        entry["displayType"] = m.display_type
+                if m.role_sort > entry["roleSort"]:
+                    entry["roleSort"] = m.role_sort
+                    entry["role"] = m.role
 
         merged = list(by_uid.values())
         for entry in merged:
@@ -318,7 +309,8 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
             entry["areaId"] = entry["areas"][0]["areaId"]
             entry["areaName"] = entry["areas"][0]["areaName"]
         pool = {"members": merged, "failed": failed}
-        _members_resp_cache.set(cache_key, pool)
+        if not failed:
+            _members_resp_cache.set(cache_key, pool)
 
     from config import ADMIN_UIDS
 
@@ -356,16 +348,11 @@ async def admin_members_blocks(area: str = Query("")):
     sender = _require_sender()
     area = area.strip() or await _resolve_area_async()
 
-    def _parse(data: dict, area_id: str, area_name: str) -> list[dict]:
+    def _parse(data: list[UserInfo], area_id: str, area_name: str) -> list[dict]:
         resolver = get_resolver()
         parsed = []
-        for item in data.get("blocks") or []:
-            if not isinstance(item, dict):
-                continue
-            raw_uid = item.get("uid") or item.get("person") or item.get("target") or ""
-            if isinstance(raw_uid, dict):
-                raw_uid = raw_uid.get("uid") or raw_uid.get("person") or ""
-            uid = raw_uid if isinstance(raw_uid, str) else ""
+        for item in data:
+            uid = item.uid
             name = resolver.user(uid) if uid else ""
             parsed.append({
                 "uid": uid,
@@ -378,27 +365,37 @@ async def admin_members_blocks(area: str = Query("")):
     # 「全部域」不是真实域 ID，必须逐域查询后合并；封禁是按域生效的，
     # 每条都要带上来源域，否则解封会打到错误的域。
     if area == ALL_AREAS:
-        names = await _area_name_map()
+        try:
+            names = await _area_name_map()
+        except Exception as exc:
+            return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
         if not names:
             return JSONResponse({"ok": True, "blocks": [], "error_hint": "未找到任何已加入的域"})
 
-        async def one(area_id: str) -> tuple[str, dict]:
+        async def one(area_id: str) -> tuple[str, list, str]:
             try:
-                return area_id, await sender.get_area_blocks(area=area_id)
+                return area_id, await sender.bot.moderation.get_area_blocks(area_id), ""
             except Exception as exc:
-                logger.debug("跨域取封禁失败 area=%s: %s", area_id[:8], exc)
-                return area_id, {"error": str(exc)}
+                return area_id, [], str(exc)
 
         blocks: list[dict] = []
-        for area_id, data in await asyncio.gather(*(one(aid) for aid in names)):
-            if isinstance(data, dict) and "error" not in data:
-                blocks.extend(_parse(data, area_id, names.get(area_id, area_id)))
-        return JSONResponse({"ok": True, "blocks": blocks, "crossArea": True})
+        failed = []
+        for area_id, data, error in await asyncio.gather(*(one(aid) for aid in names)):
+            if error:
+                failed.append({"areaId": area_id, "areaName": names[area_id], "error": error})
+            else:
+                blocks.extend(_parse(data, area_id, names[area_id]))
+        if len(failed) == len(names):
+            return JSONResponse({"ok": False, "error": "所有域的封禁列表查询失败", "partial": failed}, status_code=502)
+        return JSONResponse({"ok": True, "blocks": blocks, "crossArea": True, "partial": failed})
 
-    data = await sender.get_area_blocks(area=area) if area else {"error": "未找到可用域 ID"}
-    if "error" in data:
-        return JSONResponse({"ok": True, "blocks": [], "error_hint": data["error"]})
-    names = await _area_name_map()
+    if not area:
+        return JSONResponse({"ok": False, "error": "未找到可用域 ID"}, status_code=400)
+    try:
+        data = await sender.bot.moderation.get_area_blocks(area)
+        names = await _area_name_map()
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     return JSONResponse({"ok": True, "blocks": _parse(data, area, names.get(area, ""))})
 
 
@@ -407,11 +404,14 @@ async def admin_members_blocks(area: str = Query("")):
 async def admin_member_detail(uid: str, area: str = Query("")):
     sender = _require_sender()
     area = area.strip() or await _resolve_area_async()
-    detail = await sender.get_user_area_detail(uid, area=area) if area else {"error": "未找到域 ID"}
-    if "error" in detail:
-        return JSONResponse({"ok": False, "error": detail["error"]})
-    person = await sender.get_person_detail(uid)
-    assignable = await sender.get_assignable_roles(uid, area=area) if area else []
+    if not area:
+        return JSONResponse({"ok": False, "error": "未找到域 ID"}, status_code=400)
+    try:
+        detail = await sender.bot.areas.get_area_user_detail(area, uid)
+        person = await sender.bot.person.get_person_info(uid)
+        assignable = await sender.bot.areas.get_area_can_give_list(area, uid)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     default_area = area
     stats_data = await MessageStatsDB.get_user_ranking(
         area_id=default_area,
@@ -424,31 +424,19 @@ async def admin_member_detail(uid: str, area: str = Query("")):
             user_msg_count = s.get("total", 0)
             break
 
-    person_data: dict = {}
-    if "error" not in person:
-        person_data = {
-            "name": person.get("name") or person.get("nickname") or uid[:8],
-            "avatar": person.get("avatar") or "",
-            "pid": person.get("pid") or person.get("userCommonId") or "",
-            "online": bool(person.get("online")),
-            "introduction": person.get("introduction") or "",
-        }
-
-    role_list = detail.get("list") or []
-    roles_out = []
-    for r in role_list:
-        if not isinstance(r, dict):
-            continue
-        roles_out.append({
-            "roleID": r.get("roleID"),
-            "name": r.get("name", ""),
-        })
-
-    disable_text_to = detail.get("disableTextTo", 0)
-    disable_voice_to = detail.get("disableVoiceTo", 0)
+    person_data = {
+        "name": person.name or uid[:8],
+        "avatar": person.avatar,
+        "pid": person.pid or person.user_common_id,
+        "online": person.online,
+        "introduction": person.introduction,
+    }
+    roles_out = [{"roleID": role.role_id, "name": role.name} for role in detail.roles]
+    disable_text_to = int(detail.disable_text_to or 0)
+    disable_voice_to = int(detail.disable_voice_to or 0)
     now_ms = int(time.time() * 1000)
-    is_muted = isinstance(disable_text_to, (int, float)) and int(disable_text_to) > now_ms
-    is_mic_muted = isinstance(disable_voice_to, (int, float)) and int(disable_voice_to) > now_ms
+    is_muted = disable_text_to > now_ms
+    is_mic_muted = disable_voice_to > now_ms
 
     from config import ADMIN_UIDS
     is_bot_admin = uid in ADMIN_UIDS
@@ -462,7 +450,7 @@ async def admin_member_detail(uid: str, area: str = Query("")):
         "muted_until": int(disable_text_to) if is_muted else 0,
         "mic_muted": is_mic_muted,
         "mic_muted_until": int(disable_voice_to) if is_mic_muted else 0,
-        "assignable_roles": assignable if isinstance(assignable, list) else [],
+        "assignable_roles": [role.model_dump(by_alias=True, exclude_none=True) for role in assignable],
         "messages_7d": user_msg_count,
         "is_bot_admin": is_bot_admin,
     })
@@ -482,11 +470,14 @@ async def admin_member_mute(uid: str, request: Request):
         duration = int(body.get("duration", 5))
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
-    result = await sender.mute_user(uid, area=area, duration=duration)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已禁言")})
+    try:
+        result = await sender.bot.moderation.mute_user(area, uid, duration=duration)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已禁言")})
 
 
 @router.post("/admin/api/members/{uid}/unmute")
@@ -495,11 +486,14 @@ async def admin_member_unmute(uid: str, request: Request):
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
-    result = await sender.unmute_user(uid, area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已解除禁言")})
+    try:
+        result = await sender.bot.moderation.unmute_user(area, uid)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已解除禁言")})
 
 
 @router.post("/admin/api/members/{uid}/mute-mic")
@@ -512,11 +506,14 @@ async def admin_member_mute_mic(uid: str, request: Request):
         duration = int(body.get("duration", 10))
     except (TypeError, ValueError):
         return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
-    result = await sender.mute_mic(uid, area=area, duration=duration)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已禁麦")})
+    try:
+        result = await sender.bot.moderation.mute_mic(area, uid, duration=duration)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已禁麦")})
 
 
 @router.post("/admin/api/members/{uid}/unmute-mic")
@@ -525,11 +522,14 @@ async def admin_member_unmute_mic(uid: str, request: Request):
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
-    result = await sender.unmute_mic(uid, area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已解除禁麦")})
+    try:
+        result = await sender.bot.moderation.unmute_mic(area, uid)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已解除禁麦")})
 
 
 @router.post("/admin/api/members/{uid}/kick")
@@ -538,11 +538,14 @@ async def admin_member_kick(uid: str, request: Request):
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
-    result = await sender.remove_from_area(uid, area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已踢出")})
+    try:
+        result = await sender.bot.moderation.remove_from_area(area, uid)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已踢出")})
 
 
 @router.post("/admin/api/members/{uid}/block")
@@ -551,11 +554,14 @@ async def admin_member_block(uid: str, request: Request):
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
-    result = await sender.block_user_in_area(uid, area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已封禁")})
+    try:
+        result = await sender.bot.moderation.block_user_in_area(area, uid)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已封禁")})
 
 
 @router.post("/admin/api/members/{uid}/unblock")
@@ -564,11 +570,14 @@ async def admin_member_unblock(uid: str, request: Request):
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
-    result = await sender.unblock_user_in_area(uid, area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "已解封")})
+    try:
+        result = await sender.bot.moderation.unblock_user_in_area(area, uid)
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)})
+    _invalidate_members_cache(area)
+    return JSONResponse({"ok": True, "message": (result.message or "已解封")})
 
 
 @router.post("/admin/api/members/{uid}/role")
@@ -584,8 +593,10 @@ async def admin_member_role(uid: str, request: Request):
     action = str(body.get("action", "add"))
     if not role_id:
         return JSONResponse({"ok": False, "error": "role_id 不能为空"}, status_code=400)
-    result = await sender.edit_user_role(uid, role_id, add=(action == "add"), area=area)
-    if "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    _invalidate_members_cache()
-    return JSONResponse({"ok": True, "message": result.get("message", "角色已更新")})
+    try:
+        result = await sender.edit_user_role(uid, role_id, add=(action == "add"), area=area)
+        if not result.ok:
+            return JSONResponse({"ok": False, "error": result.message or "修改身份组被拒绝"}, status_code=502)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    return JSONResponse({"ok": True, "message": result.message or "角色已更新"})

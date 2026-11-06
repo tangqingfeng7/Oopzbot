@@ -20,10 +20,14 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk import OopzBot  # noqa: E402
+from oopz_sdk.models import Message  # noqa: E402
+from oopz_sdk.testing.factories import make_config  # noqa: E402
+
+from app.infrastructure.gateways.sender_gateway import SenderGateway  # noqa: E402
+from app.lifecycle.oopz_session import OopzSession  # noqa: E402
 from core import database  # noqa: E402
 from core.database import AreaInviteRequestDB, init_database  # noqa: E402
-from oopz.sdk_gateway import AsyncOopzGateway  # noqa: E402
-from oopz.sdk_services import ProjectAreaService as AreaService  # noqa: E402
 from services.area_invite_inbox import (  # noqa: E402
     capture_private_area_invites,
     extract_area_invite_codes,
@@ -79,15 +83,17 @@ class AreaInviteCodeTest(unittest.TestCase):
 
 class AreaInviteSdkTest(unittest.IsolatedAsyncioTestCase):
     async def test_invite_detail_uses_public_code_detail_endpoint(self) -> None:
-        service = AreaService.__new__(AreaService)
-        service._request_data = AsyncMock(return_value=INVITE_DETAIL)
+        request = AsyncMock(return_value=INVITE_DETAIL)
+        gateway = SenderGateway(OopzBot(make_config()))
+        self.addAsyncCleanup(gateway.bot.stop)
+        gateway.bot.rest.transport.request_data = request
 
-        detail = await service.get_invite_detail(" kz0nlt ")
+        detail = await gateway.get_area_invite_detail(" kz0nlt ")
 
-        self.assertEqual(detail.area_id, "area-1")
-        self.assertEqual(detail.area_name, "测试域")
-        self.assertTrue(detail.is_area_invite)
-        service._request_data.assert_awaited_once_with(
+        self.assertEqual(detail["area"], "area-1")
+        self.assertEqual(detail["areaName"], "测试域")
+        self.assertTrue(detail["isAreaInvite"])
+        request.assert_awaited_once_with(
             "GET",
             "/invite/v1/codeDetail",
             params={"code": "kz0nlt"},
@@ -96,10 +102,7 @@ class AreaInviteSdkTest(unittest.IsolatedAsyncioTestCase):
 
 class PrivateInviteCaptureTest(unittest.IsolatedAsyncioTestCase):
     async def test_private_message_is_resolved_and_saved_without_joining(self) -> None:
-        sender = SimpleNamespace(
-            get_area_invite_detail=AsyncMock(return_value=INVITE_DETAIL),
-            enter_area=AsyncMock(),
-        )
+        sender = SimpleNamespace(get_area_invite_detail=AsyncMock(return_value=INVITE_DETAIL), bot=SimpleNamespace(areas=SimpleNamespace(enter_area=AsyncMock())))
         resolver = SimpleNamespace(
             ensure_users=AsyncMock(return_value={"user-1": "邀请人"}),
             user_cached=Mock(return_value="邀请人"),
@@ -119,7 +122,7 @@ class PrivateInviteCaptureTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(captured, 1)
         sender.get_area_invite_detail.assert_awaited_once_with("kz0nlt")
-        sender.enter_area.assert_not_awaited()
+        sender.bot.areas.enter_area.assert_not_awaited()
         assert save.await_args is not None
         self.assertEqual(save.await_args.kwargs["sender_id"], "user-1")
         self.assertEqual(save.await_args.kwargs["detail"]["area"], "area-1")
@@ -132,17 +135,35 @@ class PrivateInviteCaptureTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_gateway_has_a_separate_private_message_callback(self) -> None:
         callback = AsyncMock()
-        gateway = AsyncOopzGateway(on_private_message=callback)
-        message = {"content": "https://oopz.cn/i/kz0nlt"}
+        gateway = OopzSession(on_private_message=callback)
+        message = Message.from_api({"content": "https://oopz.cn/i/kz0nlt", "messageId": "invite", "person": "user"})
         await gateway._handle_sdk_private_message(message, None)
-        callback.assert_awaited_once_with(message)
+        assert callback.await_args is not None
+        payload = callback.await_args.args[0]
+        self.assertEqual(payload["content"], "https://oopz.cn/i/kz0nlt")
+        self.assertEqual(payload["messageId"], "invite")
+        self.assertEqual(payload["person"], "user")
+
+    async def test_public_message_callback_preserves_platform_field_names(self) -> None:
+        callback = AsyncMock()
+        gateway = OopzSession(on_chat_message=callback)
+        await gateway._handle_sdk_message(Message.from_api({
+            "area": "area", "channel": "channel", "content": "消息", "messageId": "message",
+            "person": "user", "timestamp": "123", "mentionList": [{"person": "bot", "isBot": True}],
+        }), None)
+        assert callback.await_args is not None
+        payload = callback.await_args.args[0]
+        self.assertEqual(payload["messageId"], "message")
+        self.assertEqual(payload["person"], "user")
+        self.assertEqual(payload["mentionList"][0]["person"], "bot")
+        self.assertTrue(payload["mentionList"][0]["isBot"])
 
     def test_gateway_registers_private_message_event(self) -> None:
-        gateway = AsyncOopzGateway(on_private_message=AsyncMock())
+        gateway = OopzSession(on_private_message=AsyncMock())
         bot = Mock()
         with (
-            patch("oopz.sdk_gateway.OopzBot", return_value=bot),
-            patch("oopz.sdk_gateway.install_project_transports"),
+            patch("app.lifecycle.oopz_session.OopzBot", return_value=bot),
+            patch("app.lifecycle.oopz_session.install_project_transports"),
         ):
             gateway._install_bot(Mock(), None, None)
         bot.on_private_message.assert_called_once_with(gateway._handle_sdk_private_message)
@@ -203,7 +224,7 @@ class AdminAreaInviteApiTest(unittest.TestCase):
             return self.client.request(method, path, json=payload)
 
     def test_list_returns_only_stored_private_invites(self) -> None:
-        sender = SimpleNamespace(get_joined_areas=AsyncMock(return_value=[]))
+        sender = SimpleNamespace(bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[]))))
         with patch.object(
             AreaInviteRequestDB,
             "list_pending",
@@ -218,11 +239,7 @@ class AdminAreaInviteApiTest(unittest.TestCase):
         self.assertTrue(invite["canAccept"])
 
     def test_accept_requires_a_stored_pending_private_invite(self) -> None:
-        sender = SimpleNamespace(
-            get_area_invite_detail=AsyncMock(),
-            get_joined_areas=AsyncMock(return_value=[]),
-            enter_area=AsyncMock(),
-        )
+        sender = SimpleNamespace(get_area_invite_detail=AsyncMock(), bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[]), enter_area=AsyncMock())))
         with patch.object(
             AreaInviteRequestDB,
             "get_pending",
@@ -237,14 +254,10 @@ class AdminAreaInviteApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 404)
         sender.get_area_invite_detail.assert_not_awaited()
-        sender.enter_area.assert_not_awaited()
+        sender.bot.areas.enter_area.assert_not_awaited()
 
     def test_accept_reresolves_and_joins_server_supplied_area(self) -> None:
-        sender = SimpleNamespace(
-            get_area_invite_detail=AsyncMock(return_value=INVITE_DETAIL),
-            get_joined_areas=AsyncMock(return_value=[]),
-            enter_area=AsyncMock(return_value={"ok": True, "message": ""}),
-        )
+        sender = SimpleNamespace(get_area_invite_detail=AsyncMock(return_value=INVITE_DETAIL), bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[]), enter_area=AsyncMock(return_value=SimpleNamespace(ok=True, message='')))))
         import web.admin.members._members as member_routes
 
         with (
@@ -268,12 +281,12 @@ class AdminAreaInviteApiTest(unittest.TestCase):
             )
 
         self.assertEqual(response.status_code, 200)
-        sender.enter_area.assert_awaited_once_with(area="area-1", recover=False)
+        sender.bot.areas.enter_area.assert_awaited_once_with(area="area-1", recover=False)
         mark_processed.assert_awaited_once_with("kz0nlt", "accepted")
         invalidate.assert_called_once_with("all")
 
     def test_reject_removes_pending_invite_without_joining(self) -> None:
-        sender = SimpleNamespace(enter_area=AsyncMock())
+        sender = SimpleNamespace(bot=SimpleNamespace(areas=SimpleNamespace(enter_area=AsyncMock())))
         with patch.object(
             AreaInviteRequestDB,
             "mark_processed",
@@ -288,7 +301,7 @@ class AdminAreaInviteApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         mark_processed.assert_awaited_once_with("kz0nlt", "rejected")
-        sender.enter_area.assert_not_awaited()
+        sender.bot.areas.enter_area.assert_not_awaited()
 
 
 class AreaInviteUiContractTest(unittest.TestCase):

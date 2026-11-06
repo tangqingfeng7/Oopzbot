@@ -12,6 +12,17 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 
+from oopz_sdk.models import (  # noqa: E402
+    AreaMemberInfo,
+    AreaUserDetail,
+    OperationResult,
+    Profile,
+    RoleInfo,
+    UserInfo,
+)
+from oopz_sdk.models.channel import VoiceChannelMembersResult  # noqa: E402
+from oopz_sdk.models.general import DailySpeech  # noqa: E402
+
 from app.services.runtime import CommandRuntimeView  # noqa: E402
 
 
@@ -126,10 +137,10 @@ class RoleServiceTest(unittest.IsolatedAsyncioTestCase):
         from app.services.community.role_service import RoleService
 
         self.target_resolution.resolve_target.return_value = "user-1"
-        self.sender.get_assignable_roles.return_value = [
-            {"roleID": 7, "name": "成员"},
+        self.sender.bot.areas.get_area_can_give_list.return_value = [
+            RoleInfo(roleID=7, name="成员"),
         ]
-        self.sender.edit_user_role.return_value = {"message": "ok"}
+        self.sender.edit_user_role.return_value = OperationResult(message="ok")
 
         with patch("app.services.community.role_service.get_resolver") as get_resolver:
             get_resolver.return_value.user.return_value = "测试用户"
@@ -144,8 +155,8 @@ class RoleServiceTest(unittest.IsolatedAsyncioTestCase):
         from app.services.community.role_service import RoleService
 
         self.target_resolution.resolve_target.return_value = "user-1"
-        self.sender.get_assignable_roles.return_value = [
-            {"roleID": 7, "name": "成员"},
+        self.sender.bot.areas.get_area_can_give_list.return_value = [
+            RoleInfo(roleID=7, name="成员"),
         ]
 
         with patch("app.services.community.role_service.get_resolver") as get_resolver:
@@ -161,10 +172,10 @@ class RoleServiceTest(unittest.IsolatedAsyncioTestCase):
         from app.services.community.role_service import RoleService
 
         self.target_resolution.resolve_target.return_value = "user-1"
-        self.sender.get_user_area_detail.return_value = {
+        self.sender.bot.areas.get_area_user_detail.return_value = AreaUserDetail.from_api({
             "list": [{"roleID": 9, "name": "管理员"}],
-        }
-        self.sender.edit_user_role.return_value = {"message": "ok"}
+        })
+        self.sender.edit_user_role.return_value = OperationResult(message="ok")
 
         with patch("app.services.community.role_service.get_resolver") as get_resolver:
             get_resolver.return_value.user.return_value = "测试用户"
@@ -183,7 +194,34 @@ class RoleServiceTest(unittest.IsolatedAsyncioTestCase):
         service = RoleService(self.handler)
         await service.show_assignable_roles("@missing", "channel-1", "area-1")
 
-        self.sender.get_assignable_roles.assert_not_called()
+        self.sender.bot.areas.get_area_can_give_list.assert_not_called()
+
+    async def test_show_roles_formats_sdk_string_mute_deadlines(self) -> None:
+        import datetime
+
+        from app.services.community.role_service import RoleService
+
+        self.target_resolution.resolve_target.return_value = "user-1"
+        self.sender.bot.areas.get_area_user_detail.return_value = AreaUserDetail.from_api({
+            "list": [{"roleID": 7, "name": "成员"}],
+            "disableTextTo": "1800000000000", "disableVoiceTo": "1800000060000",
+        })
+        await RoleService(self.handler).show_user_roles("用户", "channel", "area")
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("成员 (ID=7)", message)
+        for label, seconds in (("禁言至", 1800000000), ("禁麦至", 1800000060)):
+            self.assertIn(f"{label}: {datetime.datetime.fromtimestamp(seconds):%Y-%m-%d %H:%M}", message)
+
+    async def test_rejected_role_change_is_reported_as_failure(self) -> None:
+        from app.services.community.role_service import RoleService
+
+        self.target_resolution.resolve_target.return_value = "user-1"
+        self.sender.bot.areas.get_area_can_give_list.return_value = [RoleInfo(roleID=7, name="成员")]
+        self.sender.edit_user_role.return_value = OperationResult(ok=False, message="没有权限")
+        await RoleService(self.handler).give_role("用户", "7", "channel", "area")
+        message = self.sender.send_message.call_args.args[0]
+        self.assertIn("添加身份组失败", message)
+        self.assertIn("没有权限", message)
         self.sender.send_message.assert_called_once()
 
 
@@ -201,7 +239,7 @@ class MemberServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_show_members_stops_on_sender_error(self) -> None:
         from app.services.community.member_service import MemberService
 
-        self.sender.get_area_members.return_value = {"error": "网络错误"}
+        self.sender.bot.areas.get_all_area_members.side_effect = RuntimeError("网络错误")
 
         service = MemberService(self.handler)
         await service.show_members("channel-1", "area-1")
@@ -212,15 +250,10 @@ class MemberServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_show_members_aggregates_unique_members(self) -> None:
         from app.services.community.member_service import MemberService
 
-        self.sender.get_area_members.side_effect = [
-            {
-                "members": [
-                    {"uid": "u1", "online": 1, "playingState": "游戏中"},
-                    {"uid": "u2", "online": 0},
-                    {"uid": "u1", "online": 1, "playingState": "游戏中"},
-                ]
-            },
-            {"members": []},
+        self.sender.bot.areas.get_all_area_members.return_value = [
+            AreaMemberInfo.model_validate({"uid": "u1", "online": 1, "playingState": "游戏中"}),
+            AreaMemberInfo.model_validate({"uid": "u2", "online": 0}),
+            AreaMemberInfo.model_validate({"uid": "u1", "online": 1, "playingState": "游戏中"}),
         ]
 
         with patch("app.services.community.member_service.get_resolver") as get_resolver:
@@ -232,7 +265,7 @@ class MemberServiceTest(unittest.IsolatedAsyncioTestCase):
             service = MemberService(self.handler)
             await service.show_members("channel-1", "area-1")
 
-        self.assertEqual(self.sender.get_area_members.call_count, 1)
+        self.sender.bot.areas.get_all_area_members.assert_awaited_once_with("area-1", page_size=100, max_pages=5)
         message = self.sender.send_message.call_args.args[0]
         self.assertIn("总计 2", message)
         self.assertIn("在线 1", message)
@@ -245,8 +278,56 @@ class MemberServiceTest(unittest.IsolatedAsyncioTestCase):
         service = MemberService(self.handler)
         await service.show_whois("@missing", "channel-1", "area-1")
 
-        self.sender.get_person_detail_full.assert_not_called()
+        self.sender.bot.person.get_person_detail_full.assert_not_called()
         self.sender.send_message.assert_called_once()
+
+
+    async def test_profiles_display_sdk_fields(self) -> None:
+        from app.services.community.member_service import MemberService
+
+        service = MemberService(self.handler)
+        self.sender.bot.person.get_person_info.return_value = UserInfo.from_api({
+            "uid": "user", "name": "名字", "online": True, "introduction": "简介内容",
+            "personType": "NORMAL", "avatar": "https://example.test/avatar", "badges": [{"name": "徽章"}],
+        })
+        await service.show_profile("channel", "area", "user")
+        text = self.sender.send_message.call_args.args[0]
+        for expected in ("个人信息 - 名字", "状态: 在线", "简介内容", "类型: NORMAL", "徽章: 1 个"):
+            self.assertIn(expected, text)
+
+        self.sender.bot.person.get_person_detail_full.return_value = Profile.from_api({
+            "uid": "user", "name": "名字", "online": False, "ipAddress": "上海",
+            "personVIPEndTime": "1800000000000", "playingState": "游戏中",
+            "badges": [{"name": "徽章"}], "avatar": "https://example.test/avatar",
+        })
+        for method, args, title in [
+            (service.show_myinfo, ("channel", "area", "user"), "我的详细资料"),
+            (service._show_whois_by_uid, ("user", "channel", "area"), "用户资料"),
+        ]:
+            with self.subTest(method=title):
+                await method(*args)
+                text = self.sender.send_message.call_args.args[0]
+                for expected in (title, "状态: 离线", "IP属地: 上海", "VIP到期:", "徽章(1): 徽章"):
+                    self.assertIn(expected, text)
+        self.assertIn("正在玩: 游戏中", text)
+        self.assertIn("头像: https://example.test/avatar", text)
+
+    async def test_member_search_preserves_name_mapping_and_selection(self) -> None:
+        from app.services.community.member_service import MemberService
+
+        self.sender.search_area_members.return_value = [AreaMemberInfo(uid="user")]
+        selection = Mock()
+        with (
+            patch("app.services.community.member_service.get_resolver") as get_resolver,
+            patch.object(MemberService, "_selection_service", return_value=selection),
+        ):
+            resolver = get_resolver.return_value
+            resolver.ensure_users = AsyncMock()
+            resolver.user.return_value = "人工名称"
+            await MemberService(self.handler).search_members("名字", "channel", "area", "requester")
+        self.assertIn("人工名称", self.sender.send_message.call_args.args[0])
+        self.assertEqual(selection.store.call_args.kwargs["items"], [{"uid": "user", "name": "人工名称"}])
+        resolver.ensure_users.assert_awaited_once_with(["user"])
 
 
 class TargetResolutionServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -259,8 +340,8 @@ class TargetResolutionServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_resolve_target_returns_unique_prefix_match_in_area(self) -> None:
         from app.services.community.target_resolution_service import TargetResolutionService
 
-        self.sender.get_area_members.side_effect = [
-            {"members": [{"uid": "user-1"}, {"uid": "user-2"}], "totalCount": 2},
+        self.sender.bot.areas.get_all_area_members.return_value = [
+            SimpleNamespace(uid="user-1"), SimpleNamespace(uid="user-2"),
         ]
 
         service = TargetResolutionService(self.runtime)
@@ -273,14 +354,14 @@ class TargetResolutionServiceTest(unittest.IsolatedAsyncioTestCase):
             uid = await service.resolve_target("皇", area="area-1")
 
         self.assertEqual(uid, "user-1")
-        self.sender.get_area_members.assert_called_once_with(area="area-1", offset_start=0, offset_end=99, quiet=True)
+        self.sender.bot.areas.get_all_area_members.assert_called_once_with("area-1", page_size=100, max_pages=10)
         resolver.ensure_users.assert_called_once_with(["user-1", "user-2"])
 
     async def test_resolve_target_rejects_ambiguous_matches_in_area(self) -> None:
         from app.services.community.target_resolution_service import TargetResolutionService
 
-        self.sender.get_area_members.side_effect = [
-            {"members": [{"uid": "user-1"}, {"uid": "user-2"}], "totalCount": 2},
+        self.sender.bot.areas.get_all_area_members.return_value = [
+            SimpleNamespace(uid="user-1"), SimpleNamespace(uid="user-2"),
         ]
 
         service = TargetResolutionService(self.runtime)
@@ -352,7 +433,7 @@ class RecallServiceTest(unittest.IsolatedAsyncioTestCase):
         service = RecallService(self.handler)
         await service.recall_message(None, "channel-1", "area-1")
 
-        self.sender.recall_message.assert_not_called()
+        self.sender.bot.messages.recall_message.assert_not_called()
         self.sender.send_message.assert_called_once()
 
     async def test_recall_message_uses_latest_message_in_same_channel(self) -> None:
@@ -363,13 +444,13 @@ class RecallServiceTest(unittest.IsolatedAsyncioTestCase):
             {"messageId": "new", "channel": "channel-1", "area": "area-1", "content": "新消息", "timestamp": "ts-new"},
         ])
         self.message_lookup.resolve_timestamp.return_value = "resolved-ts"
-        self.sender.recall_message.return_value = {"ok": True}
+        self.sender.bot.messages.recall_message.return_value = OperationResult()
 
         service = RecallService(self.handler)
         await service.recall_message("last", "channel-1", "area-1")
 
         self.message_lookup.resolve_timestamp.assert_called_once_with("new", "channel-1", "area-1")
-        self.sender.recall_message.assert_called_once_with("new", area="area-1", channel="channel-1", timestamp="resolved-ts")
+        self.sender.bot.messages.recall_message.assert_called_once_with("new", area="area-1", channel="channel-1", timestamp="resolved-ts")
         self.sender.send_message.assert_called_once()
 
     async def test_recall_multiple_rejects_invalid_count(self) -> None:
@@ -378,7 +459,7 @@ class RecallServiceTest(unittest.IsolatedAsyncioTestCase):
         service = RecallService(self.handler)
         await service.recall_multiple(0, "channel-1", "area-1")
 
-        self.sender.recall_message.assert_not_called()
+        self.sender.bot.messages.recall_message.assert_not_called()
         self.sender.send_message.assert_called_once()
 
     async def test_configure_auto_recall_can_enable_and_disable(self) -> None:
@@ -418,10 +499,10 @@ class MessageRecallSchedulerTest(unittest.IsolatedAsyncioTestCase):
                 await service.schedule_user_message_recall("msg-1", "channel-1", "area-1", "ts-1")
                 # 调度器已是 asyncio 的，忙等必须让出循环，否则被等的任务永远跑不到
                 deadline = time.time() + 1.0
-                while time.time() < deadline and not self.sender.recall_message.called:
+                while time.time() < deadline and not self.sender.bot.messages.recall_message.called:
                     await asyncio.sleep(0.01)
 
-                self.sender.recall_message.assert_called_once_with(
+                self.sender.bot.messages.recall_message.assert_called_once_with(
                     message_id="msg-1",
                     area="area-1",
                     channel="channel-1",
@@ -441,7 +522,7 @@ class MessageRecallSchedulerTest(unittest.IsolatedAsyncioTestCase):
                 await service.schedule_user_message_recall("msg-2", "channel-1", "area-1")
 
                 self.assertEqual(await service.cancel_all(), 1)
-                self.sender.recall_message.assert_not_called()
+                self.sender.bot.messages.recall_message.assert_not_called()
             finally:
                 await service.stop()
 
@@ -492,6 +573,7 @@ class MessageRecallSchedulerTest(unittest.IsolatedAsyncioTestCase):
 class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.sender = AsyncMock()
+        self.sender.bot.areas.cache = Mock()
         self.handler = _runtime(
             infrastructure=SimpleNamespace(sender=self.sender),
         )
@@ -499,7 +581,7 @@ class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_mute_user_sends_success_message(self) -> None:
         from app.services.safety.moderation_service import ModerationService
 
-        self.sender.mute_user.return_value = {"message": "已禁言 测试用户"}
+        self.sender.bot.moderation.mute_user.return_value = OperationResult(message="已禁言 测试用户")
 
         with patch("app.services.safety.moderation_service.NameResolver") as resolver_cls:
             resolver_cls.return_value.user.return_value = "测试用户"
@@ -507,13 +589,13 @@ class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
             service = ModerationService(self.handler)
             await service.mute_user("user-1", 10, "channel-1", "area-1")
 
-        self.sender.mute_user.assert_called_once_with("user-1", area="area-1", duration=10)
+        self.sender.bot.moderation.mute_user.assert_called_once_with("area-1", "user-1", duration=10)
         self.assertIn("[ok]", self.sender.send_message.call_args.args[0])
 
     async def test_unmute_user_sends_error_message(self) -> None:
         from app.services.safety.moderation_service import ModerationService
 
-        self.sender.unmute_user.return_value = {"error": "权限不足"}
+        self.sender.bot.moderation.unmute_user.side_effect = RuntimeError("权限不足")
 
         with patch("app.services.safety.moderation_service.NameResolver") as resolver_cls:
             resolver_cls.return_value.user.return_value = "测试用户"
@@ -521,14 +603,14 @@ class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
             service = ModerationService(self.handler)
             await service.unmute_user("user-1", "channel-1", "area-1")
 
-        self.sender.unmute_user.assert_called_once_with("user-1", area="area-1")
+        self.sender.bot.moderation.unmute_user.assert_called_once_with("area-1", "user-1")
         self.assertIn("[x]", self.sender.send_message.call_args.args[0])
         self.assertIn("权限不足", self.sender.send_message.call_args.args[0])
 
     async def test_remove_from_area_delegates_to_sender(self) -> None:
         from app.services.safety.moderation_service import ModerationService
 
-        self.sender.remove_from_area.return_value = {"message": "已移出域 测试用户"}
+        self.sender.bot.moderation.remove_from_area.return_value = OperationResult(message="已移出域 测试用户")
 
         with patch("app.services.safety.moderation_service.NameResolver") as resolver_cls:
             resolver_cls.return_value.user.return_value = "测试用户"
@@ -536,13 +618,13 @@ class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
             service = ModerationService(self.handler)
             await service.remove_from_area("user-1", "channel-1", "area-1")
 
-        self.sender.remove_from_area.assert_called_once_with("user-1", area="area-1")
+        self.sender.bot.moderation.remove_from_area.assert_called_once_with("area-1", "user-1")
         self.assertIn("[ok]", self.sender.send_message.call_args.args[0])
 
     async def test_show_block_list_reports_empty_list(self) -> None:
         from app.services.safety.moderation_service import ModerationService
 
-        self.sender.get_area_blocks.return_value = {"blocks": []}
+        self.sender.bot.moderation.get_area_blocks.return_value = []
 
         with patch("app.services.safety.moderation_service.get_resolver") as get_resolver:
             get_resolver.return_value.area.return_value = "测试区域"
@@ -555,12 +637,9 @@ class ModerationServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_show_block_list_formats_entries(self) -> None:
         from app.services.safety.moderation_service import ModerationService
 
-        self.sender.get_area_blocks.return_value = {
-            "blocks": [
-                {"uid": "user-1234567890"},
-                {"person": "user-abcdef1234"},
-            ]
-        }
+        self.sender.bot.moderation.get_area_blocks.return_value = [
+            UserInfo(uid='user-1234567890'), UserInfo(uid='user-abcdef1234'),
+        ]
 
         with patch("app.services.safety.moderation_service.get_resolver") as get_resolver:
             resolver = get_resolver.return_value
@@ -757,7 +836,7 @@ class CommonCommandServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_show_voice_channels_reports_empty_state(self) -> None:
         from app.services.interaction.common_command_service import CommonCommandService
 
-        self.sender.get_voice_channel_members.return_value = {}
+        self.sender.bot.channels.get_voice_channel_members.return_value = VoiceChannelMembersResult()
 
         service = CommonCommandService(self.handler)
         await service.show_voice_channels("channel-1", "area-1")
@@ -768,12 +847,9 @@ class CommonCommandServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_show_voice_channels_formats_online_members(self) -> None:
         from app.services.interaction.common_command_service import CommonCommandService
 
-        self.sender.get_voice_channel_members.return_value = {
-            "voice-1": [
-                {"uid": "u1", "isBot": False},
-                {"uid": "u2", "isBot": True},
-            ]
-        }
+        self.sender.bot.channels.get_voice_channel_members.return_value = VoiceChannelMembersResult.from_api({
+            'channelMembers': {'voice-1': [{'uid': 'u1', 'isBot': False}, {'uid': 'u2', 'isBot': True}]},
+        })
 
         with patch("app.services.interaction.common_command_service.get_resolver") as get_resolver:
             resolver = get_resolver.return_value
@@ -788,6 +864,23 @@ class CommonCommandServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("测试区域 - 语音频道在线", message)
         self.assertIn("共 2 人在线", message)
         self.assertIn("机器人2 [Bot]", message)
+
+    async def test_daily_speech_formats_sdk_result_and_reports_query_failure(self) -> None:
+        from app.services.interaction.common_command_service import CommonCommandService
+
+        service = CommonCommandService(self.handler)
+        for payload, expected in [
+            ({"words": "一句话", "author": "作者"}, "「一句话」\n—— 作者"),
+            ({"words": "一句话"}, "「一句话」"),
+            ({}, "暂无内容"),
+        ]:
+            with self.subTest(payload=payload):
+                self.sender.bot.general.get_daily_speech.return_value = DailySpeech.from_api(payload)
+                await service.show_daily_speech("channel", "area")
+                self.assertEqual(self.sender.send_message.call_args.args[0], expected)
+        self.sender.bot.general.get_daily_speech.side_effect = RuntimeError("请求失败")
+        await service.show_daily_speech("channel", "area")
+        self.assertEqual(self.sender.send_message.call_args.args[0], "获取每日一句失败: 请求失败")
 
 
 

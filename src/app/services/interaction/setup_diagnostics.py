@@ -321,10 +321,10 @@ class SetupDiagnostics:
                 page="/admin/areas",
             )
         try:
-            areas = await self._sender.get_joined_areas(quiet=True) or []
+            areas = await self._sender.bot.areas.get_joined_areas()
             if areas:
                 first = areas[0]
-                name = first.get("name") or first.get("id") or "未知域"
+                name = first.name or first.area_id or "未知域"
                 return self._make_check(
                     check_id="joined_areas",
                     group="oopz",

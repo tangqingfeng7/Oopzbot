@@ -506,11 +506,14 @@
     var _editChType = "TEXT";
     var _selectedUids = new Set();
     var _onlineMembers = [];
+    var _editChLoaded = false;
 
     async function showEditChannel(id, chType) {
       _editChType = (chType || "TEXT").toUpperCase();
       _selectedUids = new Set();
       _onlineMembers = [];
+      _editChLoaded = false;
+      AdminShell.byId("editChAccessList").textContent = "成员加载中...";
       AdminShell.byId("editChId").value = id;
       AdminShell.showMessage("editChMsg", "加载中...");
       AdminShell.byId("editChOverlay").classList.add("is-open");
@@ -535,15 +538,17 @@
         toggleEditPwd();
 
         var [amData, olData] = await Promise.all([
-          AdminShell.req(`/admin/api/channels/${encodeURIComponent(id)}/accessible-members`).catch(function() { return {members: []}; }),
-          AdminShell.req(`/admin/api/online-members?area=${encodeURIComponent(currentArea)}`).catch(function() { return {members: []}; }),
+          AdminShell.req(`/admin/api/channels/${encodeURIComponent(id)}/accessible-members`),
+          AdminShell.req(`/admin/api/online-members?area=${encodeURIComponent(currentArea)}`),
         ]);
         (amData.members || []).forEach(function(m) { _selectedUids.add(m.uid); });
         _onlineMembers = olData.members || [];
 
+        _editChLoaded = true;
         toggleSecretPanel();
         AdminShell.showMessage("editChMsg", "");
       } catch (e) {
+        AdminShell.byId("editChAccessList").textContent = "成员加载失败，请重新打开频道设置重试";
         AdminShell.showMessage("editChMsg", "加载设置失败: " + e.message, true);
       }
     }
@@ -561,6 +566,7 @@
 
     function renderOnlineMembers() {
       var el = AdminShell.byId("editChAccessList");
+      if (!_editChLoaded) return;
       if (!_onlineMembers.length) {
         el.innerHTML = '<span class="a-am-empty">当前无在线成员</span>';
         return;
@@ -586,6 +592,10 @@
     }
 
     async function doSaveChannelSettings() {
+      if (!_editChLoaded) {
+        AdminShell.showMessage("editChMsg", "设置尚未加载完成，请重新打开频道设置重试", true);
+        return;
+      }
       var id = AdminShell.byId("editChId").value;
       var name = (AdminShell.byId("editChName").value || "").trim();
       if (!name) { AdminShell.showMessage("editChMsg", "频道名称不能为空", true); return; }

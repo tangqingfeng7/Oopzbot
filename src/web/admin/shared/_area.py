@@ -5,12 +5,20 @@ from __future__ import annotations
 import time
 
 import web.web_player_config as cfg
+from app.infrastructure.member_cache import (
+    MEMBERS_RESP_TTL as _MEMBERS_RESP_TTL,
+)
+from app.infrastructure.member_cache import (
+    invalidate_members_cache,
+)
+from app.infrastructure.member_cache import (
+    members_response_cache as _members_resp_cache,
+)
 from app.services.playback import PlaybackAreaResolver, PlaybackAreaUnavailable
 from core.logger_config import get_logger
 from web.web_link_token import get_active_area
 
 from ._runtime import _get_redis, _get_sender
-from ._ttl_cache import TtlCache
 
 logger = get_logger("WebPlayerAdmin")
 
@@ -40,9 +48,9 @@ async def _resolve_area_async() -> str:
     if not sender:
         return ""
     try:
-        areas = await sender.get_joined_areas(quiet=True)
+        areas = await sender.bot.areas.get_joined_areas()
         if areas:
-            resolved = (areas[0].get("id") or "").strip()
+            resolved = areas[0].area_id.strip()
             if resolved:
                 _resolved_area_cache.update(value=resolved, ts=time.time())
                 return resolved
@@ -105,19 +113,13 @@ def _playback_area_unavailable_payload() -> dict:
     }
 
 
-_MEMBERS_RESP_TTL = 10.0  # 管理后台成员列表响应缓存 10 秒
-# 按 "域:offset:limit" 分槽：单槽缓存会在切域时互相挤掉，来回切就永远不命中。
-_members_resp_cache = TtlCache(_MEMBERS_RESP_TTL)
-
-
-def _invalidate_members_cache() -> None:
-    """管理操作后清除成员列表缓存,让下次请求拿到最新数据。"""
-    _members_resp_cache.invalidate()
+def _invalidate_members_cache(area: str | None = None) -> None:
+    """管理操作成功后清除 SDK 分页与后台展示缓存。"""
     sender = _get_sender()
     if sender:
-        store = getattr(sender, "_area_members_cache", None)
-        if isinstance(store, dict):
-            store.clear()
+        invalidate_members_cache(sender.bot, area)
+    else:
+        _members_resp_cache.invalidate()
 
 
 __all__ = [

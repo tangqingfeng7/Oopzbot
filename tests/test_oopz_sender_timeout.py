@@ -57,9 +57,9 @@ class SdkTransportTimeoutTest(unittest.TestCase):
 
     def test_project_config_supplies_a_bounded_tier(self) -> None:
         """本项目必须显式配档，不能让网关落到无界请求上。"""
-        import oopz.sdk_config as sdk_config
+        import app.lifecycle.oopz_session as session_config
 
-        source = Path(sdk_config.__file__).read_text(encoding="utf-8")
+        source = Path(session_config.__file__).read_text(encoding="utf-8")
         self.assertIn("RequestConfig(timeout=", source)
 
         tree = ast.parse(source)
@@ -73,7 +73,7 @@ class SdkTransportTimeoutTest(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "timeout":
                         found.append(ast.literal_eval(kw.value))
-        self.assertTrue(found, "sdk_config 必须给 RequestConfig 显式配置 timeout")
+        self.assertTrue(found, "session_config 必须给 RequestConfig 显式配置 timeout")
         for value in found:
             connect, read = value
             self.assertGreater(connect, 0)
@@ -201,9 +201,9 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
 
 class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
     async def test_gateway_delegates_to_shared_scheduler(self) -> None:
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock(return_value=True)
 
@@ -219,9 +219,9 @@ class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_disabled_config_skips_scheduling(self) -> None:
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock()
 
@@ -232,9 +232,9 @@ class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_positive_delay_skips_scheduling(self) -> None:
         """延迟为 0 意味着立即撤回，等同于没发出去，必须当作未启用。"""
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock()
 

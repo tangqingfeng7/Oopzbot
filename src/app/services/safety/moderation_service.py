@@ -1,3 +1,4 @@
+from app.infrastructure.member_cache import invalidate_members_cache
 from app.services.runtime import CommandRuntimeView, sender_of
 from core.constants import Msg
 from oopz.name_resolver import NameResolver, get_resolver
@@ -12,21 +13,29 @@ class ModerationService:
     async def mute_user(self, uid: str, duration: int, channel: str, area: str) -> None:
         """执行禁言。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.mute_user(uid, area=area, duration=duration)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 禁言 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.mute_user(area, uid, duration=duration)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 禁言 {name} 失败: {exc}", channel=channel, area=area)
             return
-        await self._sender.send_message(f"{Msg.OK} {result.get('message', f'已禁言 {name}')}", channel=channel, area=area)
+        await self._sender.send_message(f"{Msg.OK} {(result.message or f'已禁言 {name}')}", channel=channel, area=area)
 
     async def unmute_user(self, uid: str, channel: str, area: str) -> None:
         """执行解除禁言。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.unmute_user(uid, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 解除禁言 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.unmute_user(area, uid)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 解除禁言 {name} 失败: {exc}", channel=channel, area=area)
             return
         await self._sender.send_message(
-            f"{Msg.OK} {result.get('message', f'已解除 {name} 的禁言')}",
+            f"{Msg.OK} {(result.message or f'已解除 {name} 的禁言')}",
             channel=channel,
             area=area,
         )
@@ -34,21 +43,29 @@ class ModerationService:
     async def mute_mic(self, uid: str, channel: str, area: str, duration: int = 10) -> None:
         """执行禁麦。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.mute_mic(uid, area=area, duration=duration)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 禁麦 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.mute_mic(area, uid, duration=duration)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 禁麦 {name} 失败: {exc}", channel=channel, area=area)
             return
-        await self._sender.send_message(f"{Msg.OK} {result.get('message', f'已禁麦 {name}')}", channel=channel, area=area)
+        await self._sender.send_message(f"{Msg.OK} {(result.message or f'已禁麦 {name}')}", channel=channel, area=area)
 
     async def unmute_mic(self, uid: str, channel: str, area: str) -> None:
         """执行解除禁麦。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.unmute_mic(uid, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 解除禁麦 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.unmute_mic(area, uid)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 解除禁麦 {name} 失败: {exc}", channel=channel, area=area)
             return
         await self._sender.send_message(
-            f"{Msg.OK} {result.get('message', f'已解除 {name} 的禁麦')}",
+            f"{Msg.OK} {(result.message or f'已解除 {name} 的禁麦')}",
             channel=channel,
             area=area,
         )
@@ -56,21 +73,29 @@ class ModerationService:
     async def remove_from_area(self, uid: str, channel: str, area: str) -> None:
         """将用户移出当前域。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.remove_from_area(uid, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 移出域 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.remove_from_area(area, uid)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 移出域 {name} 失败: {exc}", channel=channel, area=area)
             return
-        await self._sender.send_message(f"{Msg.OK} {result.get('message', f'已移出域 {name}')}", channel=channel, area=area)
+        await self._sender.send_message(f"{Msg.OK} {(result.message or f'已移出域 {name}')}", channel=channel, area=area)
 
     async def unblock_in_area(self, uid: str, channel: str, area: str) -> None:
         """解除域内封禁。"""
         name = NameResolver().user(uid) or uid[:8]
-        result = await self._sender.unblock_user_in_area(uid, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 解除域内封禁 {name} 失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.bot.moderation.unblock_user_in_area(area, uid)
+            if not result.ok:
+                raise RuntimeError(result.message or "操作被拒绝")
+            invalidate_members_cache(self._sender.bot, area)
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 解除域内封禁 {name} 失败: {exc}", channel=channel, area=area)
             return
         await self._sender.send_message(
-            f"{Msg.OK} {result.get('message', f'已解除 {name} 的域内封禁')}",
+            f"{Msg.OK} {(result.message or f'已解除 {name} 的域内封禁')}",
             channel=channel,
             area=area,
         )
@@ -78,12 +103,12 @@ class ModerationService:
     async def show_block_list(self, channel: str, area: str) -> None:
         """展示当前域封禁列表。"""
         resolver = get_resolver()
-        data = await self._sender.get_area_blocks(area=area)
-        if "error" in data:
-            await self._sender.send_message(f"获取域封禁列表失败: {data['error']}", channel=channel, area=area)
+        try:
+            blocks = await self._sender.bot.moderation.get_area_blocks(area)
+        except Exception as exc:
+            await self._sender.send_message(f"获取域封禁列表失败: {exc}", channel=channel, area=area)
             return
 
-        blocks = data.get("blocks", [])
         area_name = resolver.area(area)
         if not blocks:
             await self._sender.send_message(f"{area_name} 当前无封禁用户。", channel=channel, area=area)
@@ -91,10 +116,8 @@ class ModerationService:
 
         lines = [f"{area_name} - 封禁列表（共 {len(blocks)} 人）", "---"]
         for index, item in enumerate(blocks, 1):
-            uid = item.get("uid") or item.get("person") or item.get("target") or str(item)
-            if isinstance(uid, dict):
-                uid = uid.get("uid") or uid.get("person") or ""
-            name = resolver.user(uid) if isinstance(uid, str) else ""
+            uid = item.uid
+            name = resolver.user(uid)
             display = f"{name} ({uid[:8]}...)" if name else uid[:16] + "..."
             lines.append(f"{index}. {display}")
 

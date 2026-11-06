@@ -1,3 +1,4 @@
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -18,20 +19,30 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from oopz.sdk_services import ProjectAreaService as AreaService  # noqa: E402
+from oopz_sdk import OopzBot  # noqa: E402
+from oopz_sdk.models import AreaInfo  # noqa: E402
+from oopz_sdk.testing.factories import make_config  # noqa: E402
+from oopz_sdk.transport.http import HttpResponse, HttpTransport  # noqa: E402
+
+from app.infrastructure.oopz_connection import install_project_transports  # noqa: E402
+from core.proxy_utils import ProxySettings  # noqa: E402
 
 
 class AreaLeaveSdkTest(unittest.IsolatedAsyncioTestCase):
     async def test_leave_area_uses_quit_endpoint(self) -> None:
-        service = AreaService.__new__(AreaService)
-        service._request_data = AsyncMock(return_value={"status": True})
-
-        result = await service.leave_area("area-1")
+        bot = OopzBot(make_config())
+        self.addAsyncCleanup(bot.stop)
+        install_project_transports(bot, ProxySettings(mode="direct"), None)
+        text = json.dumps({"status": True, "data": {"status": True}})
+        response = HttpResponse(status_code=200, headers={}, content=text.encode(), text=text)
+        with patch.object(HttpTransport, "request", AsyncMock(return_value=response)) as request:
+            result = await bot.areas.leave_area("area-1")
 
         self.assertTrue(result.ok)
-        service._request_data.assert_awaited_once_with(
+        request.assert_awaited_once_with(
             "DELETE",
             "/client/v1/area/v1/quit",
+            body=None,
             params={"area": "area-1"},
         )
 
@@ -59,21 +70,15 @@ class AdminAreaLeaveApiTest(unittest.TestCase):
             return self.client.post("/admin/api/areas/leave", json=payload)
 
     def test_rejects_area_that_bot_has_not_joined(self) -> None:
-        sender = SimpleNamespace(
-            get_joined_areas=AsyncMock(return_value=[{"id": "area-1", "name": "测试域"}]),
-            leave_area=AsyncMock(),
-        )
+        sender = SimpleNamespace(bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[AreaInfo.model_validate({'id': 'area-1', 'name': '测试域'})]), leave_area=AsyncMock())))
 
         response = self._request(sender, {"area": "area-other"})
 
         self.assertEqual(response.status_code, 404)
-        sender.leave_area.assert_not_awaited()
+        sender.bot.areas.leave_area.assert_not_awaited()
 
     def test_leaves_joined_area_and_invalidates_related_caches(self) -> None:
-        sender = SimpleNamespace(
-            get_joined_areas=AsyncMock(return_value=[{"id": "area-1", "name": "测试域"}]),
-            leave_area=AsyncMock(return_value={"status": True, "message": ""}),
-        )
+        sender = SimpleNamespace(bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[AreaInfo.model_validate({'id': 'area-1', 'name': '测试域'})]), leave_area=AsyncMock(return_value=SimpleNamespace(ok=True, message='')))))
         import web.admin.members._area_membership as route
         import web.admin.members._channels as channel_routes
         import web.admin.members._members as member_routes
@@ -88,17 +93,14 @@ class AdminAreaLeaveApiTest(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("测试域", response.json()["message"])
-        sender.leave_area.assert_awaited_once_with("area-1")
+        sender.bot.areas.leave_area.assert_awaited_once_with("area-1")
         areas_invalidate.assert_called_once_with("all")
         meta_invalidate.assert_called_once_with("area-1")
         channels_invalidate.assert_called_once_with("area-1")
         members_invalidate.assert_called_once_with()
 
     def test_oopz_failure_keeps_caches_and_returns_error(self) -> None:
-        sender = SimpleNamespace(
-            get_joined_areas=AsyncMock(return_value=[{"id": "area-1"}]),
-            leave_area=AsyncMock(return_value={"error": "没有权限"}),
-        )
+        sender = SimpleNamespace(bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[AreaInfo.model_validate({'id': 'area-1'})]), leave_area=AsyncMock(side_effect=RuntimeError('没有权限')))))
         import web.admin.members._area_membership as route
 
         with patch.object(route, "_invalidate_members_cache") as invalidate:
