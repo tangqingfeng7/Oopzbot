@@ -1,6 +1,6 @@
 # Oopz-SDK OneBot v11 适配
 
-项目使用 `oopz-sdk` 自带的 OneBot v11 adapter/server，负责协议转换与连接服务。`oopz/sdk_config.py` 直接构造 SDK 配置，`core/onebot_migration.py` 负责旧数据库升级。
+项目使用 `oopz-sdk` 自带的 OneBot v11 adapter/server，负责协议转换与连接服务。`app/lifecycle/oopz_session.py` 直接构造 SDK 配置，`core/onebot_migration.py` 负责旧数据库升级。
 
 默认是关闭的。启用后，Bot 仍然照常连接 Oopz；同时把收到的 Oopz 消息转换成 OneBot v11 事件，给 NoneBot、AstrBot、Hoshino 等支持 OneBot v11 的程序使用。
 

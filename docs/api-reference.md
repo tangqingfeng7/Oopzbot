@@ -189,6 +189,26 @@ v1 不使用 `message` 包裹，字段直接放在根级，正文字段为 `text
 }
 ```
 
+#### 原生图片消息
+
+```http
+POST /rtc/v1/gim/v1/sendImage
+POST /rtc/v1/im/v1/sendImage
+```
+
+分别用于频道和私信的纯图片消息，客户端按图片比例展示预览。请求体直接包含字段，不使用 `message` 包裹：
+
+| 字段 | 说明 |
+|------|------|
+| `area` / `channel` / `target` | 频道图片填写域和频道；私信填写会话频道和目标用户 |
+| `clientMessageId` / `timestamp` | 客户端消息 ID 和微秒时间戳 |
+| `rawImage` | 上述图片附件对象，`hash` 必须填写上传文件字节的 MD5 |
+| `displayName` / `animated` | 文件名和是否为动图 |
+| `styleTags` | 消息样式数组 |
+| `isMentionAll` / `mentionList` | 通常为 `false` 和空数组 |
+
+带文字的图片消息使用文字消息接口，在正文中引用图片附件。
+
 **附件格式（音频）：**
 
 ```json

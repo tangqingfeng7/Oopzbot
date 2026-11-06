@@ -29,7 +29,6 @@ class DocumentationContractsTest(unittest.TestCase):
         architecture = _read("docs/architecture.md")
         required_paths = (
             "message_dispatcher.py",
-            "browser_launch.py",
             "music_platform.py",
             "area_events.py",
             "src/web/admin/",
@@ -82,7 +81,7 @@ class DocumentationContractsTest(unittest.TestCase):
         service_directory = Path(oopz_sdk.services.__file__).parent
         endpoint_paths: set[str] = set()
 
-        source_paths = [*service_directory.glob("*.py"), REPO_ROOT / "src/oopz/sdk_services.py"]
+        source_paths = [*service_directory.glob("*.py"), REPO_ROOT / "src/app/infrastructure/gateways/sender_gateway.py"]
         for source_path in source_paths:
             tree = ast.parse(source_path.read_text(encoding="utf-8"))
             for node in ast.walk(tree):
@@ -127,7 +126,7 @@ class DocumentationContractsTest(unittest.TestCase):
             "src/oopz",
             "OopzApiMixin",
             "_request_data",
-            "AsyncOopzGateway",
+            "SenderGateway",
         ):
             with self.subTest(implementation_detail=implementation_detail):
                 self.assertNotIn(implementation_detail, api_reference)
