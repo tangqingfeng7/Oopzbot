@@ -12,6 +12,8 @@ if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
 
+from oopz_sdk.models import ImageAttachment  # noqa: E402
+
 import web.web_player_config as cfg  # noqa: E402
 from music.music import (  # noqa: E402
     PLAY_MODE_AUTOPLAY,
@@ -42,6 +44,26 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
     def tearDown(self) -> None:
         cfg.MUSIC_CONFIG.clear()
         cfg.MUSIC_CONFIG.update(self._music_config)
+
+    async def test_song_notifications_keep_uploaded_image_markup_and_attachment(self) -> None:
+        attachment = ImageAttachment.from_manually(
+            file_key="/cover.png", url="https://example.test/cover.png",
+            width=300, height=200, hash="image-hash",
+        ).to_payload()
+        song = {
+            "platform": "netease", "name": "测试歌曲", "artists": "歌手",
+            "album": "专辑", "duration": "03:00", "area": "area-1",
+            "attachments": [attachment],
+        }
+        self.handler._get_web_link = AsyncMock(return_value="")
+        requested = await self.handler._build_song_request_text(song, prefix="点播")
+        playing = await self.handler._build_now_playing_text("正在播放", song)
+        for text in (requested, playing):
+            self.assertTrue(text.startswith("![IMAGEw300h200](/cover.png)\n"))
+            self.assertEqual(text.count("![IMAGEw"), 1)
+            self.assertIn("歌曲: 测试歌曲", text)
+        self.assertEqual(song["attachments"], [attachment])
+        self.assertEqual(attachment["hash"], "image-hash")
 
     async def test_get_play_mode_defaults_to_list(self) -> None:
         self.queue.get_play_mode.return_value = None
@@ -215,7 +237,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.handler._web_link_released_due_to_idle)
 
     async def test_song_request_omits_web_link_when_sending_is_disabled(self) -> None:
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.user.return_value = "测试用户"
         self.handler._get_web_link = AsyncMock(return_value="[打开播放器](https://example.test/player)")
         song = {
@@ -236,7 +258,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._get_web_link.assert_not_called()
 
     async def test_song_request_includes_web_link_when_sending_is_enabled(self) -> None:
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.user.return_value = "测试用户"
         self.handler._get_web_link = AsyncMock(return_value="[打开播放器](https://example.test/player)")
         song = {
@@ -265,7 +287,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         queue.client = AsyncMock(return_value=queue_client)
         self.handler._get_queue = Mock(return_value=queue)
         self.handler._web_link_released_due_to_idle = False
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.user.return_value = "旧请求用户"
         old_request_ready = asyncio.Event()
         release_old_request = asyncio.Event()
@@ -327,11 +349,9 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_netease_cover_upload_uses_small_cdn_thumbnail(self) -> None:
         self.handler.sender = AsyncMock()
-        attachment = {"fileKey": "cover-key", "width": 300, "height": 300}
-        self.handler.sender.upload_file_from_url.return_value = {
-            "code": "success",
-            "data": attachment,
-        }
+        image = ImageAttachment.from_manually(file_key="cover-key", url="https://example.test/cover", width=300, height=300)
+        attachment = image.to_payload()
+        self.handler.sender.upload_image_from_url.return_value = image
         song = {
             "platform": "netease",
             "song_id": "2053320168",
@@ -345,7 +365,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         ):
             attachments, image_cache_id, cache_hit = await self.handler._resolve_song_attachments(song)
 
-        upload_url = self.handler.sender.upload_file_from_url.await_args.args[0]
+        upload_url = self.handler.sender.upload_image_from_url.await_args.args[0]
         self.assertIn("token=keep", upload_url)
         self.assertIn("param=300y300", upload_url)
         self.assertEqual(attachments, [attachment])
@@ -357,6 +377,31 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
             song["cover"],
             attachment,
         )
+
+    async def test_failed_cover_upload_keeps_existing_attachments_without_caching(self) -> None:
+        self.handler.sender = AsyncMock()
+        self.handler.sender.upload_image_from_url.side_effect = RuntimeError("请求失败")
+        song = {"platform": "netease", "song_id": "1", "cover": "https://example.test/cover", "attachments": [{"fileKey": "existing"}]}
+        with (
+            patch("music.music.ImageCache.get_by_source", new=AsyncMock(return_value=None)),
+            patch("music.music.ImageCache.save", new=AsyncMock()) as save,
+            self.assertLogs("Music", level="WARNING"),
+        ):
+            result = await self.handler._resolve_song_attachments(song)
+        self.assertEqual(result, (song["attachments"], None, False))
+        save.assert_not_awaited()
+
+    async def test_cached_cover_avoids_upload(self) -> None:
+        self.handler.sender = AsyncMock()
+        song = {"platform": "netease", "song_id": "1", "cover": "https://example.test/cover"}
+        cached = {"id": 7, "attachment_data": {"fileKey": "cached"}}
+        with (
+            patch("music.music.ImageCache.get_by_source", new=AsyncMock(return_value=cached)),
+            patch("music.music.ImageCache.increment_use", new=AsyncMock()),
+        ):
+            result = await self.handler._resolve_song_attachments(song)
+        self.assertEqual(result, ([cached["attachment_data"]], 7, True))
+        self.handler.sender.upload_image_from_url.assert_not_awaited()
 
     async def test_cover_prefetch_timeout_cancels_without_sync_retry(self) -> None:
         song = {
@@ -402,7 +447,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler.platforms = Mock()
         self.handler.platforms.get.return_value = platform
         self.handler.sender = AsyncMock()
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.user.return_value = "测试用户"
         self.handler._check_and_enter_voice_channel = AsyncMock(return_value=True)
         self.handler._commit_song_request = AsyncMock(return_value={"message": "ok", "attachments": []})
@@ -439,12 +484,12 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler.voice = Mock()
         self.handler.voice.available = True
         self.handler.sender = AsyncMock()
-        self.handler.sender.get_voice_channel_for_user.return_value = "voice-1"
+        self.handler.sender.bot.channels.get_voice_channel_for_user.return_value = "voice-1"
         # 服务端确认 bot 仍是该频道成员，这时才允许跳过重连
-        self.handler.sender.get_voice_channel_for_user_strict.return_value = "voice-1"
+        self.handler.sender.bot.channels.get_voice_channel_for_user.return_value = "voice-1"
         self.handler._do_enter_voice = AsyncMock()
         self.handler._is_playing = AsyncMock(return_value=True)
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
 
         with patch.dict("music.music.OOPZ_CONFIG", {"person_uid": "bot-uid"}):
             result = await self.handler._check_and_enter_voice_channel(
@@ -459,10 +504,10 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         """服务端已不认 bot 是成员时必须重进，否则只有音频没有人。"""
         self.handler.voice = Mock()
         self.handler.voice.available = True
-        self.handler.voice.leave = AsyncMock()
+        self.handler.voice.service.leave = AsyncMock()
         self.handler.sender = AsyncMock()
-        self.handler.sender.get_voice_channel_for_user.return_value = "voice-1"
-        self.handler.sender.get_voice_channel_for_user_strict.return_value = None
+        self.handler.sender.bot.channels.get_voice_channel_for_user.return_value = "voice-1"
+        self.handler.sender.bot.channels.get_voice_channel_for_user.side_effect = ["voice-1", None]
         self.handler._do_enter_voice = AsyncMock(return_value={"status": True})
         self.handler._is_playing = AsyncMock(return_value=True)
         self.handler.names = Mock()
@@ -481,11 +526,11 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler.voice = Mock()
         self.handler.voice.available = True
         self.handler.sender = AsyncMock()
-        self.handler.sender.get_voice_channel_for_user.return_value = "voice-1"
+        self.handler.sender.bot.channels.get_voice_channel_for_user.return_value = "voice-1"
         self.handler._get_queue = Mock(return_value=self.queue)
         self.handler._is_playing = AsyncMock(return_value=True)
         self.handler._do_enter_voice = AsyncMock()
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.channel.return_value = "旧域语音频道"
 
         result = await self.handler._check_and_enter_voice_channel(
@@ -507,7 +552,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler.voice.available = True
         self.handler.voice.is_playing = False
         self.handler.sender = AsyncMock()
-        self.handler.sender.get_voice_channel_for_user.return_value = "voice-2"
+        self.handler.sender.bot.channels.get_voice_channel_for_user.return_value = "voice-2"
         self.handler._get_queue = Mock(return_value=self.queue)
         self.queue.get_play_state.return_value = {
             "start_time": self.handler._play_start_time,
@@ -515,7 +560,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
             "loading": True,
         }
         self.handler._do_enter_voice = AsyncMock(return_value={})
-        self.handler.names = AsyncMock()
+        self.handler.names = Mock()
         self.handler.names.channel.return_value = "旧域语音频道"
 
         result = await self.handler._check_and_enter_voice_channel(
@@ -539,6 +584,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._voice_channel_id = None
         self.handler._voice_channel_area = None
         self.handler.voice = AsyncMock()
+        self.handler.voice.set_playing = Mock()
         self.handler.voice.available = True
         self.handler.names = Mock()
         self.handler._cleanup_stale_voice_membership = AsyncMock()
@@ -552,7 +598,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
             await asyncio.wait_for(release_join.wait(), timeout=2)
             return "sign"
 
-        self.handler.voice.join.side_effect = slow_join
+        self.handler.voice.service.join.side_effect = slow_join
 
         first = asyncio.create_task(self.handler._do_enter_voice("voice-1", "area-1"))
         await asyncio.wait_for(joining.wait(), timeout=1)
@@ -560,7 +606,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         second = asyncio.create_task(self.handler._do_enter_voice("voice-2", "area-2"))
         await asyncio.sleep(0.05)
         # 第一次尚未提交状态，第二次不得进入临界区
-        self.assertEqual(self.handler.voice.join.await_count, 1)
+        self.assertEqual(self.handler.voice.service.join.await_count, 1)
         self.assertIsNone(self.handler._voice_channel_id)
 
         release_join.set()
@@ -578,8 +624,9 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._voice_channel_id = "voice-1"
         self.handler._voice_channel_area = "area-1"
         self.handler.voice = AsyncMock()
+        self.handler.voice.set_playing = Mock()
         self.handler.voice.available = True
-        self.handler.voice.join.return_value = "sign-1"
+        self.handler.voice.service.join.return_value = "sign-1"
         self.handler.names = Mock()
         self.handler._cleanup_stale_voice_membership = AsyncMock()
         self.handler._restore_volume_from_redis = AsyncMock()
@@ -594,7 +641,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(result, {"status": True, "sign": "sign-1"})
         self.handler._leave_current_voice_channel.assert_awaited_once_with()
-        self.handler.voice.join.assert_awaited_once_with(
+        self.handler.voice.service.join.assert_awaited_once_with(
             area="area-2",
             channel="voice-1",
             from_area="area-1",
@@ -611,8 +658,9 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._voice_channel_id = None
         self.handler._voice_channel_area = None
         self.handler.voice = AsyncMock()
+        self.handler.voice.set_playing = Mock()
         self.handler.voice.available = True
-        self.handler.voice.join.side_effect = RuntimeError("agora join failed")
+        self.handler.voice.service.join.side_effect = RuntimeError("agora join failed")
         self.handler.names = Mock()
         self.handler._cleanup_stale_voice_membership = AsyncMock()
         self.handler._restore_volume_from_redis = AsyncMock()
@@ -632,8 +680,9 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._voice_channel_id = None
         self.handler._voice_channel_area = None
         self.handler.voice = AsyncMock()
+        self.handler.voice.set_playing = Mock()
         self.handler.voice.available = True
-        self.handler.voice.join.return_value = "sign-2"
+        self.handler.voice.service.join.return_value = "sign-2"
         self.handler.names = Mock()
         self.handler._cleanup_stale_voice_membership = AsyncMock()
         self.handler._restore_volume_from_redis = AsyncMock()
@@ -650,12 +699,13 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
     async def test_enter_voice_refuses_when_voice_is_unavailable(self) -> None:
         self.handler._voice_lock = asyncio.Lock()
         self.handler.voice = AsyncMock()
+        self.handler.voice.set_playing = Mock()
         self.handler.voice.available = False
 
         result = await self.handler._do_enter_voice("voice-2", "area-1")
 
         self.assertEqual(result, {"error": "voice_unavailable"})
-        self.handler.voice.join.assert_not_awaited()
+        self.handler.voice.service.join.assert_not_awaited()
 
 
 if __name__ == "__main__":
