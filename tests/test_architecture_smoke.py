@@ -26,10 +26,10 @@ class ArchitectureSmokeTest(unittest.TestCase):
         actual = {path.name for path in app_root.iterdir() if path.is_file()}
         self.assertEqual(actual, {"__init__.py", "bootstrap.py", "runtime.py"})
 
-    def test_infrastructure_root_only_keeps_runtime_entrypoints(self) -> None:
+    def test_infrastructure_root_keeps_runtime_and_connection_adapter(self) -> None:
         infra_root = SRC_ROOT / "app" / "infrastructure"
         actual = {path.name for path in infra_root.iterdir() if path.is_file()}
-        self.assertEqual(actual, {"__init__.py", "runtime.py"})
+        self.assertEqual(actual, {"__init__.py", "runtime.py", "oopz_connection.py", "member_cache.py"})
 
     def test_bootstrap_imports_lifecycle_package(self) -> None:
         imports = _parse_imports(SRC_ROOT / "app" / "bootstrap.py")

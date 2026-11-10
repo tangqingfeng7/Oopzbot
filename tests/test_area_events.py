@@ -58,3 +58,16 @@ class AreaEventsTest(unittest.TestCase):
     def test_channel_scoped_event_is_ignored(self) -> None:
         raw = _raw(99, {"area": "area-1", "channel": "c1", "person": "u1", "action": "join"})
         self.assertIsNone(parse_member_event(99, raw))
+
+    def test_nested_member_payload_accepts_dict_and_json(self) -> None:
+        member = {"area": "area-1", "person": "u1", "action": "leave"}
+        for inner in (member, json.dumps(member)):
+            with self.subTest(inner=inner):
+                raw = _raw(99, {"data": inner})
+                self.assertEqual(parse_member_event(99, raw), ("leave", "area-1", "u1"))
+
+    def test_system_events_do_not_trigger_member_notifications(self) -> None:
+        for event in (21, 249, 253, 254):
+            with self.subTest(event=event):
+                raw = _raw(event, {"area": "area-1", "person": "u1", "action": "join"})
+                self.assertIsNone(parse_member_event(event, raw))

@@ -232,37 +232,21 @@ class ScreenShareService:
         # area/v3/info 只描述“当前 Bot 是否为域主”，不能用于判断命令发起者。
         # 已加入域列表包含真实 owner UID，因此以它为域主判定来源。
         try:
-            joined_areas = await sender.get_joined_areas(quiet=True)
+            joined_areas = await sender.bot.areas.get_joined_areas()
         except Exception:
             joined_areas = []
-        if isinstance(joined_areas, list):
-            for joined in joined_areas:
-                if not isinstance(joined, dict):
-                    continue
-                joined_id = str(joined.get("id") or joined.get("area") or "").strip()
-                owner = str(joined.get("owner") or "").strip()
-                if joined_id == str(area) and owner and secrets.compare_digest(owner, str(user)):
-                    return True
+        for joined in joined_areas:
+            if joined.area_id == str(area) and secrets.compare_digest(joined.owner, str(user)):
+                return True
 
         allowed = set(get_area_registry().get(area).screen_share_role_ids)
         if not allowed:
             return False
         try:
-            detail = await sender.get_user_area_detail(str(user), area=area)
+            detail = await sender.bot.areas.get_area_user_detail(area, str(user))
         except Exception:
             return False
-        if not isinstance(detail, dict) or detail.get("error"):
-            return False
-        roles = detail.get("list")
-        if not isinstance(roles, list):
-            return False
-        user_roles: set[int] = set()
-        for role in roles:
-            if not isinstance(role, dict):
-                continue
-            role_id = role.get("roleID")
-            if isinstance(role_id, (str, int)) and str(role_id).isdigit():
-                user_roles.add(int(role_id))
+        user_roles = {role.role_id for role in detail.roles}
         return bool(allowed & user_roles)
 
     async def create_session(self, *, sender, user: str, area: str, channel: str, is_bot_admin: bool = False) -> ShareLinks:

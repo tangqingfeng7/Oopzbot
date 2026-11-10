@@ -9,11 +9,13 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from music.sdk_voice import SdkVoiceController  # noqa: E402
-from oopz.sdk_transport import ProjectBrowserVoiceTransport  # noqa: E402
+from music.music import MusicHandler  # noqa: E402
+from music.music_playback import AudioPlayback  # noqa: E402
+from music.music_web_control import WebControlExecutor  # noqa: E402
+from music.voice_browser import ProjectBrowserVoiceTransport  # noqa: E402
 
 
-class SdkVoiceControllerTest(unittest.IsolatedAsyncioTestCase):
+class AudioPlaybackTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.voice = Mock()
         self.voice.current_sign = Mock(agora_sign_pid="123")
@@ -28,27 +30,68 @@ class SdkVoiceControllerTest(unittest.IsolatedAsyncioTestCase):
         self.voice.set_volume = AsyncMock(return_value=True)
         self.voice.close = AsyncMock()
         self.voice.get_state = AsyncMock(return_value="playing")
-        self.controller = SdkVoiceController(self.voice, proxy_value=False)
+        self.controller = AudioPlayback(self.voice, proxy_value=False)
 
     async def asyncTearDown(self) -> None:
         if not self.controller._closed:
             await self.controller.destroy()
 
-    async def test_join_delegates_to_sdk_voice(self) -> None:
-        await self.controller.join(
-            area="area-1",
-            channel="voice-1",
-            from_area="area-0",
-            from_channel="voice-0",
-            rtc_uid=123,
-        )
-        self.voice.join.assert_awaited_once_with(
-            area="area-1",
-            channel="voice-1",
-            from_area="area-0",
-            from_channel="voice-0",
-            rtc_uid=123,
-        )
+    async def test_web_pause_resume_and_stop_update_playback_state(self) -> None:
+        handler = Mock(voice=self.controller)
+        handler._play_start_time = 0
+        handler._update_play_state_redis = AsyncMock()
+        queue = Mock(get_play_state=AsyncMock(return_value={"pause_elapsed": 12}))
+        executor = WebControlExecutor(handler)
+        self.controller.set_playing(True)
+
+        await executor._handle_pause(queue)
+        self.voice.pause.assert_awaited_once()
+        self.assertFalse(self.controller.is_playing)
+        self.assertIsNone(self.controller._playback_watch)
+
+        await executor._handle_resume(queue)
+        self.voice.resume.assert_awaited_once()
+        self.assertTrue(self.controller.is_playing)
+        self.assertIsNotNone(self.controller._playback_watch)
+
+        await executor._stop_voice_audio("test")
+        self.voice.stop.assert_awaited_once()
+        self.assertFalse(self.controller.is_playing)
+        self.assertIsNone(self.controller._playback_watch)
+
+    async def test_web_seek_and_volume_use_sdk_service(self) -> None:
+        handler = Mock(voice=self.controller)
+        handler._update_play_state_redis = AsyncMock()
+        queue = Mock(get_play_state=AsyncMock(return_value={"paused": True}))
+        executor = WebControlExecutor(handler)
+
+        await executor._handle_seek(queue, 30)
+        self.voice.seek.assert_awaited_once_with(30)
+        update = handler._update_play_state_redis.await_args
+        assert update is not None
+        self.assertTrue(update.kwargs["paused"])
+        self.assertEqual(update.kwargs["pause_elapsed"], 30)
+
+        redis = Mock(set=AsyncMock())
+        with patch("music.music_web_control.get_redis_client", AsyncMock(return_value=redis)):
+            await executor._handle_volume(60)
+        self.voice.set_volume.assert_awaited_once_with(60)
+
+    async def test_closed_controller_can_bind_a_new_session(self) -> None:
+        self.controller._playing = True
+        self.controller._warmup_started = True
+        self.controller._warmup_done.set()
+        await self.controller.destroy()
+        replacement = Mock(join=AsyncMock(), leave=AsyncMock(), close=AsyncMock())
+
+        self.controller.bind_service(replacement, proxy_value=False)
+
+        self.assertTrue(self.controller.available)
+        self.assertFalse(self.controller.is_playing)
+        self.assertFalse(self.controller._warmup_started)
+        self.assertFalse(self.controller._warmup_done.is_set())
+        self.assertIs(self.controller.service, replacement)
+        self.voice.join.assert_not_awaited()
 
     async def test_preload_is_reused_by_playback(self) -> None:
         self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/mpeg"))
@@ -174,9 +217,9 @@ class PlaybackEndDetectionTest(unittest.IsolatedAsyncioTestCase):
         self.voice.pause = AsyncMock(return_value=True)
         self.voice.resume = AsyncMock(return_value=True)
         self.voice.get_state = AsyncMock(return_value="playing")
-        self.controller = SdkVoiceController(self.voice, proxy_value=False)
+        self.controller = AudioPlayback(self.voice, proxy_value=False)
         self.controller._fetcher.fetch = Mock(return_value=(b"audio", "audio/mpeg"))
-        patcher = patch("music.sdk_voice._PLAY_POLL_INTERVAL", 0.01)
+        patcher = patch("music.music_playback._PLAY_POLL_INTERVAL", 0.01)
         patcher.start()
         self.addCleanup(patcher.stop)
 
@@ -262,26 +305,23 @@ class PlaybackEndDetectionTest(unittest.IsolatedAsyncioTestCase):
             "查不到状态时应按已停止处理，让上层回退到按时长判定，而不是永久卡住",
         )
 
-    async def test_stop_leave_destroy_leave_no_watcher_behind(self) -> None:
-        for label, action in (
-            ("stop", self.controller.stop_audio),
-            ("leave", self.controller.leave),
-        ):
-            await self._play()
-            await action()
-            watch = self.controller._playback_watch
-            self.assertIsNone(watch, f"{label} 之后不应残留结束轮询任务")
+    async def test_inactive_playback_and_destroy_cancel_watcher(self) -> None:
+        await self._play()
+        self.controller.set_playing(False)
+        self.assertIsNone(self.controller._playback_watch)
+        self.assertFalse(self.controller.is_playing)
 
         await self._play()
         await self.controller.destroy()
-        self.assertIsNone(self.controller._playback_watch, "destroy 之后不应残留轮询任务")
+        self.assertIsNone(self.controller._playback_watch)
+        self.assertFalse(self.controller.is_playing)
 
     async def test_resume_restarts_end_detection(self) -> None:
         await self._play()
-        await self.controller.pause_audio()
+        self.controller.set_playing(False)
         self.assertFalse(self.controller.is_playing)
 
-        await self.controller.resume_audio()
+        self.controller.set_playing(True)
         self.assertTrue(self.controller.is_playing)
         self.voice.get_state.return_value = "finished"
 
@@ -311,10 +351,19 @@ class WarmupBeforeJoinTest(unittest.IsolatedAsyncioTestCase):
             await self.release.wait()
 
         self.voice.start = AsyncMock(side_effect=_start)
-        self.controller = SdkVoiceController(self.voice, proxy_value=False)
+        self.controller = AudioPlayback(self.voice, proxy_value=False)
 
     async def _join(self):
-        return await self.controller.join(area="a1", channel="c1")
+        handler = MusicHandler.__new__(MusicHandler)
+        handler.voice = self.controller
+        handler._voice_lock = asyncio.Lock()
+        handler._voice_channel_id = None
+        handler._voice_channel_area = None
+        handler._playback_generation = 0
+        handler._cleanup_stale_voice_membership = AsyncMock()
+        handler._restore_volume_from_redis = AsyncMock()
+        handler.names = Mock()
+        return await handler._do_enter_voice("c1", "a1")
 
     async def test_join_waits_for_inflight_warmup(self) -> None:
         warm = asyncio.get_running_loop().create_task(self.controller.warmup())
@@ -348,7 +397,7 @@ class WarmupBeforeJoinTest(unittest.IsolatedAsyncioTestCase):
         self.voice.join.assert_awaited_once()
 
     async def test_join_gives_up_waiting_after_timeout(self) -> None:
-        with patch("music.sdk_voice._WARMUP_WAIT_TIMEOUT", 0.05):
+        with patch("music.music_playback._WARMUP_WAIT_TIMEOUT", 0.05):
             warm = asyncio.get_running_loop().create_task(self.controller.warmup())
             await self.started.wait()
 

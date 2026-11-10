@@ -23,12 +23,13 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-import core.config_file_store as config_file_store  # noqa: E402
-import oopz.credentials as credentials_module  # noqa: E402
-import web.web_player_config as web_config  # noqa: E402
 from oopz_sdk.auth import _builtin_login_bundle as bundle  # noqa: E402
 from oopz_sdk.auth import api_password_login as api_login_module  # noqa: E402
 from oopz_sdk.exceptions import OopzPasswordLoginError  # noqa: E402
+
+import core.config_file_store as config_file_store  # noqa: E402
+import oopz.credentials as credentials_module  # noqa: E402
+import web.web_player_config as web_config  # noqa: E402
 
 PRIVATE_KEY_PEM = "-----BEGIN PRIVATE KEY-----\nunit-test-key\n-----END PRIVATE KEY-----"
 
@@ -151,7 +152,7 @@ class CredentialPersistenceTest(unittest.TestCase):
                 if (
                     not failed
                     and Path(source).suffix == ".tmp"
-                    and Path(destination) == private_key_path
+                    and Path(destination).resolve() == private_key_path.resolve()
                 ):
                     failed = True
                     raise OSError("injected private-key replace failure")
@@ -304,7 +305,7 @@ class ApiPasswordLoginTest(unittest.TestCase):
             ),
             patch.object(api_login_module, "_encrypt_password_code", return_value="encrypted-code"),
             patch.object(api_login_module, "_build_oopz_sign", return_value="signed-value"),
-            patch.object(api_login_module.requests, "post", return_value=response),
+            patch("oopz_sdk.auth.api_password_login.requests.post", return_value=response),
         )
 
     def test_successful_login_returns_credentials(self) -> None:
@@ -338,7 +339,7 @@ class ApiPasswordLoginTest(unittest.TestCase):
         self.assertIn("密码错误", str(ctx.exception))
 
     def test_empty_account_is_rejected_before_any_request(self) -> None:
-        with patch.object(api_login_module.requests, "post") as post:
+        with patch("oopz_sdk.auth.api_password_login.requests.post") as post:
             for phone, password in (("", "pw"), ("13800138000", "")):
                 with (
                     self.subTest(phone=phone, password=password),

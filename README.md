@@ -78,7 +78,7 @@
 | 提醒统计 | 定时提醒、活跃排行、频道统计、点歌排行、最近播放 |
 | 插件系统 | 支持目录化插件，已有三角洲、LOL、Steam 等插件 |
 | 管理后台 | 提供 `/admin` 页面，方便查看状态、改配置、控音乐 |
-| OneBot v11 | 可作为旁路服务接入 NoneBot、AstrBot、Hoshino 等外部程序 |
+| OneBot v11 | 通过 SDK 内置接口接入 NoneBot、AstrBot、Hoshino 等外部程序 |
 
 ## 启动方式
 
@@ -150,7 +150,7 @@ cp private_key.example.py private_key.py
 - `config.py`：写入 `app_version`、`device_id`、`person_uid`、`jwt_token`
 - `private_key.py`：写入 RSA 私钥
 
-这个方式对应 SDK 的 `src/oopz_sdk/auth/password_login.py` 和管理端的 `/admin/api/oopz/login`，返回给页面的 Token 和私钥只展示脱敏状态。
+这个方式对应 SDK 的 `oopz_sdk.auth.password_login` 和管理端的 `/admin/api/oopz/login`，返回给页面的 Token 和私钥只展示脱敏状态。
 
 **备用方式：命令行网页抓取**
 
@@ -167,6 +167,8 @@ python tools/credential_tool.py --save
 ```
 
 这个方式会从网页请求和 WebSocket 认证里提取 `person_uid`、`device_id`、`jwt_token`，并导出 RSA 私钥。详细说明见 [凭据获取工具](docs/credential-tool.md)。
+
+平台接口和 OneBot v11 由安装版 `oopz-sdk` 提供，随 `requirements.txt` 安装。
 
 ### Windows 启动
 
@@ -237,7 +239,7 @@ http://localhost:8080/health
 
 默认情况下，Web 播放器和管理后台也由 `8080` 端口提供。
 
-如果要接 OneBot v11 生态，在 `config.py` 中启用 `ONEBOT_V11_CONFIG["enabled"] = True` 后重启，默认监听 `127.0.0.1:6700`。详见 [OneBot v11 旁路适配](docs/onebot-v11.md)。
+如果要接 OneBot v11 生态，在 `config.py` 中启用 `ONEBOT_V11_CONFIG["enabled"] = True` 后重启，默认监听 `127.0.0.1:6700`。详见 [SDK 内置 OneBot v11 适配](docs/onebot-v11.md)。
 
 ## Docker 部署
 

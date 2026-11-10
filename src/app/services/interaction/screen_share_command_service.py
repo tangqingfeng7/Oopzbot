@@ -40,15 +40,10 @@ class ScreenShareCommandService:
             return
 
         try:
-            dm = await self._sender.send_private_message(
-                user,
-                "屏幕共享【发起端专用链接】（不是观看链接，单次使用）：\n"
+            await self._sender.bot.messages.send_private_message("屏幕共享【发起端专用链接】（不是观看链接，单次使用）：\n"
                 f"{links.presenter_url}\n"
-                "请由你本人打开并选择要共享的窗口；共享成功后 Bot 才会在原频道发送观看链接。",
-            )
+                "请由你本人打开并选择要共享的窗口；共享成功后 Bot 才会在原频道发送观看链接。", target=user)
         except Exception:
-            dm = {"error": "private_message_failed"}
-        if not isinstance(dm, dict) or dm.get("error"):
             with suppress(ScreenShareError):
                 await service.stop_by_id(
                     links.session_id,

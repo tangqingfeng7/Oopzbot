@@ -4,13 +4,16 @@ import re
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Protocol
 
+from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError
+from oopz_sdk.exceptions.auth import AUTH_FAILURE_STATUS_CODES
+from oopz_sdk.models import AreaOperateLogEntry
+
+from app.infrastructure.gateways.sender_gateway import SenderGateway
 from config import OOPZ_CONFIG
 from core.constants import build_mention
 from core.logger_config import get_logger
-from oopz.sdk_gateway import AsyncOopzGateway
-from oopz_sdk.exceptions.auth import AUTH_FAILURE_STATUS_CODES
+from oopz.area_events import parse_member_event as _parse_member_event
 
 logger = get_logger("AreaJoinNotifier")
 
@@ -32,19 +35,6 @@ OPERATE_LOG_PERMISSION_DENIED_KEYWORDS = (
 )
 _JOIN_CONTENT = "\u52a0\u5165\u57df"
 _LEAVE_CONTENT = "\u9000\u51fa\u57df"
-
-
-class AreaMemberSnapshotSource(Protocol):
-    """成员快照拉取只依赖发送器的这一项能力。"""
-
-    async def get_area_members(
-        self,
-        area: str,
-        offset_start: int,
-        offset_end: int,
-        quiet: bool = True,
-    ) -> dict:
-        ...
 
 
 @dataclass(frozen=True)
@@ -117,30 +107,23 @@ def _looks_like_uid(name: str) -> bool:
 
 
 async def _resolve_display_name(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     uid: str,
     cached: str | None = None,
 ) -> str:
     from oopz.name_resolver import get_resolver
 
-    cached = cached or get_resolver().user_cached(uid, fallback=False)
-    if cached and not _looks_like_uid(cached):
-        return cached
-    for lookup in (sender.get_person_detail_full, sender.get_person_detail):
-        try:
-            detail = await lookup(uid)
-            if not isinstance(detail, dict) or "error" in detail:
-                continue
-            for key in ("name", "nickname", "displayName", "userName"):
-                val = detail.get(key)
-                if val and isinstance(val, str) and val.strip():
-                    return val.strip()
-        except Exception:
-            continue
-    return cached or (uid[:8] + "…" if len(uid) > 8 else uid)
+    resolver = get_resolver()
+    try:
+        names = await resolver.ensure_users([uid])
+        name = names.get(uid)
+        if name and not _looks_like_uid(name):
+            return name
+    except Exception:
+        logger.debug("获取通知用户名称失败 uid=%s", uid, exc_info=True)
+    return cached or resolver.user(uid)
 
 
-from oopz.area_events import parse_member_event as _parse_member_event
 
 _area_channel_cache: dict = {"area": "", "channel": "", "ts": 0.0}
 _AREA_CHANNEL_CACHE_TTL = 300.0  # 5 分钟
@@ -156,7 +139,7 @@ def _store_area_channel_cache(area: str, channel: str, ts: float) -> None:
 
 
 async def _get_default_area_channel(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     quiet: bool = False,
 ) -> tuple[str, str]:
     """获取默认域 ID 和文字频道 ID（与 WS 通知逻辑一致）。quiet=True 时不打域/频道列表日志。"""
@@ -171,14 +154,14 @@ async def _get_default_area_channel(
         return cached
 
     if not default_area:
-        areas = await sender.get_joined_areas(quiet=quiet)
+        areas = await sender.bot.areas.get_joined_areas()
         if areas:
-            default_area = (areas[0].get("id") or "").strip()
+            default_area = areas[0].area_id.strip()
     if default_area:
-        for g in await sender.get_area_channels(area=default_area, quiet=quiet):
-            for ch in (g.get("channels") or []):
-                if (ch.get("type") or "").upper() != "VOICE":
-                    default_channel = (ch.get("id") or "").strip()
+        for group in await sender.bot.areas.get_area_channels(default_area):
+            for ch in group.channels:
+                if ch.channel_type.upper() not in {"VOICE", "AUDIO"}:
+                    default_channel = ch.channel_id.strip()
                     if default_channel:
                         _store_area_channel_cache(default_area, default_channel, now)
                         return default_area, default_channel
@@ -187,7 +170,7 @@ async def _get_default_area_channel(
     return default_area, default_channel
 
 
-async def _resolve_area_channel(sender: AsyncOopzGateway, area: str) -> str:
+async def _resolve_area_channel(sender: SenderGateway, area: str) -> str:
     """只在目标域内解析文字频道，禁止回退到其他域的频道。"""
     from core.area_config import get_area_registry
 
@@ -197,40 +180,33 @@ async def _resolve_area_channel(sender: AsyncOopzGateway, area: str) -> str:
         channel = registry.global_default_channel
     if channel:
         return channel
-    for group in await sender.get_area_channels(area=area, quiet=True):
-        for item in group.get("channels") or []:
-            if str(item.get("type") or "").upper() != "VOICE":
-                channel = str(item.get("id") or "").strip()
+    for group in await sender.bot.areas.get_area_channels(area):
+        for item in group.channels:
+            if item.channel_type.upper() not in {"VOICE", "AUDIO"}:
+                channel = item.channel_id.strip()
                 if channel:
                     return channel
     return ""
 
 
-def _member_uid(m: dict) -> str:
-    """从成员项中取出 uid。"""
-    if not isinstance(m, dict):
-        return ""
-    return (m.get("uid") or m.get("id") or m.get("person") or m.get("personId") or "").strip() or ""
-
-
-def _next_poll_interval(base_interval: int, current_interval: int, rate_limited: bool) -> int:
+def _next_poll_interval(base_interval: int, current_interval: int, rate_limited: int) -> int:
     """根据是否被限流，计算下一次轮询间隔。"""
     base = max(5, int(base_interval))
     current = max(base, int(current_interval))
     if not rate_limited:
         return base
-    return min(max(current * 2, base), 60)
+    return max(min(max(current * 2, base), 60), rate_limited)
 
 
 async def fetch_member_uid_snapshot(
-    sender: AreaMemberSnapshotSource,
+    sender: SenderGateway,
     area: str,
     member_fetch_max: int = 5000,
-) -> tuple[set[str] | None, bool, bool]:
+) -> tuple[set[str] | None, int, bool]:
     """分页拉取域成员快照。
 
     返回 ``(uids, rate_limited, truncated)``：
-    - uids 为 None 表示本次拉取失败（rate_limited 标记是否为限流）；
+    - uids 为 None 表示本次拉取失败（rate_limited 为限流重试秒数，0 表示未限流）；
     - truncated=True 表示成员数超过 member_fetch_max、快照不完整，
       调用方必须跳过本轮对比，否则窗口外成员会被误判为加入/退出。
     """
@@ -238,47 +214,33 @@ async def fetch_member_uid_snapshot(
     uids: set[str] = set()
     start = 0
     while start < member_fetch_max:
-        result = await sender.get_area_members(
-            area=area,
-            offset_start=start,
-            offset_end=start + page_size - 1,
-            quiet=True,
-        )
-        if "error" in result:
-            err = str(result.get("error") or "")
-            is_rl = err.startswith("HTTP 429") or err in ("invalid JSON", "empty response") or "服务异常" in err
-            return None, is_rl, False
-        members = result.get("members") or []
-        for m in members:
-            uid = _member_uid(m)
-            if uid:
-                uids.add(uid)
-        if len(members) < page_size:
-            return uids, False, False
+        end = min(start + page_size, member_fetch_max)
         try:
-            total = int(result.get("userCount") or result.get("total") or 0)
-        except (TypeError, ValueError):
-            total = 0
+            page = await sender.bot.areas.get_area_members(
+                area=area, offset_start=start, offset_end=end - 1, force=True,
+            )
+        except OopzRateLimitError as exc:
+            return None, max(1, exc.retry_after), False
+        except Exception as exc:
+            logger.warning("成员快照查询失败 area=%s: %s", area, exc)
+            return None, 0, False
+        members = page.members
+        uids.update(member.uid for member in members if member.uid)
+        if len(members) < end - start:
+            return uids, 0, False
+        total = page.total_count
         if total and len(uids) >= total:
-            return uids, False, False
+            return uids, 0, False
         start += page_size
-    return uids, False, True
+    return uids, 0, True
 
 
-def parse_area_operate_log_changes(area: str, payload: dict) -> list[AreaMemberChange]:
-    """从域管理日志接口数据中解析成员加入/退出事件。"""
-    if not isinstance(payload, dict):
-        return []
-    logs = payload.get("logs") or []
-    if not isinstance(logs, list):
-        return []
-
+def parse_area_operate_log_changes(area: str, logs: list[AreaOperateLogEntry]) -> list[AreaMemberChange]:
+    """从 SDK 日志模型中筛选成员加入/退出事件。"""
     changes: list[AreaMemberChange] = []
     for item in logs:
-        if not isinstance(item, dict):
-            continue
-        uid = str(item.get("optUid") or item.get("uid") or item.get("person") or "").strip()
-        content = str(item.get("content") or "").strip()
+        uid = item.operator_uid.strip()
+        content = item.content.strip()
         if not uid or not content:
             continue
         if content == _JOIN_CONTENT:
@@ -287,35 +249,33 @@ def parse_area_operate_log_changes(area: str, payload: dict) -> list[AreaMemberC
             action = "leave"
         else:
             continue
-        try:
-            create_time = int(item.get("createTime") or item.get("time") or item.get("timestamp") or 0)
-        except (TypeError, ValueError):
-            create_time = 0
         changes.append(
             AreaMemberChange(
                 action=action,
                 area=area,
                 uid=uid,
-                create_time=create_time,
+                create_time=item.create_time,
                 content=content,
             )
         )
     return changes
 
 
-def is_operate_log_permission_denied(error: str) -> bool:
+def is_operate_log_permission_denied(error: Exception | str) -> bool:
     """判断域管理日志接口失败是否由权限不足导致。"""
     text = str(error or "").strip()
     lower_text = text.lower()
     return any(keyword in text or keyword in lower_text for keyword in OPERATE_LOG_PERMISSION_DENIED_KEYWORDS)
 
 
-def is_operate_log_auth_failure(error: str) -> bool:
+def is_operate_log_auth_failure(error: Exception | str) -> bool:
     """判断失败是否为鉴权类（401/428）。
 
     平台对「本账号读不了该域的管理日志」也回 401，与凭据失效同码，单次响应
     无法区分，因此调用方需要按连续次数判定，不能一次就永久停掉该域。
     """
+    if isinstance(error, OopzApiError) and error.status_code in AUTH_FAILURE_STATUS_CODES:
+        return True
     text = str(error or "")
     lower_text = text.lower()
     if "authentication failed" in lower_text or "unauthorized" in lower_text:
@@ -324,20 +284,19 @@ def is_operate_log_auth_failure(error: str) -> bool:
 
 
 async def fetch_operate_log_changes(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     area: str,
-) -> tuple[list[AreaMemberChange] | None, bool, str]:
-    """拉取一页域管理日志并解析成员变更。"""
-    result = await sender.get_area_operate_logs(
-        area=area,
-        offset=0,
-        op_types=OPERATE_LOG_MEMBER_OP_TYPES,
-    )
-    if "error" in result:
-        err = str(result.get("error") or "")
-        rate_limited = err.startswith("HTTP 429") or "429" in err
-        return None, rate_limited, err
-    return parse_area_operate_log_changes(area, result), False, ""
+) -> tuple[list[AreaMemberChange] | None, int, Exception | str]:
+    """在轮询边界处理 SDK 异常，保留限流等待时间与权限错误类型。"""
+    try:
+        logs = await sender.bot.areas.get_area_operate_logs(
+            area=area, offset=0, op_types=OPERATE_LOG_MEMBER_OP_TYPES,
+        )
+    except OopzRateLimitError as exc:
+        return None, max(1, exc.retry_after), exc
+    except Exception as exc:
+        return None, 0, exc
+    return parse_area_operate_log_changes(area, logs), 0, ""
 
 
 def _build_member_mention(uid: str) -> tuple[str, list]:
@@ -357,7 +316,7 @@ def _build_member_mention(uid: str) -> tuple[str, list]:
 
 
 async def _resolve_role_id(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     uid: str,
     area: str,
     auto_role_id: str,
@@ -373,17 +332,17 @@ async def _resolve_role_id(
     if not auto_role_name:
         return None
     try:
-        roles = await sender.get_assignable_roles(uid, area=area)
+        roles = await sender.bot.areas.get_area_can_give_list(area, uid)
         for r in roles:
-            if str(r.get("name") or "").strip() == auto_role_name.strip():
-                return int(r.get("roleID") or r.get("id") or 0) or None
+            if r.name.strip() == auto_role_name.strip():
+                return r.role_id or None
     except Exception as e:
         logger.warning("按名称查找身份组失败 (name=%s): %s", auto_role_name, e)
     return None
 
 
 async def _try_assign_role(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     uid: str,
     area: str,
     auto_role_id: str,
@@ -398,8 +357,8 @@ async def _try_assign_role(
         return
     try:
         result = await sender.edit_user_role(uid, role_id, add=True, area=area)
-        if "error" in result:
-            logger.warning("新人身份组分配失败 uid=%s role=%s: %s", uid, role_id, result["error"])
+        if not result.ok:
+            logger.warning("新人身份组分配失败 uid=%s role=%s: %s", uid, role_id, result.message)
         else:
             logger.info("新人身份组分配成功 uid=%s role=%s", uid, role_id)
     except Exception as e:
@@ -415,7 +374,7 @@ async def _wait_or_stop(stop_event: asyncio.Event, delay: float) -> bool:
 
 
 async def _run_join_poll_loop(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     message_template_join: str,
     interval_seconds: int,
     bot_uid: str,
@@ -499,7 +458,7 @@ async def _run_join_poll_loop(
             logger.warning("域成员退出通知发送失败 area=%s uid=%s: %s", area_id[:8], uid[:8], exc)
         await notify("leave", area_id, uid)
 
-    async def handle_operate_log(area_id: str, channel: str, area_cfg) -> bool:
+    async def handle_operate_log(area_id: str, channel: str, area_cfg) -> int:
         changes, rate_limited, error = await fetch_operate_log_changes(sender, area_id)
         if changes is None:
             if is_operate_log_permission_denied(error):
@@ -543,7 +502,7 @@ async def _run_join_poll_loop(
                 await handle_leave(area_id, channel, change.uid, area_cfg)
         return False
 
-    async def handle_snapshot(area_id: str, channel: str, area_cfg) -> bool:
+    async def handle_snapshot(area_id: str, channel: str, area_cfg) -> int:
         current_uids, rate_limited, truncated = await fetch_member_uid_snapshot(
             sender,
             area_id,
@@ -590,22 +549,26 @@ async def _run_join_poll_loop(
                 await _wait_or_stop(stop_event, current_interval)
                 continue
             registry = get_area_registry()
-            any_rate_limited = False
+            any_rate_limited = 0
             for area in areas:
                 if stop_event.is_set():
                     return
                 area_id = area
                 if not area_id:
                     continue
-                channel = await _resolve_area_channel(sender, area_id)
+                try:
+                    channel = await _resolve_area_channel(sender, area_id)
+                except Exception as exc:
+                    logger.warning("域成员通知频道查询失败 area=%s: %s", area_id, exc)
+                    continue
                 area_cfg = registry.get(area_id)
                 if source == EVENT_SOURCE_MEMBER_SNAPSHOT or area_id in operate_log_disabled_areas:
                     rate_limited = await handle_snapshot(area_id, channel, area_cfg)
                 else:
                     rate_limited = await handle_operate_log(area_id, channel, area_cfg)
-                any_rate_limited = any_rate_limited or rate_limited
+                any_rate_limited = max(any_rate_limited, rate_limited)
             if any_rate_limited:
-                current_interval = _next_poll_interval(base_interval, current_interval, True)
+                current_interval = _next_poll_interval(base_interval, current_interval, any_rate_limited)
             elif current_interval != base_interval:
                 current_interval = base_interval
                 logger.info("域成员加入轮询: 成员接口已恢复，轮询间隔恢复为 %ss", current_interval)
@@ -659,7 +622,7 @@ class AreaJoinNotifier:
 
 
 def make_ws_handler(
-    sender: AsyncOopzGateway,
+    sender: SenderGateway,
     message_template_join: str,
     message_template_leave: str,
 ):
@@ -723,8 +686,8 @@ def make_ws_handler(
 
 
 def start_area_join_notifier(
-    sender: AsyncOopzGateway | None = None,
-    message_template_join: str = "欢迎 {name} 加入域～",
+    sender: SenderGateway | None = None,
+    message_template_join: str = "欢迎 {name} 加入域~",
     message_template_leave: str = "{name} 已退出域",
     on_member_change: Callable[[str, str, str], Awaitable[None] | None] | None = None,
     supervisor=None,
@@ -740,7 +703,7 @@ def start_area_join_notifier(
 
     msg_join = str(config.get("message_template", message_template_join) or message_template_join)
     if "{name}" not in msg_join and "{uid}" not in msg_join:
-        msg_join = "欢迎 {name} 加入域～"
+        msg_join = "欢迎 {name} 加入域~"
     # 显式留空（"" 或 None）= 不在频道发退出提示，但 OneBot group_decrease 仍会推送。
     raw_leave = config.get("message_template_leave", message_template_leave)
     if raw_leave is None or (isinstance(raw_leave, str) and not raw_leave.strip()):
@@ -749,7 +712,7 @@ def start_area_join_notifier(
         msg_leave = str(raw_leave)
 
     if sender is None:
-        raise ValueError("启用域成员通知时必须注入 AsyncOopzGateway")
+        raise ValueError("启用域成员通知时必须注入 SenderGateway")
     s = sender
     # 加入事件服务端不推送，用轮询检测新成员并发欢迎
     poll_interval = max(5, int(config.get("poll_interval_seconds", 10)))

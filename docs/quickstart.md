@@ -73,7 +73,7 @@ python main.py
 
 启动后 Bot 自动通过 WebSocket 连接 Oopz 平台。
 
-如果需要给 NoneBot、AstrBot、Hoshino 等外部程序提供 OneBot v11 接口，可在 `config.py` 中启用 `ONEBOT_V11_CONFIG["enabled"] = True`，默认地址为 `http://127.0.0.1:6700`。详见 [OneBot v11 旁路适配](onebot-v11.md)。
+如果需要给 NoneBot、AstrBot、Hoshino 等外部程序提供 OneBot v11 接口，可在 `config.py` 中启用 `ONEBOT_V11_CONFIG["enabled"] = True`，默认地址为 `http://127.0.0.1:6700`。详见 [SDK 内置 OneBot v11 适配](onebot-v11.md)。
 
 ### 需要走代理时
 

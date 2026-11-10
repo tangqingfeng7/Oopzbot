@@ -44,13 +44,13 @@ class VoiceMembershipRecheckTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_still_in_channel_when_server_agrees(self) -> None:
-        self.sender.get_voice_channel_for_user_strict = AsyncMock(return_value=CHANNEL)
+        self.sender.bot.channels.get_voice_channel_for_user = AsyncMock(return_value=CHANNEL)
 
         self.assertTrue(await self.handler._still_registered_in_voice(CHANNEL, AREA))
 
     async def test_detects_membership_dropped_by_server(self) -> None:
         """核心：服务端说不在任何频道，本地就不能再认为还在。"""
-        self.sender.get_voice_channel_for_user_strict = AsyncMock(return_value=None)
+        self.sender.bot.channels.get_voice_channel_for_user = AsyncMock(return_value=None)
 
         self.assertFalse(
             await self.handler._still_registered_in_voice(CHANNEL, AREA),
@@ -58,13 +58,13 @@ class VoiceMembershipRecheckTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_detects_being_moved_to_another_channel(self) -> None:
-        self.sender.get_voice_channel_for_user_strict = AsyncMock(return_value="voice-9")
+        self.sender.bot.channels.get_voice_channel_for_user = AsyncMock(return_value="voice-9")
 
         self.assertFalse(await self.handler._still_registered_in_voice(CHANNEL, AREA))
 
     async def test_query_failure_keeps_current_state(self) -> None:
         """查询失败不能当成掉线，否则一次网络抖动就触发退出重进。"""
-        self.sender.get_voice_channel_for_user_strict = AsyncMock(
+        self.sender.bot.channels.get_voice_channel_for_user = AsyncMock(
             side_effect=RuntimeError("网络抖动")
         )
 
@@ -74,30 +74,10 @@ class VoiceMembershipRecheckTest(unittest.IsolatedAsyncioTestCase):
         import music.music as music_module
 
         music_module.OOPZ_CONFIG["person_uid"] = ""
-        self.sender.get_voice_channel_for_user_strict = AsyncMock(return_value=None)
+        self.sender.bot.channels.get_voice_channel_for_user = AsyncMock(return_value=None)
 
         self.assertTrue(await self.handler._still_registered_in_voice(CHANNEL, AREA))
-        self.sender.get_voice_channel_for_user_strict.assert_not_awaited()
-
-
-class StrictQueryContractTest(unittest.IsolatedAsyncioTestCase):
-    """宽松版把「查询失败」和「不在频道」都返回 None，校验必须用严格版。"""
-
-    async def test_strict_variant_propagates_errors(self) -> None:
-        from oopz.sdk_gateway import AsyncOopzGateway
-
-        gateway: Any = AsyncOopzGateway.__new__(AsyncOopzGateway)
-        gateway.bot = Mock()
-        gateway.bot.channels.get_voice_channel_for_user = AsyncMock(
-            side_effect=RuntimeError("boom")
-        )
-        gateway._default_area = Mock(return_value=AREA)
-
-        with self.assertRaises(RuntimeError):
-            await gateway.get_voice_channel_for_user_strict(BOT_UID, area=AREA)
-
-        # 返回与「不在频道」相同的 None
-        self.assertIsNone(await gateway.get_voice_channel_for_user(BOT_UID, area=AREA))
+        self.sender.bot.channels.get_voice_channel_for_user.assert_not_awaited()
 
 
 if __name__ == "__main__":

@@ -11,6 +11,9 @@ SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk.exceptions import OopzRateLimitError  # noqa: E402
+from oopz_sdk.models import AreaMembersPage, AreaOperateLogEntry  # noqa: E402
+
 from core.area_config import AreaConfig, AreaConfigRegistry  # noqa: E402
 from services.area_join_notifier import (  # noqa: E402
     _resolve_display_name,
@@ -29,15 +32,15 @@ class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
         patches.enter_context(patch("core.area_config.get_area_registry", return_value=self.registry))
         self.resolver = Mock()
         self.resolver.user_cached.return_value = "小明"
+        self.resolver.ensure_users = AsyncMock(return_value={"u1": "小明"})
+        self.resolver.user.return_value = "小明"
         patches.enter_context(patch("oopz.name_resolver.get_resolver", return_value=self.resolver))
         self.sender = Mock()
         self.sender.send_message = AsyncMock()
-        self.sender.get_person_detail_full = AsyncMock(return_value={"error": "not found"})
-        self.sender.get_person_detail = AsyncMock(return_value={"error": "not found"})
-        self.sender.get_area_members = AsyncMock(side_effect=[
-            {"members": [{"uid": "bot"}, {"uid": "u1"}]},
-            {"members": [{"uid": "bot"}]},
-            {"members": [{"uid": "bot"}]},
+        self.sender.bot.areas.get_area_members = AsyncMock(side_effect=[
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}, {"uid": "u1"}]}),
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}]}),
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}]}),
         ])
         self.changed = AsyncMock()
 
@@ -65,8 +68,6 @@ class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
         self.sender.send_message.assert_awaited_once_with(
             "再见 小明（u1）", area="area-1", channel="text-1", auto_recall=False,
         )
-        self.sender.get_person_detail_full.assert_not_awaited()
-        self.sender.get_person_detail.assert_not_awaited()
         self.changed.assert_awaited_once_with("leave", "area-1", "u1")
 
     async def test_empty_global_template_suppresses_message_but_keeps_callback(self):
@@ -82,11 +83,11 @@ class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.sender.send_message.await_args.args[0], "小明 离开了本域")
 
     async def test_failed_snapshot_does_not_report_everyone_leaving(self):
-        self.sender.get_area_members.side_effect = [
-            {"members": [{"uid": "bot"}, {"uid": "u1"}]},
-            {"error": "HTTP 429"},
-            {"members": [{"uid": "bot"}, {"uid": "u1"}]},
-            {"members": [{"uid": "bot"}]},
+        self.sender.bot.areas.get_area_members.side_effect = [
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}, {"uid": "u1"}]}),
+            OopzRateLimitError('HTTP 429'),
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}, {"uid": "u1"}]}),
+            AreaMembersPage.from_api({"members": [{"uid": "bot"}]}),
         ]
         await self.run_poll(rounds=4)
         self.sender.send_message.assert_awaited_once()
@@ -108,10 +109,10 @@ class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
         self.changed.assert_awaited_once_with("leave", "area-1", "u1")
 
     async def test_operate_logs_skip_history_and_repeated_leave(self):
-        old = {"optUid": "old-user", "content": "退出域", "createTime": 10}
-        fresh = {"optUid": "u1", "content": "退出域", "createTime": 20}
-        self.sender.get_area_operate_logs = AsyncMock(side_effect=[
-            {"logs": [old]}, {"logs": [fresh, old]}, {"logs": [fresh, old]},
+        old = AreaOperateLogEntry.from_api({"optUid": "old-user", "content": "退出域", "createTime": 10})
+        fresh = AreaOperateLogEntry.from_api({"optUid": "u1", "content": "退出域", "createTime": 20})
+        self.sender.bot.areas.get_area_operate_logs = AsyncMock(side_effect=[
+            [old], [fresh, old], [fresh, old],
         ])
         await self.run_poll(source="operate_logs")
         self.sender.send_message.assert_awaited_once()
@@ -131,11 +132,14 @@ class LeaveNotificationTest(unittest.IsolatedAsyncioTestCase):
         await handler(99, {"body": {"area": "area-1", "person": "u1", "action": "leave"}})
         self.sender.send_message.assert_not_awaited()
 
-    async def test_name_lookup_tries_basic_profile_after_full_profile_fails(self):
-        self.resolver.user_cached.return_value = ""
-        self.sender.get_person_detail_full.side_effect = RuntimeError("profile unavailable")
-        self.sender.get_person_detail.return_value = {"name": "查询到的昵称"}
+    async def test_name_lookup_uses_sdk_backed_resolver(self):
+        self.resolver.ensure_users.return_value = {"u1": "查询到的昵称"}
         self.assertEqual(await _resolve_display_name(self.sender, "u1"), "查询到的昵称")
+        self.resolver.ensure_users.assert_awaited_once_with(["u1"])
+
+    async def test_name_lookup_failure_keeps_event_name(self):
+        self.resolver.ensure_users.side_effect = RuntimeError("unavailable")
+        self.assertEqual(await _resolve_display_name(self.sender, "u1", "事件名称"), "事件名称")
 
     def test_unconfigured_area_does_not_override_global_leave_template(self):
         self.assertEqual(self.registry.get("unconfigured").leave_message, "")

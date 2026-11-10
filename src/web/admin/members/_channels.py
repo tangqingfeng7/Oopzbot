@@ -4,8 +4,10 @@
 from fastapi import APIRouter, Query, Request
 from fastapi.responses import JSONResponse
 
+from app.infrastructure.oopz_connection import (
+    channels_response_cache as _channels_cache,
+)
 from web.admin.shared import (
-    TtlCache,
     _get_sender,
     _require_sender,
     _resolve_area_async,
@@ -16,11 +18,6 @@ from web.admin.shared import (
 )
 
 router = APIRouter()
-
-_CHANNELS_CACHE_TTL = 120.0
-# 按域分槽：单槽缓存在多域间来回切时会互相挤掉，导致每次切域都要回源。
-_channels_cache = TtlCache(_CHANNELS_CACHE_TTL)
-
 
 @router.get("/admin/api/channels")
 async def admin_channels_list(area: str = Query("")):
@@ -37,18 +34,21 @@ async def admin_channels_list(area: str = Query("")):
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
 
-    groups = await sender.get_area_channels(area=resolved_area, quiet=True)
+    try:
+        groups = await sender.bot.areas.get_area_channels(resolved_area)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     channels = []
     for g in groups:
-        group_name = g.get("name", "")
-        for ch in g.get("channels") or []:
-            ch_type = ch.get("type", "")
+        group_name = g.name
+        for ch in g.channels:
+            ch_type = ch.channel_type
             channels.append({
-                "id": ch.get("id", ""),
-                "name": ch.get("name", ""),
+                "id": ch.channel_id,
+                "name": ch.name,
                 "group": group_name,
                 "type": ch_type,
-                "secret": bool(ch.get("secret")),
+                "secret": ch.secret,
             })
 
     resp = {"ok": True, "channels": channels, "area": resolved_area}
@@ -68,11 +68,9 @@ async def admin_channel_create(request: Request):
     if not area or not name:
         return JSONResponse({"ok": False, "error": "area 和 name 不能为空"}, status_code=400)
     try:
-        result = await sender.create_channel(area=area, name=name, channel_type=ch_type, group_id=group_id)
-        if isinstance(result, dict) and "error" in result:
-            return JSONResponse({"ok": False, "error": result["error"]})
-        _channels_cache.invalidate()
-        return JSONResponse({"ok": True, "message": "频道已创建", "result": result if isinstance(result, dict) else {}})
+        result = await sender.bot.channels.create_channel(area=area, name=name, channel_type=ch_type, group_id=group_id)
+        _channels_cache.invalidate(area)
+        return JSONResponse({"ok": True, "message": "频道已创建", "result": {"channel": result.channel_id, "name": result.name}})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
 
@@ -86,10 +84,10 @@ async def admin_channel_delete(channel_id: str, request: Request):
     if not area:
         return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
     try:
-        result = await sender.delete_channel(channel=channel_id, area=area)
-        if isinstance(result, dict) and "error" in result:
-            return JSONResponse({"ok": False, "error": result["error"]})
-        _channels_cache.invalidate()
+        result = await sender.bot.channels.delete_channel(channel=channel_id, area=area)
+        if not result.ok:
+            return JSONResponse({"ok": False, "error": result.message}, status_code=502)
+        _channels_cache.invalidate(area)
         return JSONResponse({"ok": True, "message": "频道已删除"})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -105,10 +103,10 @@ async def admin_channel_update(channel_id: str, request: Request):
     if not area:
         return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
     try:
-        result = await sender.update_channel(area=area, channel_id=channel_id, name=name)
-        if isinstance(result, dict) and "error" in result:
-            return JSONResponse({"ok": False, "error": result["error"]})
-        _channels_cache.invalidate()
+        result = await sender.bot.channels.update_channel(area=area, channel_id=channel_id, name=name)
+        if not result.ok:
+            return JSONResponse({"ok": False, "error": result.message}, status_code=502)
+        _channels_cache.invalidate(area)
         return JSONResponse({"ok": True, "message": "频道已更新"})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -119,10 +117,11 @@ async def admin_channel_update(channel_id: str, request: Request):
 async def admin_channel_settings(channel_id: str, area: str = Query("")):
     """获取频道的详细设置信息。"""
     sender = _require_sender()
-    data = await sender.get_channel_setting_info(channel_id)
-    if isinstance(data, dict) and "error" in data:
-        return JSONResponse({"ok": False, "error": data["error"]})
-    return JSONResponse({"ok": True, "settings": data})
+    try:
+        data = await sender.bot.channels.get_channel_setting_info(channel_id)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    return JSONResponse({"ok": True, "settings": data.model_dump(by_alias=True, exclude_none=True)})
 
 
 @router.post("/admin/api/channels/{channel_id}/settings")
@@ -134,11 +133,20 @@ async def admin_channel_settings_edit(channel_id: str, request: Request):
     area = (body.pop("area", "") or "").strip() or await _resolve_area_async()
     if not area:
         return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
+    mapping = {
+        "textGapSecond": "text_gap_second", "voiceQuality": "voice_quality",
+        "voiceDelay": "voice_delay", "maxMember": "max_member",
+        "voiceControlEnabled": "voice_control_enabled", "textControlEnabled": "text_control_enabled",
+        "accessControlEnabled": "access_control_enabled", "hasPassword": "has_password",
+        "textRoles": "text_roles", "voiceRoles": "voice_roles",
+        "accessible": "accessible_roles", "accessibleMembers": "accessible_members",
+    }
+    settings = {mapping.get(key, key): value for key, value in body.items()}
     try:
-        result = await sender.update_channel(area=area, channel_id=channel_id, overrides=body)
-        if isinstance(result, dict) and "error" in result:
-            return JSONResponse({"ok": False, "error": result["error"]})
-        _channels_cache.invalidate()
+        result = await sender.bot.channels.update_channel(area=area, channel_id=channel_id, **settings)
+        if not result.ok:
+            return JSONResponse({"ok": False, "error": result.message}, status_code=502)
+        _channels_cache.invalidate(area)
         return JSONResponse({"ok": True, "message": "频道设置已保存"})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
@@ -149,20 +157,24 @@ async def admin_channel_settings_edit(channel_id: str, request: Request):
 async def admin_channel_accessible_members(channel_id: str):
     """返回频道当前的可访问成员列表（含名称）。"""
     sender = _require_sender()
-    setting = await sender.get_channel_setting_info(channel_id)
-    if isinstance(setting, dict) and "error" in setting:
-        return JSONResponse({"ok": False, "error": setting["error"]})
-    uids = list(setting.get("accessibleMembers") or [])
+    try:
+        setting = await sender.bot.channels.get_channel_setting_info(channel_id)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    uids = setting.accessible_members
     if not uids:
         return JSONResponse({"ok": True, "members": []})
-    infos = await sender.get_person_infos_batch(uids)
+    try:
+        infos = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     members = []
     for uid in uids:
-        info = infos.get(uid, {})
+        info = infos.get(uid)
         members.append({
             "uid": uid,
-            "name": info.get("name") or info.get("nickname") or uid[:8],
-            "avatar": info.get("avatar", ""),
+            "name": get_resolver().user_cached(uid, fallback=False) or (info.name if info else "") or uid[:8],
+            "avatar": info.avatar if info else "",
         })
     return JSONResponse({"ok": True, "members": members})
 
@@ -175,32 +187,24 @@ async def admin_online_members(area: str = Query("")):
     resolved_area = area.strip() or await _resolve_area_async()
     if not resolved_area:
         return JSONResponse({"ok": False, "error": "未找到可用域 ID"})
-    all_members = []
-    for page_start in range(0, 200, 50):
-        result = await sender.get_area_members(
-            area=resolved_area, offset_start=page_start,
-            offset_end=page_start + 49, quiet=True,
-        )
-        if "error" in result:
-            break
-        batch = result.get("members") or []
-        all_members.extend(batch)
-        if len(batch) < 50:
-            break
-    online_members = [m for m in all_members if m.get("online", 0) == 1]
-    uids = [m.get("uid", "") for m in online_members if m.get("uid")]
+    try:
+        all_members = await sender.bot.areas.get_all_area_members(resolved_area, page_size=100)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    online_members = [m for m in all_members if m.online == 1 and m.uid]
+    uids = list(dict.fromkeys(m.uid for m in online_members))
     if not uids:
         return JSONResponse({"ok": True, "members": []})
-    infos = await sender.get_person_infos_batch(uids)
+    try:
+        infos = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     members = []
-    for m in online_members:
-        uid = m.get("uid", "")
-        if not uid:
-            continue
-        info = infos.get(uid, {})
+    for uid in uids:
+        info = infos.get(uid)
         members.append({
             "uid": uid,
-            "name": info.get("name") or info.get("nickname") or uid[:8],
+            "name": get_resolver().user_cached(uid, fallback=False) or (info.name if info else "") or uid[:8],
         })
     return JSONResponse({"ok": True, "members": members})
 
@@ -216,29 +220,35 @@ async def admin_voice_channels(area: str = Query("")):
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
 
-    groups = await sender.get_area_channels(area=resolved_area, quiet=True)
+    try:
+        groups = await sender.bot.areas.get_area_channels(resolved_area)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
     voice_info = {}
     for g in groups:
-        for ch in g.get("channels") or []:
-            ch_type = str(ch.get("type", "")).upper()
+        for ch in g.channels:
+            ch_type = str(ch.channel_type).upper()
             if ch_type in ("VOICE", "AUDIO"):
-                voice_info[ch.get("id", "")] = {
-                    "name": ch.get("name", ""),
-                    "group": g.get("name", ""),
+                voice_info[ch.channel_id] = {
+                    "name": ch.name,
+                    "group": g.name,
                 }
 
-    channel_members = await sender.get_voice_channel_members(area=resolved_area)
+    try:
+        channel_members = (await sender.bot.channels.get_voice_channel_members(resolved_area)).channel_members
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
 
     all_uids: list[str] = []
     for ch_id in voice_info:
         for m in channel_members.get(ch_id, []):
-            uid = m.get("uid", m.get("id", "")) if isinstance(m, dict) else str(m)
+            uid = m.uid
             if uid and uid not in all_uids:
                 all_uids.append(uid)
     person_map: dict = {}
     if all_uids:
         try:
-            person_map = await sender.get_person_infos_batch(all_uids)
+            person_map = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(all_uids)}
         except Exception:
             logger.debug("批量获取语音成员信息失败", exc_info=True)
 
@@ -248,14 +258,14 @@ async def admin_voice_channels(area: str = Query("")):
         raw_members = channel_members.get(ch_id, [])
         users = []
         for m in raw_members:
-            uid = m.get("uid", m.get("id", "")) if isinstance(m, dict) else str(m)
+            uid = m.uid
             if not uid:
                 continue
-            pi = person_map.get(uid, {})
+            pi = person_map.get(uid)
             users.append({
                 "uid": uid,
-                "name": pi.get("name") or resolver.user(uid) or uid[:8],
-                "avatar": pi.get("avatar", ""),
+                "name": resolver.user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8],
+                "avatar": pi.avatar if pi else "",
             })
         voice_channels.append({
             "id": ch_id,
@@ -282,9 +292,9 @@ async def admin_voice_dispatch(request: Request):
     if not target or not to_channel:
         return JSONResponse({"ok": False, "error": "target 和 to_channel 不能为空"}, status_code=400)
     try:
-        result = await sender.drag_member(target, to_channel, from_channel=from_channel or None, area=area)
+        result = await sender.bot.channels.drag_member(area, target, to_channel, from_channel=from_channel or "")
+        if not result.ok:
+            raise RuntimeError(result.message or "操作被拒绝")
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)})
-    if isinstance(result, dict) and "error" in result:
-        return JSONResponse({"ok": False, "error": result["error"]})
-    return JSONResponse({"ok": True, "message": result.get("message", "已调度")})
+    return JSONResponse({"ok": True, "message": result.message or "已调度"})

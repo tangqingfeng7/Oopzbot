@@ -1,9 +1,6 @@
 [tool.ruff]
 target-version = "py310"
 line-length = 100
-# src/oopz_sdk 是内置的官方 SDK 源码（见 THIRD_PARTY_NOTICES.md），保持与上游逐字一致，
-# 除已登记的最小补丁外不做改写，因此其风格问题不参与本仓库的 lint。
-extend-exclude = ["src/oopz_sdk"]
 
 [tool.ruff.lint]
 select = ["E4", "E7", "E9", "F", "I", "B", "UP", "SIM", "RUF"]
@@ -15,7 +12,4 @@ typeCheckingMode = "standard"
 pythonVersion = "3.10"
 include = ["main.py", "src", "plugins", "tools", "tests"]
 # 列出前两项是因为显式 exclude 会覆盖 pyright 的默认值。
-exclude = ["**/node_modules", "**/__pycache__", "src/oopz_sdk"]
-# exclude 只把文件移出检查集合，编辑器里打开该文件时语言服务器仍会分析并报错；ignore 则
-# 无条件抑制这些路径的诊断输出。两者并用：命令行不必分析，IDE 打开时也不再刷屏。
-ignore = ["src/oopz_sdk"]
+exclude = ["**/node_modules", "**/__pycache__"]

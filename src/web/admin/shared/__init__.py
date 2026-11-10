@@ -30,6 +30,7 @@ from core.queue_manager import (
     _area_key,
     get_redis_client,
 )
+from core.ttl_cache import TtlCache
 from oopz.name_resolver import get_resolver
 from services.scheduler_templates import get_scheduled_template, list_scheduled_templates
 from web.web_link_token import (
@@ -126,7 +127,6 @@ from ._snapshots import (
     _tail_file,
     _top_songs_from_play_history,
 )
-from ._ttl_cache import TtlCache
 
 try:
     import requests

@@ -12,7 +12,7 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from music.sdk_voice import SdkVoiceController  # noqa: E402
+from music.music_playback import AudioPlayback  # noqa: E402
 from services.area_join_notifier import (  # noqa: E402
     OPERATE_LOG_AUTH_FAILURE_LIMIT,
     is_operate_log_auth_failure,
@@ -21,13 +21,13 @@ from services.area_join_notifier import (  # noqa: E402
 
 
 class VoiceDestroyLeavesChannelTest(unittest.IsolatedAsyncioTestCase):
-    def _controller(self) -> tuple[SdkVoiceController, Mock]:
+    def _controller(self) -> tuple[AudioPlayback, Mock]:
         # 走正常构造，别用 __new__ 手工拼：新增字段时手工版会漏，
         # 而且只有跑全量时才暴露，单跑这个文件是绿的。
         voice = Mock()
         voice.leave = AsyncMock()
         voice.close = AsyncMock()
-        controller = cast(Any, SdkVoiceController(voice, proxy_value=False))
+        controller = cast(Any, AudioPlayback(voice, proxy_value=False))
         return controller, voice
 
     async def test_destroy_leaves_before_closing(self) -> None:
@@ -63,10 +63,10 @@ class VoiceDestroyLeavesChannelTest(unittest.IsolatedAsyncioTestCase):
 class VoiceWarmupTest(unittest.IsolatedAsyncioTestCase):
     """冷启动时首次进频道的身份绑定赶不上，服务端不显示 bot 为成员"""
 
-    def _controller(self) -> tuple[SdkVoiceController, Mock]:
+    def _controller(self) -> tuple[AudioPlayback, Mock]:
         voice = Mock()
         voice.start = AsyncMock()
-        controller = cast(Any, SdkVoiceController(voice, proxy_value=False))
+        controller = cast(Any, AudioPlayback(voice, proxy_value=False))
         return controller, voice
 
     async def test_warmup_starts_the_browser_backend(self) -> None:

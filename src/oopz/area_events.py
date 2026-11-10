@@ -1,24 +1,12 @@
-"""Shared parsing for Oopz area member enter/leave WebSocket events.
-
-These helpers are used both by the area-join notifier (welcome/leave messages)
-and by the OneBot v11 adapter (group_increase / group_decrease notices), so the
-event taxonomy lives in one place.
-"""
-
 from __future__ import annotations
 
-import json
+from oopz_sdk.config.constants import EVENT_AUTH_RESULT, EVENT_SUBSCRIBE_AREA_EVENTS
+from oopz_sdk.events.parser import EventParser
 
-# Authoritative Oopz WS event codes (source: Oopzbot-SDK
-# oopz_sdk/config/constants.py, cross-checked against captured ws_capture
-# samples). These have confirmed, non-membership meanings and must never be
-# read as area member changes — e.g. 19/20 are voice-channel leave/enter,
-# 11/12 are channel mute / text-ban, 18 is a channel-setting change. Treating
-# them as joins/leaves previously caused false group_increase / group_decrease.
-NON_MEMBER_EVENTS = frozenset({
-    1, 2, 4, 6, 7, 8, 9, 11, 12, 13, 18, 19, 20,
-    25, 26, 27, 28, 32, 52, 56, 57, 249, 253, 254,
-})
+# SDK 已识别的消息、频道、语音和系统事件不代表域成员加入或退出。
+NON_MEMBER_EVENTS = frozenset(EventParser.EVENT_SPECS) | {
+    EVENT_AUTH_RESULT, EVENT_SUBSCRIBE_AREA_EVENTS,
+}
 
 _JOIN_KEYS = ("enter", "join", "add", "member_join", "join_area", "subscribe", "1", "enter_area")
 _LEAVE_KEYS = ("leave", "exit", "remove", "quit", "member_leave", "leave_area", "unsubscribe", "0")
@@ -41,24 +29,8 @@ def parse_member_event(event: int, data: dict) -> tuple[str, str, str] | None:
     body_raw = data.get("body")
     if body_raw is None:
         return None
-    if isinstance(body_raw, str):
-        try:
-            body = json.loads(body_raw)
-        except json.JSONDecodeError:
-            body = {}
-    else:
-        body = body_raw
-
-    inner = body.get("data")
-    if isinstance(inner, str):
-        try:
-            inner = json.loads(inner)
-        except json.JSONDecodeError:
-            inner = {}
-    if not inner and isinstance(body.get("data"), dict):
-        inner = body["data"]
-    if not inner:
-        inner = body
+    body = EventParser.safe_json_parse(body_raw)
+    inner = EventParser.safe_json_parse(body.get("data")) or body
 
     def _str_uid(v) -> str:
         if v is None:

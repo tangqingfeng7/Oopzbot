@@ -18,6 +18,7 @@ config/.private_key.py.*.tmp
 config/.private_key.py.*.bak
 .env
 .env.local
+test-account.local.env
 
 # Runtime data (mounted at runtime)
 data/

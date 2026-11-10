@@ -22,6 +22,7 @@ capture_recall_result.json
 capture_trace.zip
 .env
 .env.local
+test-account.local.env
 !.env.example
 data/
 

@@ -1,10 +1,3 @@
-"""安全的远程素材抓取。
-
-远程 URL 属于不可信输入。这里把“解析并验证目标地址”和“建立 TCP 连接”
-绑定在一起：连接始终指向已验证的 IP，原始域名只用于 HTTP Host、TLS SNI
-和证书主机名校验，从而消除校验后再次解析造成的 DNS rebinding 窗口。
-"""
-
 from __future__ import annotations
 
 import ipaddress

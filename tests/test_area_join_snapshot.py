@@ -2,6 +2,8 @@ import asyncio
 import sys
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
+from typing import cast
 from unittest.mock import AsyncMock, Mock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -9,8 +11,17 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk.exceptions import OopzApiError, OopzRateLimitError  # noqa: E402
+from oopz_sdk.models import (  # noqa: E402
+    AreaInfo,
+    AreaMembersPage,
+    AreaOperateLogEntry,
+    ChannelGroupInfo,
+    OperationResult,
+)
+
+from app.infrastructure.gateways.sender_gateway import SenderGateway  # noqa: E402
 from core.area_config import AreaConfig, AreaConfigRegistry  # noqa: E402
-from oopz_sdk.services.area import AreaService  # noqa: E402
 from services.area_join_notifier import (  # noqa: E402
     OPERATE_LOG_MEMBER_OP_TYPES,
     AreaOperateLogCursor,
@@ -32,20 +43,21 @@ class FakeSender:
     """按 offset 返回预置成员分页的假 sender。"""
 
     def __init__(self, total_members: int, user_count: int | None = None):
+        self.bot = SimpleNamespace(areas=self)
         self._total = total_members
         self._user_count = user_count if user_count is not None else total_members
 
-    async def get_area_members(self, area: str, offset_start: int, offset_end: int, quiet: bool = True) -> dict:
+    async def get_area_members(self, area: str, offset_start: int, offset_end: int, force: bool = False) -> AreaMembersPage:
         page = [
             {"uid": f"user-{index}"}
             for index in range(offset_start, min(offset_end + 1, self._total))
         ]
-        return {"members": page, "userCount": self._user_count}
+        return AreaMembersPage.from_api({"members": page, "totalCount": self._user_count})
 
 
 class FetchMemberSnapshotTest(unittest.IsolatedAsyncioTestCase):
     async def test_small_area_returns_complete_snapshot(self) -> None:
-        uids, rate_limited, truncated = await fetch_member_uid_snapshot(FakeSender(150), "area-1")
+        uids, rate_limited, truncated = await fetch_member_uid_snapshot(cast(SenderGateway, FakeSender(150)), "area-1")
 
         self.assertIsNotNone(uids)
         assert uids is not None
@@ -55,20 +67,20 @@ class FetchMemberSnapshotTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_stops_early_when_user_count_reached(self) -> None:
         sender = FakeSender(300)
-        sender.get_area_members = AsyncMock(side_effect=FakeSender(300).get_area_members)
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=FakeSender(300).get_area_members)
 
-        uids, _, truncated = await fetch_member_uid_snapshot(sender, "area-1", member_fetch_max=5000)
+        uids, _, truncated = await fetch_member_uid_snapshot(cast(SenderGateway, sender), "area-1", member_fetch_max=5000)
 
         self.assertIsNotNone(uids)
         assert uids is not None
         self.assertEqual(len(uids), 300)
         self.assertFalse(truncated)
         # 300 人 = 3 页，userCount 命中后不应继续翻第 4 页。
-        self.assertEqual(sender.get_area_members.call_count, 3)
+        self.assertEqual(sender.bot.areas.get_area_members.call_count, 3)
 
     async def test_over_cap_area_is_marked_truncated(self) -> None:
         uids, rate_limited, truncated = await fetch_member_uid_snapshot(
-            FakeSender(1200), "area-1", member_fetch_max=1000
+            cast(SenderGateway, FakeSender(1200)), "area-1", member_fetch_max=1000
         )
 
         self.assertTrue(truncated, "超过翻页上限必须标记快照不完整")
@@ -79,7 +91,7 @@ class FetchMemberSnapshotTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_rate_limit_error_is_reported(self) -> None:
         sender = AsyncMock()
-        sender.get_area_members = AsyncMock(return_value={"error": "HTTP 429 too many requests"})
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=OopzRateLimitError('HTTP 429 too many requests'))
 
         uids, rate_limited, truncated = await fetch_member_uid_snapshot(sender, "area-1")
 
@@ -89,7 +101,7 @@ class FetchMemberSnapshotTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_generic_error_is_not_rate_limit(self) -> None:
         sender = AsyncMock()
-        sender.get_area_members = AsyncMock(return_value={"error": "HTTP 500 boom"})
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=OopzApiError('HTTP 500 boom'))
 
         uids, rate_limited, truncated = await fetch_member_uid_snapshot(sender, "area-1")
 
@@ -102,13 +114,11 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
     def test_parse_join_and_leave_logs(self) -> None:
         changes = parse_area_operate_log_changes(
             "area-1",
-            {
-                "logs": [
-                    {"optUid": "user-1", "content": "加入域", "createTime": 100},
-                    {"optUid": "user-1", "content": "退出域", "createTime": 110},
-                    {"optUid": "user-2", "content": "移出域", "createTime": 120},
-                ]
-            },
+            [
+                    AreaOperateLogEntry.from_api({"optUid": "user-1", "content": "加入域", "createTime": 100}),
+                    AreaOperateLogEntry.from_api({"optUid": "user-1", "content": "退出域", "createTime": 110}),
+                    AreaOperateLogEntry.from_api({"optUid": "user-2", "content": "移出域", "createTime": 120}),
+                ],
         )
 
         self.assertEqual([c.action for c in changes], ["join", "leave"])
@@ -119,7 +129,7 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
         cursor = AreaOperateLogCursor()
         first_batch = parse_area_operate_log_changes(
             "area-1",
-            {"logs": [{"optUid": "user-1", "content": "加入域", "createTime": 100}]},
+            [AreaOperateLogEntry.from_api({"optUid": "user-1", "content": "加入域", "createTime": 100})],
         )
 
         self.assertEqual(cursor.consume("area-1", first_batch), [])
@@ -127,12 +137,10 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
 
         second_batch = parse_area_operate_log_changes(
             "area-1",
-            {
-                "logs": [
-                    {"optUid": "user-1", "content": "加入域", "createTime": 100},
-                    {"optUid": "user-2", "content": "退出域", "createTime": 110},
-                ]
-            },
+            [
+                    AreaOperateLogEntry.from_api({"optUid": "user-1", "content": "加入域", "createTime": 100}),
+                    AreaOperateLogEntry.from_api({"optUid": "user-2", "content": "退出域", "createTime": 110}),
+                ],
         )
 
         fresh = cursor.consume("area-1", second_batch)
@@ -142,8 +150,8 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_fetch_operate_log_changes_uses_member_op_filters(self) -> None:
         sender = Mock()
-        sender.get_area_operate_logs = AsyncMock(
-            return_value={"logs": [{"optUid": "user-1", "content": "加入域", "createTime": 100}]}
+        sender.bot.areas.get_area_operate_logs = AsyncMock(
+            return_value=[AreaOperateLogEntry.from_api({"optUid": "user-1", "content": "加入域", "createTime": 100})]
         )
 
         changes, rate_limited, error = await fetch_operate_log_changes(sender, "area-1")
@@ -153,7 +161,7 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
         self.assertIsNotNone(changes)
         assert changes is not None
         self.assertEqual(len(changes), 1)
-        sender.get_area_operate_logs.assert_called_once_with(
+        sender.bot.areas.get_area_operate_logs.assert_called_once_with(
             area="area-1",
             offset=0,
             op_types=OPERATE_LOG_MEMBER_OP_TYPES,
@@ -161,7 +169,7 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_fetch_operate_log_changes_reports_permission_denied_error(self) -> None:
         sender = Mock()
-        sender.get_area_operate_logs = AsyncMock(return_value={"error": "暂无进行此操作的权限"})
+        sender.bot.areas.get_area_operate_logs = AsyncMock(side_effect=OopzApiError('暂无进行此操作的权限'))
 
         changes, rate_limited, error = await fetch_operate_log_changes(sender, "area-1")
 
@@ -170,34 +178,16 @@ class AreaOperateLogChangeTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(is_operate_log_permission_denied(error))
 
 
-class AreaOperateLogServiceTest(unittest.IsolatedAsyncioTestCase):
-    async def test_permission_scoped_401_does_not_enable_global_auth_retry(self) -> None:
-        transport = Mock()
-        transport.request_data = AsyncMock(return_value={"logs": []})
-        service = AreaService(Mock(), Mock(), transport, Mock(), Mock())
-
-        logs = await service.get_area_operate_logs(
-            "area-1",
-            offset=0,
-            op_types=["AREA_SUBSCRIBE", "AREA_UNSUBSCRIBE"],
-        )
-
-        self.assertEqual(logs, [])
-        kwargs = transport.request_data.await_args.kwargs
-        self.assertFalse(kwargs["retry_auth"])
-        self.assertEqual(kwargs["params"]["area"], "area-1")
-
-
 class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
     async def test_auth_failures_switch_to_snapshot_in_configured_area(self) -> None:
         """缺少默认频道仍检测配置域；连续 401 后用成员快照发现新人。"""
         sender = Mock()
-        sender.get_area_channels = AsyncMock(return_value=[{
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({
             "channels": [{"id": "text-channel", "type": "TEXT"}],
-        }])
+        })])
         sender.get_person_detail_full = AsyncMock(return_value={"name": "新人"})
         sender.send_message = AsyncMock()
-        sender.edit_user_role = AsyncMock(return_value={})
+        sender.edit_user_role = AsyncMock(return_value=OperationResult())
         registry = Mock()
         registry.get_all_area_ids.return_value = ["configured-area"]
         registry.get.return_value = AreaConfig("configured-area", auto_assign_role_id="42")
@@ -241,7 +231,7 @@ class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
         fetch_logs.assert_awaited_with(sender, "configured-area")
         self.assertEqual(fetch_snapshot.await_count, 2)
         fetch_snapshot.assert_awaited_with(sender, "configured-area", 5000)
-        sender.get_area_channels.assert_awaited_with(area="configured-area", quiet=True)
+        sender.bot.areas.get_area_channels.assert_awaited_with("configured-area")
         sender.send_message.assert_awaited_once()
         self.assertEqual(sender.send_message.await_args.kwargs["area"], "configured-area")
         sender.edit_user_role.assert_awaited_once_with(
@@ -250,14 +240,14 @@ class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_permission_fallback_assigns_role_without_text_channel(self) -> None:
         sender = Mock()
-        sender.get_area_channels = AsyncMock(return_value=[])
-        sender.get_area_operate_logs = AsyncMock(return_value={"error": "暂无进行此操作的权限"})
-        sender.get_area_members = AsyncMock(side_effect=[
-            {"members": [{"uid": "existing"}]},
-            {"members": [{"uid": "existing"}, {"uid": "new-user"}]},
-            {"members": [{"uid": "existing"}, {"uid": "new-user"}]},
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[])
+        sender.bot.areas.get_area_operate_logs = AsyncMock(side_effect=OopzApiError('暂无进行此操作的权限'))
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=[
+            AreaMembersPage.from_api({"members": [{"uid": "existing"}]}),
+            AreaMembersPage.from_api({"members": [{"uid": "existing"}, {"uid": "new-user"}]}),
+            AreaMembersPage.from_api({"members": [{"uid": "existing"}, {"uid": "new-user"}]}),
         ])
-        sender.edit_user_role = AsyncMock(return_value={})
+        sender.edit_user_role = AsyncMock(return_value=OperationResult())
         sender.send_message = AsyncMock()
         registry = Mock()
         registry.get_all_area_ids.return_value = ["area-1"]
@@ -281,22 +271,22 @@ class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
                 on_member_change=changes, stop_event=stop_event,
             )
 
-        sender.get_area_operate_logs.assert_awaited_once()
-        self.assertEqual(sender.get_area_members.await_count, 3)
+        sender.bot.areas.get_area_operate_logs.assert_awaited_once()
+        self.assertEqual(sender.bot.areas.get_area_members.await_count, 3)
         sender.edit_user_role.assert_awaited_once_with("new-user", 42, add=True, area="area-1")
         changes.assert_awaited_once_with("join", "area-1", "new-user")
         sender.send_message.assert_not_awaited()
 
     async def test_brief_auth_failure_recovers_without_switching_source(self) -> None:
         sender = Mock()
-        sender.get_area_members = AsyncMock()
-        sender.get_area_operate_logs = AsyncMock(side_effect=[
-            {"error": "HTTP 401"}, {"logs": []},
-            {"logs": [{"optUid": "new-user", "content": "加入域", "createTime": 100}]},
+        sender.bot.areas.get_area_members = AsyncMock()
+        sender.bot.areas.get_area_operate_logs = AsyncMock(side_effect=[
+            OopzApiError('HTTP 401'), [],
+            [AreaOperateLogEntry.from_api({"optUid": "new-user", "content": "加入域", "createTime": 100})]
         ])
         sender.get_person_detail_full = AsyncMock(return_value={"name": "新人"})
         sender.send_message = AsyncMock(side_effect=RuntimeError("send failed"))
-        sender.edit_user_role = AsyncMock(return_value={})
+        sender.edit_user_role = AsyncMock(return_value=OperationResult())
         registry = Mock()
         registry.get_all_area_ids.return_value = ["area-1"]
         registry.get.return_value = AreaConfig(
@@ -317,7 +307,7 @@ class AreaOperateLogPollingTest(unittest.IsolatedAsyncioTestCase):
         ):
             await _run_join_poll_loop(sender, "欢迎 {name}", 5, "bot", stop_event=stop_event)
 
-        sender.get_area_members.assert_not_awaited()
+        sender.bot.areas.get_area_members.assert_not_awaited()
         sender.edit_user_role.assert_awaited_once_with("new-user", 42, add=True, area="area-1")
         sender.send_message.assert_awaited_once()
 
@@ -329,20 +319,22 @@ class AreaChannelResolutionTest(unittest.IsolatedAsyncioTestCase):
         registry._global_default_area = "global-area"
         registry._global_default_channel = "global-channel"
         sender = Mock()
-        sender.get_area_channels = AsyncMock(return_value=[{"channels": [
-            {"id": "voice", "type": "VOICE"}, {"id": "target-text", "type": "TEXT"},
-        ]}])
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({"channels": [
+            {"id": "voice", "type": "VOICE"}, {"id": "audio", "type": "AUDIO"},
+            {"id": "target-text", "type": "TEXT"},
+        ]})])
         with patch("core.area_config.get_area_registry", return_value=registry):
             channel = await _resolve_area_channel(sender, "target-area")
         self.assertEqual(channel, "target-text")
-        sender.get_area_channels.assert_awaited_once_with(area="target-area", quiet=True)
+        sender.bot.areas.get_area_channels.assert_awaited_once_with("target-area")
 
     async def test_explicit_default_area_is_preserved_without_default_channel(self) -> None:
         sender = Mock()
-        sender.get_joined_areas = AsyncMock(return_value=[{"id": "wrong-area"}])
-        sender.get_area_channels = AsyncMock(return_value=[{"channels": [
+        sender.bot.areas.get_joined_areas = AsyncMock(return_value=[AreaInfo.model_validate({"id": "wrong-area"})])
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({"channels": [
+            {"id": "audio", "type": "AUDIO"},
             {"id": "text", "type": "TEXT"},
-        ]}])
+        ]})])
         with (
             patch("services.area_join_notifier.OOPZ_CONFIG", {"default_area": "target-area"}),
             patch("services.area_join_notifier._area_channel_cache", {
@@ -351,7 +343,22 @@ class AreaChannelResolutionTest(unittest.IsolatedAsyncioTestCase):
         ):
             area, channel = await _get_default_area_channel(sender, quiet=True)
         self.assertEqual((area, channel), ("target-area", "text"))
-        sender.get_joined_areas.assert_not_awaited()
+        sender.bot.areas.get_joined_areas.assert_not_awaited()
+
+    async def test_automatic_area_with_only_voice_channels_has_no_notification_channel(self) -> None:
+        sender = Mock()
+        sender.bot.areas.get_joined_areas = AsyncMock(return_value=[AreaInfo.model_validate({"id": "area"})])
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({"channels": [
+            {"id": "voice", "type": "VOICE"}, {"id": "audio", "type": "AUDIO"},
+        ]})])
+        with (
+            patch("services.area_join_notifier.OOPZ_CONFIG", {}),
+            patch("services.area_join_notifier._read_area_channel_cache", return_value=None),
+            patch("services.area_join_notifier._store_area_channel_cache") as store,
+        ):
+            result = await _get_default_area_channel(sender)
+        self.assertEqual(result, ("area", ""))
+        store.assert_not_called()
 
 
 if __name__ == "__main__":

@@ -15,6 +15,11 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk.models import (  # noqa: E402
+    AreaMembersPage,
+    UserInfo,
+)
+
 from web.admin.members import _members  # noqa: E402
 
 
@@ -38,12 +43,12 @@ class CrossAreaMergeTest(unittest.IsolatedAsyncioTestCase):
 
         sender: Any = AsyncMock()
 
-        async def get_area_members(*, area: str, **_: Any) -> dict:
-            return {"members": per_area[area]}
+        async def get_area_members(*, area: str, **_: Any) -> AreaMembersPage:
+            return AreaMembersPage.from_api({"members": per_area[area]})
 
-        sender.get_area_members = AsyncMock(side_effect=get_area_members)
-        sender.get_person_infos_batch = AsyncMock(
-            side_effect=lambda uids: {u: {"name": f"名字-{u}", "pid": u} for u in uids}
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=get_area_members)
+        sender.bot.person.get_person_infos_batch = AsyncMock(
+            side_effect=lambda uids: [UserInfo(uid=u, name=f"名字-{u}", pid=u) for u in uids]
         )
 
         with (
@@ -99,13 +104,13 @@ class CrossAreaMergeTest(unittest.IsolatedAsyncioTestCase):
         names = {"A": "A域", "B": "B域"}
         sender: Any = AsyncMock()
 
-        async def get_area_members(*, area: str, **_: Any) -> dict:
+        async def get_area_members(*, area: str, **_: Any) -> AreaMembersPage:
             if area == "B":
                 raise RuntimeError("查询数量超过限制")
-            return {"members": [_member("u1")]}
+            return AreaMembersPage.from_api({"members": [_member("u1")]})
 
-        sender.get_area_members = AsyncMock(side_effect=get_area_members)
-        sender.get_person_infos_batch = AsyncMock(return_value={"u1": {"name": "甲"}})
+        sender.bot.areas.get_area_members = AsyncMock(side_effect=get_area_members)
+        sender.bot.person.get_person_infos_batch = AsyncMock(return_value=[UserInfo(uid="u1", name="甲")])
 
         with (
             patch.object(_members, "_get_sender", return_value=sender),

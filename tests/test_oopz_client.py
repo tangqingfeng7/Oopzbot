@@ -2,7 +2,7 @@
 
 旧的 `oopz.oopz_client.OopzClient` 自己实现了 JWT 过期解析、鉴权失败识别、
 心跳探活与重连退避。迁移后这些职责分散到三处：SDK 的 `utils/jwt`、
-`auth/manager`、`client/ws`，以及本项目在 `oopz/sdk_transport.py` 里对
+`auth/manager`、`client/ws`，以及本项目在 `app/infrastructure/oopz_connection.py` 里对
 陈旧连接的加固。用例按新归属重写，守住的行为与旧实现一致。
 """
 
@@ -97,7 +97,7 @@ class StaleConnectionDetectionTest(unittest.IsolatedAsyncioTestCase):
     """长时间收不到任何数据说明连接已经死了，必须主动断开触发重连。"""
 
     def _transport(self, stale: float):
-        import oopz.sdk_transport as module
+        import app.infrastructure.oopz_connection as module
 
         transport = cast(
             Any, module.ProjectWebSocketTransport.__new__(module.ProjectWebSocketTransport)
@@ -107,7 +107,7 @@ class StaleConnectionDetectionTest(unittest.IsolatedAsyncioTestCase):
         return transport
 
     async def test_no_data_beyond_threshold_closes_and_raises(self) -> None:
-        import oopz.sdk_transport as module
+        import app.infrastructure.oopz_connection as module
 
         transport = self._transport(0.02)
         never = asyncio.Event()
@@ -124,7 +124,7 @@ class StaleConnectionDetectionTest(unittest.IsolatedAsyncioTestCase):
         transport.close.assert_awaited_once()
 
     async def test_recent_data_passes_straight_through(self) -> None:
-        import oopz.sdk_transport as module
+        import app.infrastructure.oopz_connection as module
 
         transport = self._transport(5.0)
 
@@ -137,7 +137,7 @@ class StaleConnectionDetectionTest(unittest.IsolatedAsyncioTestCase):
         transport.close.assert_not_awaited()
 
     async def test_non_positive_timeout_disables_the_check(self) -> None:
-        import oopz.sdk_transport as module
+        import app.infrastructure.oopz_connection as module
 
         transport = self._transport(0)
         calls: list[str] = []

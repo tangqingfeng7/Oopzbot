@@ -8,7 +8,6 @@ from core.logger_config import get_logger
 from core.paths import DATA_DIR
 from domain.plugins.base import PluginDescriptor
 from domain.plugins.plugin_operation import PluginOperationCode, PluginOperationResult
-from oopz.sdk_gateway import AsyncOopzGateway
 
 from .gateways import SenderGateway
 from .plugin_runtime import (
@@ -39,7 +38,7 @@ class MusicGateway:
             from music.music import MusicHandler
 
             self._handler = MusicHandler(
-                self._sender.raw,
+                self._sender,
                 voice=self._voice_client,
                 supervisor=self._supervisor,
             )
@@ -227,11 +226,10 @@ class BotInfrastructure:
     plugins: PluginRuntime
 
 
-def build_bot_infrastructure(sender: AsyncOopzGateway, voice_client=None, supervisor=None) -> BotInfrastructure:
+def build_bot_infrastructure(sender: SenderGateway, voice_client=None, supervisor=None) -> BotInfrastructure:
     """构建命令处理链路需要的基础设施对象。"""
-    sender_gateway = SenderGateway(sender)
     return BotInfrastructure(
-        sender=sender_gateway,
-        music=MusicGateway(sender_gateway, voice_client=voice_client, supervisor=supervisor),
+        sender=sender,
+        music=MusicGateway(sender, voice_client=voice_client, supervisor=supervisor),
         plugins=PluginRuntime(),
     )

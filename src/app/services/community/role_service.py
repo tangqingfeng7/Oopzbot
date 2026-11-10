@@ -15,7 +15,11 @@ class RoleService:
 
     async def show_user_roles(self, target: str, channel: str, area: str) -> None:
         """查看指定用户在域内的角色和禁言/禁麦状态。"""
-        uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        try:
+            uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
+            return
         if not uid:
             await self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
@@ -23,24 +27,25 @@ class RoleService:
         resolver = get_resolver()
         name = resolver.user(uid)
 
-        data = await self._sender.get_user_area_detail(uid, area=area)
-        if "error" in data:
-            await self._sender.send_message(f"查询角色失败: {data['error']}", channel=channel, area=area)
+        try:
+            data = await self._sender.bot.areas.get_area_user_detail(area, uid)
+        except Exception as exc:
+            await self._sender.send_message(f"查询角色失败: {exc}", channel=channel, area=area)
             return
 
         area_name = resolver.area(area)
         lines = [f"{name} 在 {area_name} 的角色信息", "---"]
 
-        roles = data.get("list", [])
+        roles = data.roles
         if roles:
             lines.append("角色列表:")
             for role in roles:
-                lines.append(f"  - {role.get('name', '未知')} (ID={role.get('roleID', '?')})")
+                lines.append(f"  - {role.name or '未知'} (ID={role.role_id})")
         else:
             lines.append("  无角色")
 
-        text_mute = data.get("disableTextTo", 0)
-        voice_mute = data.get("disableVoiceTo", 0)
+        text_mute = int(data.disable_text_to or 0)
+        voice_mute = int(data.disable_voice_to or 0)
         if text_mute and text_mute > 0:
             end = datetime.datetime.fromtimestamp(text_mute / 1000).strftime("%Y-%m-%d %H:%M")
             lines.append(f"  禁言至: {end}")
@@ -57,38 +62,54 @@ class RoleService:
 
     async def show_assignable_roles(self, target: str, channel: str, area: str) -> None:
         """查看可以分配给目标用户的角色列表。"""
-        uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        try:
+            uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
+            return
         if not uid:
             await self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
 
         name = get_resolver().user(uid)
-        roles = await self._sender.get_assignable_roles(uid, area=area)
+        try:
+            roles = await self._sender.bot.areas.get_area_can_give_list(area, uid)
+        except Exception as exc:
+            await self._sender.send_message(f"查询可分配角色失败: {exc}", channel=channel, area=area)
+            return
         if not roles:
             await self._sender.send_message(f"没有可分配给 {name} 的角色", channel=channel, area=area)
             return
 
         lines = [f"可分配给 {name} 的角色", "---"]
         for role in roles:
-            owned = " [已拥有]" if role.get("owned") else ""
-            lines.append(f"  - {role.get('name', '未知')} (ID={role.get('roleID', '?')}){owned}")
+            owned = " [已拥有]" if role.owned else ""
+            lines.append(f"  - {role.name or '未知'} (ID={role.role_id}){owned}")
 
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     async def give_role(self, target: str, role_arg: str, channel: str, area: str) -> None:
         """给目标用户添加身份组。"""
-        uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        try:
+            uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
+            return
         if not uid:
             await self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
 
         name = get_resolver().user(uid)
-        roles = await self._sender.get_assignable_roles(uid, area=area)
+        try:
+            roles = await self._sender.bot.areas.get_area_can_give_list(area, uid)
+        except Exception as exc:
+            await self._sender.send_message(f"查询可分配角色失败: {exc}", channel=channel, area=area)
+            return
         if not roles:
             await self._sender.send_message(f"没有可分配给 {name} 的身份组", channel=channel, area=area)
             return
 
-        role_id = resolve_role_id(roles, role_arg)
+        role_id = resolve_role_id(((role.role_id, role.name) for role in roles), role_arg)
         if role_id is None:
             await self._sender.send_message(
                 f'未找到身份组 "{role_arg}"。可用 /roles {target} 查看可分配列表',
@@ -97,36 +118,44 @@ class RoleService:
             )
             return
 
-        result = await self._sender.edit_user_role(uid, role_id, add=True, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 给 {name} 添加身份组失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.edit_user_role(uid, role_id, add=True, area=area)
+            if not result.ok:
+                raise RuntimeError(result.message or "修改身份组被拒绝")
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 给 {name} 添加身份组失败: {exc}", channel=channel, area=area)
             return
 
         await self._sender.send_message(
-            f"{Msg.OK} {result.get('message', f'已给 {name} 添加身份组')}",
+            f"{Msg.OK} {result.message or f'已给 {name} 添加身份组'}",
             channel=channel,
             area=area,
         )
 
     async def remove_role(self, target: str, role_arg: str, channel: str, area: str) -> None:
         """取消目标用户的指定身份组。"""
-        uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        try:
+            uid = await self._runtime.services.community.target_resolution.resolve_target(target, area=area)
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
+            return
         if not uid:
             await self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
             return
 
         name = get_resolver().user(uid)
-        detail = await self._sender.get_user_area_detail(uid, area=area)
-        if "error" in detail:
-            await self._sender.send_message(f"获取用户角色失败: {detail['error']}", channel=channel, area=area)
+        try:
+            detail = await self._sender.bot.areas.get_area_user_detail(area, uid)
+        except Exception as exc:
+            await self._sender.send_message(f"获取用户角色失败: {exc}", channel=channel, area=area)
             return
 
-        role_list = detail.get("list") or []
+        role_list = detail.roles
         if not role_list:
             await self._sender.send_message(f"{name} 当前没有可取消的身份组", channel=channel, area=area)
             return
 
-        role_id = resolve_role_id(role_list, role_arg)
+        role_id = resolve_role_id(((role.role_id, role.name) for role in role_list), role_arg)
         if role_id is None:
             await self._sender.send_message(
                 f'未找到身份组 "{role_arg}"。可用 /role {target} 查看当前角色',
@@ -135,13 +164,16 @@ class RoleService:
             )
             return
 
-        result = await self._sender.edit_user_role(uid, role_id, add=False, area=area)
-        if "error" in result:
-            await self._sender.send_message(f"{Msg.ERR} 取消 {name} 身份组失败: {result['error']}", channel=channel, area=area)
+        try:
+            result = await self._sender.edit_user_role(uid, role_id, add=False, area=area)
+            if not result.ok:
+                raise RuntimeError(result.message or "修改身份组被拒绝")
+        except Exception as exc:
+            await self._sender.send_message(f"{Msg.ERR} 取消 {name} 身份组失败: {exc}", channel=channel, area=area)
             return
 
         await self._sender.send_message(
-            f"{Msg.OK} {result.get('message', f'已取消 {name} 的该身份组')}",
+            f"{Msg.OK} {result.message or f'已取消 {name} 的该身份组'}",
             channel=channel,
             area=area,
         )

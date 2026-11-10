@@ -19,33 +19,16 @@ class MemberService:
         """查询域内成员并展示在线状态。"""
         resolver = get_resolver()
 
-        members = []
-        seen_uids: set[str] = set()
-        page_size = 100
-        max_fetch = 500
-        for start in range(0, max_fetch, page_size):
-            data = await self._sender.get_area_members(
-                area=area,
-                offset_start=start,
-                offset_end=start + page_size - 1,
-                quiet=True,
-            )
-            if "error" in data:
-                await self._sender.send_message(f"查询成员列表失败: {data['error']}", channel=channel, area=area)
-                return
-            batch = data.get("members", []) or []
-            for member in batch:
-                uid = (member.get("uid") or "").strip()
-                if not uid or uid in seen_uids:
-                    continue
-                seen_uids.add(uid)
-                members.append(member)
-            if len(batch) < page_size:
-                break
+        try:
+            people = await self._sender.bot.areas.get_all_area_members(area, page_size=100, max_pages=5)
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员列表失败: {exc}", channel=channel, area=area)
+            return
+        members = list({person.uid: person for person in people if person.uid}.values())
 
-        await resolver.ensure_users([member.get("uid", "") for member in members])
-        online = [member for member in members if member.get("online") == 1]
-        offline = [member for member in members if member.get("online") != 1]
+        await resolver.ensure_users([member.uid for member in members])
+        online = [member for member in members if member.online == 1]
+        offline = [member for member in members if member.online != 1]
 
         area_name = resolver.area(area)
         lines = [
@@ -58,8 +41,8 @@ class MemberService:
             lines.append("在线:")
             show_limit = 50
             for member in online[:show_limit]:
-                name = resolver.user(member.get("uid", ""))
-                state = member.get("playingState", "")
+                name = resolver.user(member.uid)
+                state = member.playing_state
                 suffix = f" ({state})" if state else ""
                 lines.append(f"  {name}{suffix}")
             if len(online) > show_limit:
@@ -68,84 +51,66 @@ class MemberService:
         if offline:
             lines.append(f"离线: {len(offline)} 人")
 
-        if len(members) >= max_fetch:
-            lines.append(f"提示: 仅展示前 {max_fetch} 名成员统计")
+        if len(people) >= 500:
+            lines.append("提示: 仅展示前 500 名成员统计")
 
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     async def show_profile(self, channel: str, area: str, user: str) -> None:
         """查询用户详细信息。"""
-        data = await self._sender.get_person_detail(uid=user)
-        if "error" in data:
-            await self._sender.send_message(f"查询个人信息失败: {data['error']}", channel=channel, area=area)
+        try:
+            data = await self._sender.bot.person.get_person_info(user)
+        except Exception as exc:
+            await self._sender.send_message(f"查询个人信息失败: {exc}", channel=channel, area=area)
             return
 
-        name = data.get("name", "未知")
         lines = [
-            f"个人信息 - {name}",
+            f"个人信息 - {data.name or '未知'}",
             "---",
             f"  UID: {user}",
+            f"  状态: {'在线' if data.online else '离线'}",
         ]
-
-        if "online" in data:
-            lines.append(f"  状态: {'在线' if data['online'] else '离线'}")
-        if data.get("introduction"):
-            lines.append(f"  简介: {data['introduction']}")
-        if data.get("ipAddress"):
-            lines.append(f"  IP属地: {data['ipAddress']}")
-        if data.get("personType"):
-            lines.append(f"  类型: {data['personType']}")
-        if data.get("playingState"):
-            lines.append(f"  正在玩: {data['playingState']}")
-        if data.get("avatar"):
-            lines.append(f"  头像: {data['avatar']}")
-
-        vip_end = data.get("personVIPEndTime", 0)
-        if vip_end and vip_end > 0:
-            vip_end_str = datetime.datetime.fromtimestamp(vip_end / 1000).strftime("%Y-%m-%d")
-            lines.append(f"  VIP到期: {vip_end_str}")
-
-        badges = data.get("badges", [])
-        if badges:
-            lines.append(f"  徽章: {len(badges)} 个")
-
-        if len(lines) <= 3:
-            lines.append("  （该接口返回信息有限）")
+        for label, value in [
+            ("简介", data.introduction),
+            ("类型", data.person_type),
+            ("头像", data.avatar),
+        ]:
+            if value:
+                lines.append(f"  {label}: {value}")
+        if data.badges:
+            lines.append(f"  徽章: {len(data.badges)} 个")
 
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     async def show_myinfo(self, channel: str, area: str, user: str) -> None:
         """查询发起指令用户的完整详细资料。"""
-        data = await self._sender.get_person_detail_full(user)
-        if "error" in data:
-            await self._sender.send_message(f"查询资料失败: {data['error']}", channel=channel, area=area)
+        try:
+            person = await self._sender.bot.person.get_person_detail_full(user)
+        except Exception as exc:
+            await self._sender.send_message(f"查询资料失败: {exc}", channel=channel, area=area)
             return
 
-        person = data.get("person", data)
-        name = person.get("name", "未知")
+        name = person.name or "未知"
         lines = [f"我的详细资料 - {name}", "---"]
 
-        for label, key in [
-            ("UID", "uid"),
-            ("简介", "introduction"),
-            ("IP属地", "ipAddress"),
-            ("类型", "personType"),
-            ("性别", "sex"),
+        for label, value in [
+            ("UID", person.uid),
+            ("简介", person.introduction),
+            ("IP属地", person.ip_address),
+            ("类型", person.person_type),
         ]:
-            value = person.get(key)
             if value:
                 lines.append(f"  {label}: {value}")
 
-        if person.get("online") is not None:
-            lines.append(f"  状态: {'在线' if person['online'] else '离线'}")
+        lines.append(f"  状态: {'在线' if person.online else '离线'}")
 
-        vip_end = person.get("personVIPEndTime", 0)
+        vip_end = person.person_vip_end_time
         if vip_end and vip_end > 0:
             lines.append(
                 f"  VIP到期: {datetime.datetime.fromtimestamp(vip_end / 1000).strftime('%Y-%m-%d')}"
             )
 
-        badges = person.get("badges", [])
+        badges = person.badges
         if badges:
             badge_names = [badge.get("name", "") for badge in badges if badge.get("name")]
             lines.append(f"  徽章({len(badges)}): {', '.join(badge_names[:10])}")
@@ -154,53 +119,54 @@ class MemberService:
 
     async def _show_whois_by_uid(self, uid: str, channel: str, area: str) -> None:
         """按 UID 展示用户详细资料。"""
-        data = await self._sender.get_person_detail_full(uid)
-        if "error" in data:
-            await self._sender.send_message(f"查询资料失败: {data['error']}", channel=channel, area=area)
+        try:
+            person = await self._sender.bot.person.get_person_detail_full(uid)
+        except Exception as exc:
+            await self._sender.send_message(f"查询资料失败: {exc}", channel=channel, area=area)
             return
 
-        person = data.get("person", data)
-        name = person.get("name", uid[:8])
+        name = person.name or uid[:8]
         lines = [f"用户资料 - {name}", "---"]
 
-        for label, key in [
-            ("UID", "uid"),
-            ("简介", "introduction"),
-            ("IP属地", "ipAddress"),
-            ("类型", "personType"),
-            ("性别", "sex"),
+        for label, value in [
+            ("UID", person.uid),
+            ("简介", person.introduction),
+            ("IP属地", person.ip_address),
+            ("类型", person.person_type),
         ]:
-            value = person.get(key)
             if value:
                 lines.append(f"  {label}: {value}")
 
-        if person.get("online") is not None:
-            lines.append(f"  状态: {'在线' if person['online'] else '离线'}")
-        if person.get("playingState"):
-            lines.append(f"  正在玩: {person['playingState']}")
+        lines.append(f"  状态: {'在线' if person.online else '离线'}")
+        if person.playing_state:
+            lines.append(f"  正在玩: {person.playing_state}")
 
-        vip_end = person.get("personVIPEndTime", 0)
+        vip_end = person.person_vip_end_time
         if vip_end and vip_end > 0:
             lines.append(
                 f"  VIP到期: {datetime.datetime.fromtimestamp(vip_end / 1000).strftime('%Y-%m-%d')}"
             )
 
-        badges = person.get("badges", [])
+        badges = person.badges
         if badges:
             badge_names = [badge.get("name", "") for badge in badges if badge.get("name")]
             lines.append(f"  徽章({len(badges)}): {', '.join(badge_names[:10])}")
 
-        if person.get("avatar"):
-            lines.append(f"  头像: {person['avatar']}")
+        if person.avatar:
+            lines.append(f"  头像: {person.avatar}")
 
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
     async def show_whois(self, target: str, channel: str, area: str, user: str = "") -> None:
         """查看他人完整详细资料。"""
         target_resolution = self._runtime.services.community.target_resolution
-        uid = await target_resolution.resolve_target(target, area=area)
+        try:
+            uid = await target_resolution.resolve_target(target, area=area)
+            candidates_raw = await target_resolution.resolve_target_candidates(target, area=area, limit=5) if not uid else []
+        except Exception as exc:
+            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
+            return
         if not uid:
-            candidates_raw = await target_resolution.resolve_target_candidates(target, area=area, limit=5)
             candidates = candidates_raw if isinstance(candidates_raw, list) else []
             if candidates:
                 selection = self._selection_service()
@@ -228,27 +194,24 @@ class MemberService:
     async def search_members(self, keyword: str, channel: str, area: str, user: str = "") -> None:
         """搜索域内成员。"""
         resolver = get_resolver()
-        members = await self._sender.search_area_members(area=area, keyword=keyword)
+        try:
+            members = await self._sender.search_area_members(area=area, keyword=keyword)
+        except Exception as exc:
+            await self._sender.send_message(f"搜索成员失败: {exc}", channel=channel, area=area)
+            return
         if not members:
             await self._sender.send_message(f'未找到匹配 "{keyword}" 的成员', channel=channel, area=area)
             return
 
-        await resolver.ensure_users([member.get("uid", "") for member in members])
+        await resolver.ensure_users([member.uid for member in members])
         lines = [f'搜索 "{keyword}" - 找到 {len(members)} 人', "---"]
         selection_items = []
         for member in members[:20]:
-            uid = member.get("uid", "")
+            uid = member.uid
             name = resolver.user(uid)
             if uid:
                 selection_items.append({"uid": uid, "name": name})
-            roles_info = member.get("roleInfos", [])
-            role_names = [role.get("name", "") for role in roles_info if role.get("name")]
-            role_str = f" [{', '.join(role_names)}]" if role_names else ""
-            enter_time = member.get("enterTime", 0)
-            time_str = ""
-            if enter_time:
-                time_str = f" 加入于 {datetime.datetime.fromtimestamp(enter_time / 1000).strftime('%Y-%m-%d')}"
-            lines.append(f"  {name}{role_str}{time_str}")
+            lines.append(f"  {name}")
 
         if len(members) > 20:
             lines.append(f"  ... 还有 {len(members) - 20} 人")

@@ -55,15 +55,13 @@ class RecallService:
             )
             return
 
-        timestamp = await self._runtime.services.safety.message_lookup.resolve_timestamp(message_id, channel, area)
-        result = await self._sender.recall_message(
-            message_id,
-            area=area,
-            channel=channel,
-            timestamp=timestamp,
-        )
-        if "error" in result:
-            error = result["error"]
+        try:
+            timestamp = await self._runtime.services.safety.message_lookup.resolve_timestamp(message_id, channel, area)
+            result = await self._sender.bot.messages.recall_message(message_id, channel=channel, timestamp=timestamp, area=area)
+            if not result.ok:
+                raise RuntimeError(result.message or "撤回被拒绝")
+        except Exception as exc:
+            error = str(exc)
             hint = ""
             if "record not found" in (error or "").lower() or "服务异常" in (error or ""):
                 hint = "\n提示: 该消息可能已撤回/过期，或消息 ID 无效（请用长按消息复制得到的完整 ID）。"
@@ -98,17 +96,21 @@ class RecallService:
         ]
 
         if len(channel_messages) < count:
-            remote_messages = await self._sender.get_channel_messages(area=area, channel=channel, size=count)
+            try:
+                remote_messages = await self._sender.bot.messages.get_channel_messages(area, channel, count)
+            except Exception as exc:
+                await self._sender.send_message(f"{Msg.ERR} 查询历史消息失败: {exc}", channel=channel, area=area)
+                return
             known_ids = {message["messageId"] for message in channel_messages}
             for remote in remote_messages:
-                if remote["messageId"] in known_ids:
+                if remote.message_id in known_ids:
                     continue
                 channel_messages.append({
-                    "messageId": remote["messageId"],
-                    "channel": remote.get("channel", channel),
-                    "area": remote.get("area", area),
-                    "content": (remote.get("content") or "")[:50],
-                    "timestamp": remote.get("timestamp", ""),
+                    "messageId": remote.message_id,
+                    "channel": remote.channel,
+                    "area": remote.area,
+                    "content": remote.content[:50],
+                    "timestamp": remote.timestamp,
                 })
             channel_messages.sort(key=lambda message: message.get("timestamp") or "0")
 
@@ -123,16 +125,14 @@ class RecallService:
         await self._sender.send_message(f"{Msg.SYNC} 正在撤回 {len(to_recall)} 条消息...", channel=channel, area=area)
 
         for message in reversed(to_recall):
-            timestamp = message.get("timestamp") or await self._runtime.services.safety.message_lookup.resolve_timestamp(
-                message["messageId"], channel, area
-            )
-            result = await self._sender.recall_message(
-                message["messageId"],
-                area=area,
-                channel=channel,
-                timestamp=timestamp,
-            )
-            if "error" in result:
+            try:
+                timestamp = message.get("timestamp") or await self._runtime.services.safety.message_lookup.resolve_timestamp(
+                    message["messageId"], channel, area
+                )
+                result = await self._sender.bot.messages.recall_message(message["messageId"], channel=channel, timestamp=timestamp, area=area)
+                if not result.ok:
+                    raise RuntimeError(result.message or "撤回被拒绝")
+            except Exception:
                 fail_count += 1
             else:
                 success_count += 1

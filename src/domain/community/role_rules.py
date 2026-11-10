@@ -1,16 +1,14 @@
 from collections.abc import Iterable
-from typing import Any
 
 
-def resolve_role_id(roles: Iterable[dict[str, Any]], role_arg: str) -> Any | None:
+def resolve_role_id(roles: Iterable[tuple[int, str]], role_arg: str) -> int | None:
     candidate = (role_arg or "").strip()
     if not candidate:
         return None
 
-    for role in roles:
-        role_id = role.get("roleID")
-        role_name = (role.get("name") or "").strip()
-        if role_id is not None and str(role_id) == candidate:
+    for role_id, role_name in roles:
+        role_name = role_name.strip()
+        if str(role_id) == candidate:
             return role_id
         if role_name == candidate:
             return role_id

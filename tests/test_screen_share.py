@@ -17,6 +17,13 @@ SRC_ROOT = REPO_ROOT / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk.models import (  # noqa: E402
+    AreaUserDetail,
+    JoinedAreaInfo,
+    MessageSendResult,
+    OperationResult,
+)
+
 from app.services.interaction.screen_share_command_service import (  # noqa: E402
     ScreenShareCommandService,
 )
@@ -506,8 +513,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_role_permission_is_area_scoped_and_fail_closed(self) -> None:
         sender = SimpleNamespace(
-            get_joined_areas=AsyncMock(return_value=[{"id": "denied-area", "owner": "owner"}]),
-            get_user_area_detail=AsyncMock(return_value={"list": [{"roleID": "20"}]}),
+            bot=SimpleNamespace(areas=SimpleNamespace(get_joined_areas=AsyncMock(return_value=[JoinedAreaInfo.from_api({"id": "denied-area", "name": "域", "owner": "owner"})]), get_area_user_detail=AsyncMock(return_value=AreaUserDetail.from_api({"list": [{"roleID": "20"}]})))),
         )
         registry = Mock()
         registry.get.side_effect = lambda area: SimpleNamespace(
@@ -517,7 +523,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(await self.service.authorize(sender, user="owner", area="denied-area"))
             self.assertTrue(await self.service.authorize(sender, user="member", area="allowed-area"))
             self.assertFalse(await self.service.authorize(sender, user="member", area="denied-area"))
-            sender.get_user_area_detail.return_value = {"error": "lookup failed"}
+            sender.bot.areas.get_area_user_detail.side_effect = RuntimeError("lookup failed")
             self.assertFalse(await self.service.authorize(sender, user="member", area="allowed-area"))
             self.assertTrue(await self.service.authorize(sender, user="admin", area="denied-area", is_bot_admin=True))
 
@@ -525,7 +531,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
 class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
     async def test_private_message_contains_only_presenter_link(self) -> None:
         sender = SimpleNamespace(
-            send_private_message=AsyncMock(return_value={"ok": True}),
+            bot=SimpleNamespace(messages=SimpleNamespace(send_private_message=AsyncMock(return_value=MessageSendResult(messageId="presenter-link")))),
             send_message=AsyncMock(return_value={"ok": True}),
         )
         runtime = SimpleNamespace(
@@ -548,7 +554,7 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
             return_value=service,
         ):
             await command.start("channel", "area", "user")
-        private_message = sender.send_private_message.await_args.args[1]
+        private_message = sender.bot.messages.send_private_message.await_args.args[0]
         self.assertIn("发起端专用链接", private_message)
         self.assertIn("/screen-share/p#presenter-secret", private_message)
         public_messages = [call.args[0] for call in sender.send_message.await_args_list]
@@ -556,7 +562,7 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_private_message_failure_destroys_session(self) -> None:
         sender = SimpleNamespace(
-            send_private_message=AsyncMock(return_value={"error": "disabled"}),
+            bot=SimpleNamespace(messages=SimpleNamespace(send_private_message=AsyncMock(side_effect=RuntimeError("disabled")))),
             send_message=AsyncMock(return_value={"ok": True}),
         )
         runtime = SimpleNamespace(
@@ -609,7 +615,7 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
     async def test_stop_command_only_stops_presenters_own_share(self) -> None:
         sender = SimpleNamespace(
             send_message=AsyncMock(return_value={"ok": True}),
-            recall_message=AsyncMock(return_value={"status": True}),
+            bot=SimpleNamespace(messages=SimpleNamespace(recall_message=AsyncMock(return_value=OperationResult()))),
         )
         runtime = SimpleNamespace(
             sender=sender,
@@ -643,7 +649,7 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
             await command.stop("channel", "area", "user")
         service.stop.assert_awaited_once_with(own, reason="command_stop_self")
         service.authorize.assert_not_awaited()
-        sender.recall_message.assert_awaited_once_with(
+        sender.bot.messages.recall_message.assert_awaited_once_with(
             "viewer-message",
             area="area",
             channel="channel",
@@ -852,14 +858,8 @@ class ScreenShareAssetContractTest(unittest.TestCase):
             "viewer_message_timestamp": "viewer-timestamp",
         }
         sender = SimpleNamespace(
-            send_message=AsyncMock(return_value={
-                "status": True,
-                "data": {
-                    "messageId": "viewer-message",
-                    "timestamp": "viewer-timestamp",
-                },
-            }),
-            recall_message=AsyncMock(return_value={"status": True}),
+            send_message=AsyncMock(return_value=MessageSendResult(messageId="viewer-message", timestamp="viewer-timestamp")),
+            bot=SimpleNamespace(messages=SimpleNamespace(recall_message=AsyncMock(return_value=OperationResult()))),
         )
         service = SimpleNamespace(
             mark_ready=AsyncMock(return_value={
@@ -897,7 +897,7 @@ class ScreenShareAssetContractTest(unittest.TestCase):
         started, ended = sender.send_message.await_args_list
         self.assertIs(started.kwargs["auto_recall"], False)
         self.assertIsNot(ended.kwargs.get("auto_recall"), False)
-        sender.recall_message.assert_awaited_once_with(
+        sender.bot.messages.recall_message.assert_awaited_once_with(
             "viewer-message",
             area="area-1",
             channel="channel-1",

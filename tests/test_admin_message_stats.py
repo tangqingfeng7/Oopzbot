@@ -6,12 +6,16 @@ import tempfile
 import unittest
 from contextlib import ExitStack
 from pathlib import Path
-from unittest.mock import AsyncMock, Mock, patch
+from unittest.mock import AsyncMock, patch
 
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
+from oopz_sdk import OopzBot  # noqa: E402
+from oopz_sdk.testing.factories import make_config  # noqa: E402
+
+from app.infrastructure.gateways.sender_gateway import SenderGateway  # noqa: E402
 from oopz.name_resolver import NameResolver  # noqa: E402
 from web.admin.scheduler import admin_message_stats_ranking  # noqa: E402
 
@@ -28,8 +32,11 @@ class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
         patches.enter_context(patch.object(NameResolver, "_instance", None))
         patches.enter_context(patch.object(NameResolver, "_load_config_names"))
         self.resolver = NameResolver()
-        self.gateway = Mock()
-        self.gateway.get_person_infos_batch = AsyncMock(return_value={})
+        self.bot = OopzBot(make_config())
+        self.addAsyncCleanup(self.bot.stop)
+        self.gateway = SenderGateway(self.bot)
+        self.request = AsyncMock(return_value=[])
+        self.bot.person._request_data = self.request
         await self.resolver.bind_gateway(self.gateway)
         self.addAsyncCleanup(self.resolver.close)
         patches.enter_context(patch("web.admin.scheduler.get_resolver", return_value=self.resolver))
@@ -40,33 +47,33 @@ class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
     async def test_new_member_name_is_fetched_and_reused(self) -> None:
         uid = "981599abcdef7056"
         self.ranking.return_value = [{"user_id": uid, "total": 2}]
-        self.gateway.get_person_infos_batch.return_value = {uid: {"name": "新成员昵称"}}
+        self.request.return_value = [{"uid": uid, "name": "新成员昵称"}]
 
         for _ in range(2):
             response = await admin_message_stats_ranking(days=7, limit=10, area_id="area-1")
-            payload = json.loads(response.body)
+            payload = json.loads(bytes(response.body))
             self.assertEqual(payload["ranking"][0]["display_name"], "新成员昵称")
             self.assertEqual(payload["ranking"][0]["total"], 2)
 
-        self.gateway.get_person_infos_batch.assert_awaited_once_with([uid])
+        self.request.assert_awaited_once()
         self.ranking.assert_awaited_with("area-1", days=7, limit=10)
 
     async def test_failed_name_lookup_keeps_statistics_and_can_retry(self) -> None:
         uid = "981599abcdef7056"
         self.ranking.return_value = [{"user_id": uid, "total": 2}]
-        self.gateway.get_person_infos_batch.side_effect = [
-            RuntimeError("temporary failure"), {uid: {"nickname": "恢复后的昵称"}},
+        self.request.side_effect = [
+            RuntimeError("temporary failure"), [{"uid": uid, "name": "恢复后的昵称"}],
         ]
 
         with self.assertLogs("WebPlayerAdmin", level="WARNING"):
             response = await admin_message_stats_ranking(days=7, limit=10, area_id="")
-        payload = json.loads(response.body)
+        payload = json.loads(bytes(response.body))
         self.assertTrue(payload["ok"])
         self.assertEqual(payload["ranking"][0]["display_name"], "981599..7056")
         self.assertEqual(payload["ranking"][0]["total"], 2)
 
         response = await admin_message_stats_ranking(days=7, limit=10, area_id="")
-        self.assertEqual(json.loads(response.body)["ranking"][0]["display_name"], "恢复后的昵称")
+        self.assertEqual(json.loads(bytes(response.body))["ranking"][0]["display_name"], "恢复后的昵称")
 
 
 if __name__ == "__main__":

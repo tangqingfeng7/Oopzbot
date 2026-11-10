@@ -10,6 +10,10 @@ import uuid
 from typing import Any, Protocol, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from oopz_sdk.models import ImageAttachment
+from oopz_sdk.models.segment import Image as ImageSegment
+
+from app.infrastructure.gateways.sender_gateway import SenderGateway
 from app.services.playback import PlaybackAreaResolver
 from config import OOPZ_CONFIG, WEB_PLAYER_CONFIG
 from core.database import ImageCache, SongCache, Statistics
@@ -41,7 +45,6 @@ from music.music_playback import (
 from music.music_web_control import WebControlExecutor
 from music.netease import NeteaseCloud
 from oopz.name_resolver import NameResolver
-from oopz.sdk_gateway import AsyncOopzGateway
 from web.web_link_token import (
     clear_token,
     get_active_area,
@@ -119,7 +122,7 @@ class MusicHandler(PlaybackMixin):
 
     def __init__(
         self,
-        sender: AsyncOopzGateway,
+        sender: SenderGateway,
         voice: Any | None = None,
         supervisor=None,
     ):
@@ -214,8 +217,8 @@ class MusicHandler(PlaybackMixin):
         now = time.monotonic()
         if not cached or now - cached_at >= 300:
             try:
-                areas = await self.sender.get_joined_areas(quiet=True)
-                area = str((areas[0] if areas else {}).get("id") or "").strip()
+                areas = await self.sender.bot.areas.get_joined_areas()
+                area = areas[0].area_id.strip() if areas else ""
                 if area:
                     self._background_area_cache = (area, now)
             except Exception:
@@ -357,7 +360,8 @@ class MusicHandler(PlaybackMixin):
             if not self._voice_channel_id:
                 await self._cleanup_stale_voice_membership(area)
             try:
-                sign = await self.voice.join(
+                await self.voice.wait_for_warmup()
+                sign = await self.voice.service.join(
                     area=area,
                     channel=voice_channel_id,
                     from_area=from_area,
@@ -387,7 +391,14 @@ class MusicHandler(PlaybackMixin):
             )
             return False
 
-        voice_ch_id = await self.sender.get_voice_channel_for_user(user, area=area)
+        try:
+            voice_ch_id = await self.sender.bot.channels.get_voice_channel_for_user(area, user)
+        except Exception as exc:
+            logger.warning("查询点歌用户语音频道失败: %s", exc)
+            await self.sender.send_message(
+                "查询语音频道失败，请稍后再试。", channel=channel, area=area,
+            )
+            return False
         if not voice_ch_id:
             await self.sender.send_message(
                 "请先加入一个语音频道，Bot 会跟随你进入并放歌。",
@@ -454,7 +465,7 @@ class MusicHandler(PlaybackMixin):
             return
         vol = max(0, min(100, vol))
         try:
-            await self.voice.set_volume(vol)
+            await self.voice.service.set_volume(vol)
             logger.debug(f"已从 Redis 恢复播放音量: {vol}")
         except Exception as e:
             logger.debug(f"恢复音量失败: {e}")
@@ -470,7 +481,7 @@ class MusicHandler(PlaybackMixin):
         if not bot_uid:
             return
         try:
-            stale_ch = await self.sender.get_voice_channel_for_user(bot_uid, area=area)
+            stale_ch = await self.sender.bot.channels.get_voice_channel_for_user(area, bot_uid)
         except Exception as e:
             logger.debug(f"查询服务端残留语音状态失败，跳过清理: {e}")
             return
@@ -478,7 +489,9 @@ class MusicHandler(PlaybackMixin):
             return
         logger.info(f"检测到服务端残留: bot 仍登记在语音频道 {stale_ch}，先 leave 清理")
         try:
-            await self.sender.leave_voice_channel(channel=stale_ch, area=area)
+            result = await self.sender.bot.channels.leave_voice_channel(area, stale_ch, bot_uid)
+            if not result.ok:
+                raise RuntimeError(result.message or "退出语音频道被拒绝")
         except Exception as e:
             logger.warning(f"清理残留语音状态失败: {e}")
 
@@ -494,7 +507,7 @@ class MusicHandler(PlaybackMixin):
         if not bot_uid:
             return True
         try:
-            actual = await self.sender.get_voice_channel_for_user_strict(bot_uid, area=area)
+            actual = await self.sender.bot.channels.get_voice_channel_for_user(area, bot_uid)
         except Exception as e:
             logger.debug("校验语音成员身份失败，按仍在频道处理: %s", e)
             return True
@@ -511,7 +524,8 @@ class MusicHandler(PlaybackMixin):
 
         # 先断开 Agora RTC 连接
         if self.voice and self.voice.available:
-            await self.voice.leave()
+            self.voice.set_playing(False)
+            await self.voice.service.leave()
 
         logger.info("Bot 已退出语音频道: %s", self.names.channel(self._voice_channel_id))
         self._voice_channel_id = None
@@ -699,7 +713,8 @@ class MusicHandler(PlaybackMixin):
 
             session = self._advance_playback_generation_locked()
             if self.voice and self.voice.available:
-                await self.voice.stop_audio()
+                self.voice.set_playing(False)
+                await self.voice.service.stop()
             self._play_start_time = 0
             self._play_duration = 0
 
@@ -883,7 +898,8 @@ class MusicHandler(PlaybackMixin):
             except Exception as e:
                 logger.debug(f"停止播放时清理 play_state 失败: {e}")
             if self.voice and self.voice.available:
-                await self.voice.stop_audio()
+                self.voice.set_playing(False)
+                await self.voice.service.stop()
             await self._leave_current_voice_channel()
         await self.sender.send_message("已停止播放，Bot 已退出语音频道", channel=channel, area=area)
 
@@ -1447,11 +1463,14 @@ class MusicHandler(PlaybackMixin):
             return attachments, image_cache_id, cache_hit
 
         upload_url = self._cover_upload_url(str(cover), str(platform))
-        up = await self.sender.upload_file_from_url(upload_url)
-        if up.get("code") == "success":
-            att = up["data"]
-            attachments = [att]
-            image_cache_id = await ImageCache.save(song_id, platform, cover, att)
+        try:
+            image = await self.sender.upload_image_from_url(upload_url)
+        except Exception as exc:
+            logger.warning("封面上传失败，继续播放: %s", exc)
+            return attachments, image_cache_id, cache_hit
+        att = image.to_payload()
+        attachments = [att]
+        image_cache_id = await ImageCache.save(song_id, platform, cover, att)
         return attachments, image_cache_id, cache_hit
 
     @classmethod
@@ -1510,8 +1529,8 @@ class MusicHandler(PlaybackMixin):
 
         attachments = song_data.get("attachments", [])
         if attachments:
-            att = attachments[0]
-            text = f"![IMAGEw{att['width']}h{att['height']}]({att['fileKey']})\n" + text
+            image = ImageSegment.from_attachment(ImageAttachment.model_validate(attachments[0]))
+            text = image.to_message_text() + text
         return text
 
     async def _commit_song_request(self, song_data: dict, prefix: str = "") -> dict:

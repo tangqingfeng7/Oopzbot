@@ -21,8 +21,6 @@ if str(SRC_ROOT) not in sys.path:
 from core.http_constants import HTTP_TIMEOUT_API, HTTP_TIMEOUT_API_SLOW  # noqa: E402
 
 _HTTP_VERBS = {"get", "post", "put", "delete", "patch", "head", "request", "ws_connect"}
-# 内置 SDK 副本与上游逐字一致，其超时策略不由本仓库负责
-_VENDORED = "oopz_sdk"
 
 
 class TimeoutTierTest(unittest.TestCase):
@@ -59,9 +57,9 @@ class SdkTransportTimeoutTest(unittest.TestCase):
 
     def test_project_config_supplies_a_bounded_tier(self) -> None:
         """本项目必须显式配档，不能让网关落到无界请求上。"""
-        import oopz.sdk_config as sdk_config
+        import app.lifecycle.oopz_session as session_config
 
-        source = Path(sdk_config.__file__).read_text(encoding="utf-8")
+        source = Path(session_config.__file__).read_text(encoding="utf-8")
         self.assertIn("RequestConfig(timeout=", source)
 
         tree = ast.parse(source)
@@ -75,7 +73,7 @@ class SdkTransportTimeoutTest(unittest.TestCase):
                 for kw in node.keywords:
                     if kw.arg == "timeout":
                         found.append(ast.literal_eval(kw.value))
-        self.assertTrue(found, "sdk_config 必须给 RequestConfig 显式配置 timeout")
+        self.assertTrue(found, "session_config 必须给 RequestConfig 显式配置 timeout")
         for value in found:
             connect, read = value
             self.assertGreater(connect, 0)
@@ -140,14 +138,9 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
     timeout」规则不再适用；真正要挡住的是两处都没有、请求彻底无界。
     """
 
-    def _project_files(self):
-        for path in SRC_ROOT.rglob("*.py"):
-            if _VENDORED not in path.parts:
-                yield path
-
     def test_no_unbounded_outbound_call(self) -> None:
         offenders = []
-        for path in self._project_files():
+        for path in SRC_ROOT.rglob("*.py"):
             tree = ast.parse(path.read_text(encoding="utf-8"))
 
             # 把「无超时的会话」按其赋值目标记下来，才能和调用方精确配对；
@@ -187,7 +180,7 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
     def test_requests_style_calls_always_pass_timeout(self) -> None:
         """requests 没有会话级默认超时，漏传就是无限等待。"""
         offenders = []
-        for path in self._project_files():
+        for path in SRC_ROOT.rglob("*.py"):
             source = path.read_text(encoding="utf-8")
             if "import requests" not in source:
                 continue
@@ -208,9 +201,9 @@ class NoUnboundedOutboundCallTest(unittest.TestCase):
 
 class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
     async def test_gateway_delegates_to_shared_scheduler(self) -> None:
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock(return_value=True)
 
@@ -226,9 +219,9 @@ class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
         )
 
     async def test_disabled_config_skips_scheduling(self) -> None:
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock()
 
@@ -239,9 +232,9 @@ class AutoRecallSchedulingTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_non_positive_delay_skips_scheduling(self) -> None:
         """延迟为 0 意味着立即撤回，等同于没发出去，必须当作未启用。"""
-        import oopz.sdk_gateway as module
+        import app.infrastructure.gateways.sender_gateway as module
 
-        gateway = module.AsyncOopzGateway.__new__(module.AsyncOopzGateway)
+        gateway = module.SenderGateway.__new__(module.SenderGateway)
         gateway._auto_recall_scheduler = mock.Mock()
         gateway._auto_recall_scheduler.schedule_recall = AsyncMock()
 

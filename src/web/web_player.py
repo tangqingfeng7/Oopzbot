@@ -55,7 +55,7 @@ from web.web_rate_limit import (
 from web.web_request_context import cookie_secure_for
 
 if TYPE_CHECKING:
-    from oopz.sdk_gateway import AsyncOopzGateway
+    from app.infrastructure.gateways.sender_gateway import SenderGateway
 
 logger = get_logger("WebPlayer")
 
@@ -217,19 +217,19 @@ def reset_netease() -> None:
     _netease = None
 
 
-_sender: AsyncOopzGateway | None = None
+_sender: SenderGateway | None = None
 _music_dependency = None
 _plugin_runtime = None
 _plugin_host = None
 _oopz_client = None
 
 
-def set_sender(sender: AsyncOopzGateway | None) -> None:
+def set_sender(sender: SenderGateway | None) -> None:
     global _sender
     _sender = sender
 
 
-def get_sender() -> AsyncOopzGateway | None:
+def get_sender() -> SenderGateway | None:
     return _sender
 
 

@@ -53,7 +53,8 @@ class WebControlExecutor:
         if not (self.h.voice and self.h.voice.available):
             return
         try:
-            await self.h.voice.stop_audio()
+            self.h.voice.set_playing(False)
+            await self.h.voice.service.stop()
         except Exception as e:
             logger.debug(f"{context} 停止音频失败: {e}")
 
@@ -158,7 +159,8 @@ class WebControlExecutor:
         await self.h._leave_current_voice_channel()
 
     async def _handle_pause(self, queue):
-        if self.h.voice and self.h.voice.available and await self.h.voice.pause_audio():
+        if self.h.voice and self.h.voice.available and await self.h.voice.service.pause():
+            self.h.voice.set_playing(False)
             elapsed = time.time() - self.h._play_start_time
             await self.h._update_play_state_redis(
                 queue=queue,
@@ -167,8 +169,9 @@ class WebControlExecutor:
             )
 
     async def _handle_resume(self, queue):
-        if not (self.h.voice and self.h.voice.available and await self.h.voice.resume_audio()):
+        if not (self.h.voice and self.h.voice.available and await self.h.voice.service.resume()):
             return
+        self.h.voice.set_playing(True)
         try:
             ps = await queue.get_play_state()
             if not ps:
@@ -187,7 +190,7 @@ class WebControlExecutor:
     async def _handle_seek(self, queue, seek_time: float):
         if not (self.h.voice and self.h.voice.available):
             return
-        if not await self.h.voice.seek_audio(seek_time):
+        if not await self.h.voice.service.seek(seek_time):
             return
         was_paused = False
         try:
@@ -212,7 +215,7 @@ class WebControlExecutor:
             logger.debug(f"持久化音量失败: {e}")
         if not (self.h.voice and self.h.voice.available):
             return
-        if not await self.h.voice.set_volume(vol):
+        if not await self.h.voice.service.set_volume(vol):
             return
         try:
             await redis_client.set(KEY_VOLUME, str(vol))
