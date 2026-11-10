@@ -1,7 +1,9 @@
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from core.constants import PLUGINS_DIR_NAME
 from core.logger_config import get_logger
@@ -17,6 +19,11 @@ from .plugin_runtime import (
     reload_plugin_config,
     unload_plugin,
 )
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter
+
+    from web.plugin_routes import AdminNavItem
 
 _DEFAULT_PLUGIN_STATE_PATH = os.path.join(DATA_DIR, "plugin_runtime_state.json")
 logger = get_logger("PluginRuntime")
@@ -215,6 +222,15 @@ class PluginHost:
     @property
     def services(self):
         return self._services_getter()
+
+    def register_web(
+        self, router: "APIRouter", *, admin_nav: "AdminNavItem | None" = None
+    ) -> Callable[[], None]:
+        """在现有 Web 应用注册插件路由，返回注销函数。"""
+        from web.plugin_routes import register_web
+        from web.web_player import app
+
+        return register_web(app, router, admin_nav=admin_nav)
 
 
 @dataclass(frozen=True)

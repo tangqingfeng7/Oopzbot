@@ -295,7 +295,7 @@ SOCKS 代理使用连接器。Playwright 初始化还负责代理和项目页面
 | `src/web/web_player_admin.py` | 9 行稳定 facade（外观入口）：调用 `create_admin_router()` 并对外导出 `admin_router` |
 | `src/web/admin/` | Admin 后台的实际路由包；按登录、页面、配置、音乐、定时任务、插件、成员与共享辅助拆分 |
 | `src/web/web_player_config.py` | 配置常量（`WEB_PLAYER_CONFIG` 引用）、分组定义、基线值、config.py 写回与热更新 |
-| `src/screen_share/` | 独立的屏幕共享业务模块；持有 Redis 会话状态、AccessToken2 签发、浏览器 API 和 TypeScript 源码 |
+| `plugins/screen_share/` | 屏幕共享插件，提供频道命令、Redis 会话、AccessToken2 签发和 Web 路由 |
 
 `src/web/web_player.py` 仍从 facade 导入 `admin_router`，再通过
 `app.include_router(admin_router)` 挂载 `src/web/admin/` 组装的 Admin 路由。
@@ -354,7 +354,7 @@ Agora RTC (语音频道)
 Oopz 文字频道命令
   │  Bot 私信单次发起链接
   ▼
-src/screen_share/web.py ──► src/screen_share/service.py ──► Redis 会话/令牌哈希
+plugins/screen_share/web.py ──► plugins/screen_share/service.py ──► Redis 会话/令牌哈希
   │                                  │
   │ 发起端 host / 观看端 audience       └── AccessToken2（服务端签发）
   ▼

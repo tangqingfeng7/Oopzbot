@@ -4,6 +4,7 @@
 
 ## 部署要求
 
+- 在插件管理页加载 `screen_share`，也可使用 `/loadplugin screen_share`。已有插件启用清单的部署升级后加载一次，Bot 会保存启用状态。
 - 自己创建的声网 RTC 项目，并启用 App Certificate。
 - 在声网控制台为该项目开启“连麦鉴权”，否则观看 Token 的禁止发布权限不会由服务端强制生效。
 - 可用的 Redis。此模块不接受项目的内存 Redis 降级模式。
@@ -37,6 +38,8 @@ WEB_PLAYER_CONFIG = {
 
 ## 链接和会话生命周期
 
+使用 `/unloadplugin screen_share` 或插件管理页卸载时，Bot 会结束现有会话、撤回频道观看链接，并下线共享页面与接口。若 Redis 清理失败，插件保持加载，可在 Redis 恢复后重试。常规 Bot 重启时由 Redis 保留会话，重启后继续按心跳和时长处理。
+
 发起链接默认 10 分钟有效且只能领取一次。领取后页面通过 `createScreenVideoTrack` 打开浏览器原生窗口选择器。发起者可以选择 2K（2560×1440）、1080p 或 720p，以及最高 30/60/120/144/240 FPS；超过 30 FPS 时使用流畅优先策略。画质与帧率均作为上限：捕获后会读取源画面的实际尺寸，低于所选画质时保持源分辨率而不执行放大。实际帧率仍由共享内容、显示器刷新率、浏览器、设备性能、网络和声网链路决定。共享端不会请求麦克风权限，只发布浏览器捕获到的系统声音；系统声音不可用时会明确提示并降级为仅画面。发布成功前频道里不会出现观看链接。
 
 共享者以 `live` 模式的 `host` 角色加入，观看者以 `audience` 角色加入，观看 Token 不包含发布权限。与控制台的“连麦鉴权”一起使用时，观看者只能订阅画面和声音，无法向频道发布音视频。
@@ -63,32 +66,31 @@ Linux/Wayland 浏览器通常不能捕获系统声音，这种情况下会自动
 | 后台 API | `POST /admin/api/screen-shares/{session_id}/stop` | 结束指定共享，需后台登录 |
 
 ```text
-src/screen_share/
+plugins/screen_share/
+├── __init__.py         # 插件命令、Web 路由注册和看门狗
+├── commands.py         # 频道命令与 Oopz 消息
 ├── service.py          # Redis 会话、权限、Token 与过期清理
 ├── agora_token.py      # 声网 AccessToken2 签发
 ├── labels.py           # 发起者名称解析
 ├── messages.py         # 观看链接消息引用与结束时撤回
-├── web.py              # 发起/观看页 API 与看门狗
+├── web.py              # 发起与观看页面及 API
+├── admin.py            # 后台页面、列表和停止接口
+├── admin_assets/       # 后台屏幕共享页内容和脚本
+├── assets/             # 发起与观看页面及前端编译产物
 └── client/             # TypeScript 源码和构建配置
-
-src/web/admin/screen_share.py                  # 后台列表与停止接口
-src/web/assets/admin/pages/screen-share_*       # 后台屏幕共享页
-src/web/assets/screen-share/                    # 随仓库发布的浏览器编译产物
 ```
 
 ## 前端开发
 
-正式部署直接使用仓库内已提交的 `src/web/assets/screen-share/app.js`，无需安装 Node.js。只有修改 TypeScript 源码时才需要：
+正式部署直接使用插件随附的 `plugins/screen_share/assets/app.js`，无需安装 Node.js。修改 TypeScript 源码后重新构建：
 
 ```bash
-cd src/screen_share/client
+cd plugins/screen_share/client
 npm ci
 npm run typecheck
 npm run build
 ```
 
-源码与构建配置收口在屏幕共享模块的 `src/screen_share/client/`，编译产物输出到 `src/web/assets/screen-share/app.js`。
-
 ## 验收
 
-配置真实凭据和 HTTPS 后，用两个浏览器验证：发起端选择一个有动态内容且提供系统音频的窗口，观看端从频道链接打开，确认画面、系统声音、停止通知和链接失效。测试时不要把 Certificate、RTC Token 或私信发起链接复制到日志或频道。
+配置真实凭据和 HTTPS 后，用两个浏览器验证：发起端选择一个有动态内容且提供系统音频的窗口，观看端从频道链接打开，确认画面和系统声音。在共享期间卸载插件，确认发起端停止采集、频道观看链接被撤回、旧链接失效，再重新加载插件验证入口恢复。测试时不要把 Certificate、RTC Token 或私信发起链接复制到日志或频道。

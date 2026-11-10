@@ -157,3 +157,7 @@ class BotModule(ABC):
 
     async def on_unload(self) -> None:
         """插件卸载前调用。"""
+
+    async def on_disable(self) -> None:
+        """手动卸载前清理业务状态，失败时保留已加载的插件。"""
+        return None

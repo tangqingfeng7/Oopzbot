@@ -24,6 +24,10 @@
 - `on_load`
 - `on_unload`
 
+需要在手动卸载前清理业务状态时，可实现 `on_disable`。它在插件仍注册时运行，抛出异常会中止卸载。应用关闭时调用 `on_unload` 释放运行时资源。
+
+Web 插件可在 `on_load` 中调用 `handler.register_web(router, admin_nav=...)`，把 FastAPI 路由和可选的后台导航项注册到宿主。保存返回的注销函数，在 `on_unload` 中调用。页面和 API 路由由插件声明，后台 API 使用 `/admin/api/` 路径以沿用后台认证。
+
 ### 命令入口
 
 命令入口统一走 `plugins/_shared/command_mixin.py` 的 `PluginCommandMixin`：插件类同时继承

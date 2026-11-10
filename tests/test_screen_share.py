@@ -7,6 +7,7 @@ import struct
 import sys
 import unittest
 import zlib
+from contextlib import nullcontext
 from pathlib import Path
 from types import SimpleNamespace
 from typing import Any, cast
@@ -24,13 +25,11 @@ from oopz_sdk.models import (  # noqa: E402
     OperationResult,
 )
 
-from app.services.interaction.screen_share_command_service import (  # noqa: E402
-    ScreenShareCommandService,
-)
-from screen_share import web as screen_share_web  # noqa: E402
-from screen_share.agora_token import build_rtc_token  # noqa: E402
-from screen_share.service import ScreenShareError, ScreenShareService  # noqa: E402
-from web.admin import screen_share as admin_screen_share  # noqa: E402
+from plugins.screen_share import admin as admin_screen_share  # noqa: E402
+from plugins.screen_share import web as screen_share_web  # noqa: E402
+from plugins.screen_share.agora_token import build_rtc_token  # noqa: E402
+from plugins.screen_share.commands import ScreenShareCommandService  # noqa: E402
+from plugins.screen_share.service import ScreenShareError, ScreenShareService  # noqa: E402
 
 APP_ID = "1" * 32
 CERTIFICATE = "2" * 32
@@ -222,13 +221,18 @@ class FakeRedis:
             return "OK"
         if "redis.call('del', KEYS[1], KEYS[2]" in script:
             payload = self.data.get(keys[0], "")
-            session_id = str(json.loads(payload).get("id") or "") if payload else ""
-            for key in (*keys[:5], keys[6]):
+            if not payload:
+                return ""
+            session = json.loads(payload)
+            indexes = [*keys[:3], keys[4]]
+            if self.data.get(keys[3]) == session["id"]:
+                indexes.append(keys[3])
+            for kind in ("presenter", "viewer", "auth"):
+                if token_hash := session.get(f"{kind}_token_hash") or session.get(f"presenter_{kind}_hash"):
+                    indexes.append(f"{args[0]}:{kind}:{token_hash}")
+            for key in indexes:
                 self.data.pop(key, None)
                 self.expires.pop(key, None)
-            if self.data.get(keys[5]) == session_id:
-                self.data.pop(keys[5], None)
-                self.expires.pop(keys[5], None)
             return payload
         raise AssertionError("unexpected Lua script")
 
@@ -275,9 +279,9 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
     def setUp(self) -> None:
         self.redis = FakeRedis()
         self.service = ScreenShareService()
-        self.config_patch = patch("screen_share.service._config", return_value=dict(CONFIG))
-        self.redis_patch = patch("screen_share.service.get_redis_client", AsyncMock(return_value=self.redis))
-        self.degraded_patch = patch("screen_share.service.is_degraded", return_value=False)
+        self.config_patch = patch("plugins.screen_share.service._config", return_value=dict(CONFIG))
+        self.redis_patch = patch("plugins.screen_share.service.get_redis_client", AsyncMock(return_value=self.redis))
+        self.degraded_patch = patch("plugins.screen_share.service.is_degraded", return_value=False)
         self.config_patch.start()
         self.redis_patch.start()
         self.degraded_patch.start()
@@ -292,7 +296,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
             )
 
     async def test_single_claim_viewer_lifecycle_and_fragment_links(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             self.assertIn("/screen-share/p#", links.presenter_url)
             presenter_token = links.presenter_url.split("#", 1)[1]
@@ -344,13 +348,21 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(remaining), 1)
         self.assertNotEqual(remaining[0]["presenter_uid"], sessions[0]["presenter_uid"])
 
+    async def test_concurrent_stops_only_return_one_deleted_session(self) -> None:
+        links = await self._create()
+        _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
+        ready = await self.service.mark_ready(auth)
+        session = ready["session"]
+        results = await asyncio.gather(self.service.stop(session), self.service.stop(session))
+        self.assertEqual(sum(result is not None for result in results), 1)
+
     async def test_viewer_uid_is_stable_per_tab_and_distinct_between_tabs(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             ready = await self.service.mark_ready(auth)
 
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             first = await self.service.viewer_credentials(
                 ready["viewer_token"],
                 viewer_instance="viewer-tab-1",
@@ -369,7 +381,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertNotEqual(first["uid"], other["uid"])
 
     async def test_viewer_credentials_reject_missing_instance(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             ready = await self.service.mark_ready(auth)
@@ -383,16 +395,16 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
     async def test_rtc_token_ttl_never_exceeds_session_and_allows_final_short_renewal(self) -> None:
         config = {**CONFIG, "rtc_token_ttl_seconds": 3600, "session_max_seconds": 300}
         with (
-            patch("screen_share.service._config", return_value=config),
-            patch("screen_share.service.time.time", return_value=1000),
+            patch("plugins.screen_share.service._config", return_value=config),
+            patch("plugins.screen_share.service.time.time", return_value=1000),
         ):
             links = await self._create()
             credentials, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
         self.assertEqual(credentials["expires_in"], 300)
 
         with (
-            patch("screen_share.service._config", return_value=config),
-            patch("screen_share.service.time.time", return_value=1241),
+            patch("plugins.screen_share.service._config", return_value=config),
+            patch("plugins.screen_share.service.time.time", return_value=1241),
         ):
             renewed = await self.service.renew_presenter(auth)
         self.assertEqual(renewed["expires_in"], 59)
@@ -401,23 +413,23 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(set(decoded["privileges"].values()), {59})
 
         with (
-            patch("screen_share.service._config", return_value=config),
-            patch("screen_share.service.time.time", return_value=1300),
+            patch("plugins.screen_share.service._config", return_value=config),
+            patch("plugins.screen_share.service.time.time", return_value=1300),
             self.assertRaises(ScreenShareError) as expired,
         ):
             await self.service.renew_presenter(auth)
         self.assertEqual(expired.exception.code, "session_expired")
 
     async def test_max_duration_expiry_remains_visible_to_watchdog(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             ready = await self.service.mark_ready(auth)
-        with patch("screen_share.service.time.time", return_value=1290):
+        with patch("plugins.screen_share.service.time.time", return_value=1290):
             await self.service.heartbeat(auth)
         with (
-            patch("screen_share.service.time.time", return_value=1300),
-            self.assertLogs("screen_share.service", level="INFO") as captured,
+            patch("plugins.screen_share.service.time.time", return_value=1300),
+            self.assertLogs("plugins.screen_share.service", level="INFO") as captured,
         ):
             expired = await self.service.expire_stale()
         self.assertEqual([item["id"] for item in expired], [ready["session"]["id"]])
@@ -432,22 +444,22 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(expired.exception.code, "invalid_link")
 
     async def test_heartbeat_allows_short_interruption_then_stops_after_sixty_seconds(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             ready = await self.service.mark_ready(auth)
-        with patch("screen_share.service.time.time", return_value=1059):
+        with patch("plugins.screen_share.service.time.time", return_value=1059):
             self.assertEqual(await self.service.expire_stale(), [])
         with (
-            patch("screen_share.service.time.time", return_value=1061),
-            self.assertLogs("screen_share.service", level="INFO") as captured,
+            patch("plugins.screen_share.service.time.time", return_value=1061),
+            self.assertLogs("plugins.screen_share.service", level="INFO") as captured,
         ):
             expired = await self.service.expire_stale()
         self.assertEqual([item["id"] for item in expired], [ready["session"]["id"]])
         self.assertTrue(any("reason=heartbeat_timeout" in line for line in captured.output))
 
     async def test_concurrent_ready_creates_only_one_viewer_link(self) -> None:
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             results = await asyncio.gather(
@@ -463,7 +475,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_admin_active_share_link_is_sanitized_and_expires_with_session(self) -> None:
         with (
-            patch("screen_share.service.time.time", return_value=1000),
+            patch("plugins.screen_share.service.time.time", return_value=1000),
             patch("web.web_player_config.display_web_base_url", return_value="https://bot.example"),
         ):
             links = await self._create()
@@ -483,7 +495,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
             len([key for key in self.redis.data if key.startswith("screen_share:viewer:")]),
             2,
         )
-        with patch("screen_share.service.time.time", return_value=1000):
+        with patch("plugins.screen_share.service.time.time", return_value=1000):
             await self.service.viewer_credentials(
                 admin_viewer_token,
                 viewer_instance="admin-tab-1",
@@ -500,14 +512,14 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_admin_listing_skips_corrupt_session_records(self) -> None:
         with (
-            patch("screen_share.service.time.time", return_value=1000),
+            patch("plugins.screen_share.service.time.time", return_value=1000),
             patch("web.web_player_config.display_web_base_url", return_value="https://bot.example"),
         ):
             links = await self._create()
             _, auth = await self.service.claim(links.presenter_url.split("#", 1)[1])
             await self.service.mark_ready(auth)
             await self.redis.set("screen_share:session:corrupt", "not-json", ex=300)
-            with self.assertLogs("screen_share.service", level="WARNING"):
+            with self.assertLogs("plugins.screen_share.service", level="WARNING"):
                 shares = await self.service.admin_active_shares()
         self.assertEqual(len(shares), 1)
 
@@ -519,7 +531,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
         registry.get.side_effect = lambda area: SimpleNamespace(
             screen_share_role_ids=(20,) if area == "allowed-area" else (30,),
         )
-        with patch("screen_share.service.get_area_registry", return_value=registry):
+        with patch("plugins.screen_share.service.get_area_registry", return_value=registry):
             self.assertTrue(await self.service.authorize(sender, user="owner", area="denied-area"))
             self.assertTrue(await self.service.authorize(sender, user="member", area="allowed-area"))
             self.assertFalse(await self.service.authorize(sender, user="member", area="denied-area"))
@@ -540,7 +552,6 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
                 routing=SimpleNamespace(access=SimpleNamespace(is_admin=Mock(return_value=False)))
             ),
         )
-        command = ScreenShareCommandService(cast(Any, runtime))
         service = SimpleNamespace(
             create_session=AsyncMock(
                 return_value=SimpleNamespace(
@@ -549,11 +560,9 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
                 )
             ),
         )
-        with patch(
-            "app.services.interaction.screen_share_command_service.get_screen_share_service",
-            return_value=service,
-        ):
-            await command.start("channel", "area", "user")
+        service.creation = nullcontext
+        command = ScreenShareCommandService(runtime, cast(Any, service))
+        await command.start("channel", "area", "user")
         private_message = sender.bot.messages.send_private_message.await_args.args[0]
         self.assertIn("发起端专用链接", private_message)
         self.assertIn("/screen-share/p#presenter-secret", private_message)
@@ -571,7 +580,6 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
                 routing=SimpleNamespace(access=SimpleNamespace(is_admin=Mock(return_value=False)))
             )
         )
-        command = ScreenShareCommandService(cast(Any, runtime))
         service = SimpleNamespace(
             create_session=AsyncMock(return_value=SimpleNamespace(
                 session_id="session-1",
@@ -579,11 +587,9 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
             )),
             stop_by_id=AsyncMock(return_value={"status": "pending"}),
         )
-        with patch(
-            "app.services.interaction.screen_share_command_service.get_screen_share_service",
-            return_value=service,
-        ):
-            await command.start("channel", "area", "user")
+        service.creation = nullcontext
+        command = ScreenShareCommandService(runtime, cast(Any, service))
+        await command.start("channel", "area", "user")
         service.stop_by_id.assert_awaited_once_with(
             "session-1",
             reason="private_message_failed",
@@ -599,15 +605,11 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
                 routing=SimpleNamespace(access=SimpleNamespace(is_admin=Mock(return_value=False)))
             ),
         )
-        command = ScreenShareCommandService(cast(Any, runtime))
         service = SimpleNamespace(
             list_by_channel=AsyncMock(side_effect=RuntimeError("redis details")),
         )
-        with patch(
-            "app.services.interaction.screen_share_command_service.get_screen_share_service",
-            return_value=service,
-        ):
-            await command.stop("channel", "area", "user")
+        command = ScreenShareCommandService(runtime, cast(Any, service))
+        await command.stop("channel", "area", "user")
         message = sender.send_message.await_args.args[0]
         self.assertIn("服务暂时不可用", message)
         self.assertNotIn("redis details", message)
@@ -638,12 +640,9 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
             stop=AsyncMock(return_value=own),
             authorize=AsyncMock(return_value=False),
         )
-        command = ScreenShareCommandService(cast(Any, runtime))
+        command = ScreenShareCommandService(runtime, cast(Any, service))
         with patch(
-            "app.services.interaction.screen_share_command_service.get_screen_share_service",
-            return_value=service,
-        ), patch(
-            "app.services.interaction.screen_share_command_service.presenter_label",
+            "plugins.screen_share.commands.presenter_label",
             AsyncMock(return_value="当前用户"),
         ):
             await command.stop("channel", "area", "user")
@@ -677,12 +676,8 @@ class ScreenShareCommandTest(unittest.IsolatedAsyncioTestCase):
             stop=AsyncMock(side_effect=sessions),
             authorize=AsyncMock(return_value=True),
         )
-        command = ScreenShareCommandService(cast(Any, runtime))
-        with patch(
-            "app.services.interaction.screen_share_command_service.get_screen_share_service",
-            return_value=service,
-        ):
-            await command.stop("channel", "area", "admin")
+        command = ScreenShareCommandService(runtime, cast(Any, service))
+        await command.stop("channel", "area", "admin")
         self.assertEqual(service.stop.await_count, 2)
         self.assertIn("2 个屏幕共享", sender.send_message.await_args.args[0])
 
@@ -906,11 +901,11 @@ class ScreenShareAssetContractTest(unittest.TestCase):
 
     def test_browser_source_covers_capture_mix_renew_and_stop(self) -> None:
         source = (
-            REPO_ROOT / "src" / "screen_share" / "client" / "app.ts"
+            REPO_ROOT / "plugins" / "screen_share" / "client" / "app.ts"
         ).read_text(encoding="utf-8")
-        page = (REPO_ROOT / "src" / "web" / "assets" / "screen-share" / "index.html").read_text(encoding="utf-8")
-        style = (REPO_ROOT / "src" / "web" / "assets" / "screen-share" / "style.css").read_text(encoding="utf-8")
-        web_source = (REPO_ROOT / "src" / "screen_share" / "web.py").read_text(encoding="utf-8")
+        page = (REPO_ROOT / "plugins" / "screen_share" / "assets" / "index.html").read_text(encoding="utf-8")
+        style = (REPO_ROOT / "plugins" / "screen_share" / "assets" / "style.css").read_text(encoding="utf-8")
+        plugin_source = (REPO_ROOT / "plugins" / "screen_share" / "__init__.py").read_text(encoding="utf-8")
         for marker in (
             "createScreenVideoTrack",
             '"auto"',
@@ -951,7 +946,7 @@ class ScreenShareAssetContractTest(unittest.TestCase):
         self.assertIn('[hidden] { display: none !important; }', style)
         self.assertIn('body[data-mode="viewer"] .app-shell', style)
         self.assertIn('body[data-mode="viewer"] .stage { aspect-ratio: auto;', style)
-        self.assertIn("expire_stale(heartbeat_timeout=60)", web_source)
+        self.assertIn("expire_stale(heartbeat_timeout=60)", plugin_source)
         config_script = (
             REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "config_script.js"
         ).read_text(encoding="utf-8")
@@ -959,10 +954,10 @@ class ScreenShareAssetContractTest(unittest.TestCase):
             REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "config_content.html"
         ).read_text(encoding="utf-8")
         admin_share_script = (
-            REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "screen-share_script.js"
+            REPO_ROOT / "plugins" / "screen_share" / "admin_assets" / "screen-share_script.js"
         ).read_text(encoding="utf-8")
         admin_share_page = (
-            REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "screen-share_content.html"
+            REPO_ROOT / "plugins" / "screen_share" / "admin_assets" / "screen-share_content.html"
         ).read_text(encoding="utf-8")
         admin_shell = (
             REPO_ROOT / "src" / "web" / "assets" / "admin" / "admin-shell.js"
@@ -975,14 +970,15 @@ class ScreenShareAssetContractTest(unittest.TestCase):
         self.assertIn('/admin/api/screen-shares', admin_share_script)
         self.assertIn('data-action="stop-screen-share"', admin_share_script)
         self.assertIn('/screen-shares/" + encodeURIComponent(sessionId) + "/stop', admin_share_script)
-        self.assertIn('href: "/admin/screen-share"', admin_shell)
+        self.assertIn('"/admin/screen-share"', plugin_source)
+        self.assertNotIn('"/admin/screen-share"', admin_shell)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 350px', style)
         self.assertIn('/admin-assets/admin-shell.css', page)
         self.assertIn('/screen-share/assets/style.css?v=', page)
         self.assertIn('/screen-share/assets/app.js?v=', page)
         self.assertIn('--accent: #e8b44d', style)
         self.assertIn('body[data-mode="presenter"] .viewer-controls { display: none !important; }', style)
-        self.assertIn('microphone=()', web_source)
+        self.assertIn('microphone=()', (REPO_ROOT / "plugins" / "screen_share" / "web.py").read_text(encoding="utf-8"))
         self.assertNotIn('id="audio-mode"', page)
         self.assertNotIn("createMicrophoneAudioTrack", source)
         self.assertNotIn("createCustomAudioTrack", source)

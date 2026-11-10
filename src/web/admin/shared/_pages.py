@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import json
 import os
 import string
+from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 from fastapi.responses import HTMLResponse
 
 from core.paths import WEB_ASSETS_DIR
+from web.plugin_routes import admin_navigation
 
 from ._runtime import _admin_enabled
 
@@ -62,18 +66,6 @@ _ADMIN_PAGES: dict[str, dict[str, Any]] = {
         "login_title": "登录配置中心",
         "login_copy": "登录后调整后台配置。",
         "login_button": "进入配置中心",
-    },
-    "screen-share": {
-        "page_title": "屏幕共享",
-        "page_id": "screen-share",
-        "brand_title": "屏幕共享",
-        "brand_copy": "集中查看活动共享、频道归属和临时观看链接。",
-        "topbar_actions": [
-            {"action": "refresh-screen-shares", "label": "刷新共享"},
-        ],
-        "login_title": "登录屏幕共享管理",
-        "login_copy": "登录后查看当前活动共享与观看链接。",
-        "login_button": "进入屏幕共享",
     },
     "stats": {
         "page_title": "统计页",
@@ -190,16 +182,13 @@ def _render_topbar_actions(actions: list[dict[str, str]]) -> str:
 
 
 def _render_admin_page(page_key: str) -> HTMLResponse:
+    return render_admin_page(_ADMIN_PAGES[page_key], Path(WEB_ASSETS_DIR) / "admin" / "pages")
+
+
+def render_admin_page(meta: Mapping[str, Any], pages_dir: Path) -> HTMLResponse:
     if not _admin_enabled():
         return HTMLResponse("管理后台未启用，请在 WEB_PLAYER_CONFIG 中开启。", status_code=404)
-    pages_dir = os.path.join(WEB_ASSETS_DIR, "admin", "pages")
-    content_path = os.path.join(pages_dir, f"{page_key}_content.html")
-    script_path = os.path.join(pages_dir, f"{page_key}_script.js")
-    with open(content_path, encoding="utf-8") as f:
-        page_content = f.read()
-    with open(script_path, encoding="utf-8") as f:
-        page_script = f.read()
-    meta = _ADMIN_PAGES[page_key]
+    page_key = meta["page_id"]
     tpl = _load_admin_template()
     html = tpl.safe_substitute(
         page_title=meta["page_title"],
@@ -210,8 +199,9 @@ def _render_admin_page(page_key: str) -> HTMLResponse:
         login_title=meta["login_title"],
         login_copy=meta["login_copy"],
         login_button=meta["login_button"],
-        page_content=page_content,
-        page_script=page_script,
+        page_content=(pages_dir / f"{page_key}_content.html").read_text(encoding="utf-8"),
+        page_script=(pages_dir / f"{page_key}_script.js").read_text(encoding="utf-8"),
+        plugin_navigation=json.dumps(admin_navigation(), ensure_ascii=False).replace("<", "\\u003c"),
     )
     return HTMLResponse(html)
 

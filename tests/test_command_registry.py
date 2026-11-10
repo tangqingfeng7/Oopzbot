@@ -197,8 +197,6 @@ class MentionRouterAliasGoldenTest(unittest.TestCase):
                 "最近播放", "播放历史",
                 "定时消息列表", "定时消息",
                 "我的提醒", "提醒列表",
-                "屏幕共享", "共享屏幕",
-                "停止屏幕共享", "结束屏幕共享",
             },
         )
 

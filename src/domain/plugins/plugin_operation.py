@@ -16,6 +16,7 @@ class PluginOperationCode(str, Enum):
     INSTANTIATION_FAILED = "instantiation_failed"
     BUILTIN_FORBIDDEN = "builtin_forbidden"
     NOT_LOADED = "not_loaded"
+    UNLOAD_FAILED = "unload_failed"
     LOAD_FAILED = "load_failed"
 
     def __str__(self) -> str:

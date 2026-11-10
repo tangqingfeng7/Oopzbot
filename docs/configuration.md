@@ -212,6 +212,8 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 
 ### 网页屏幕共享 (`SCREEN_SHARE_CONFIG`)
 
+启用配置后，在插件管理中加载 `screen_share`，或执行 `/loadplugin screen_share`。
+
 | 配置项 | 说明 |
 |--------|------|
 | `enabled` | 是否启用网页屏幕共享（默认 `False`） |

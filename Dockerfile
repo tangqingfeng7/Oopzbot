@@ -47,9 +47,9 @@ COPY docs /app/docs
 COPY config /app/config
 
 # 屏幕共享使用仓库内已编译的前端产物，生产镜像不安装 Node.js。
-RUN test -s /app/src/web/assets/screen-share/index.html \
-    && test -s /app/src/web/assets/screen-share/style.css \
-    && test -s /app/src/web/assets/screen-share/app.js
+RUN test -s /app/plugins/screen_share/assets/index.html \
+    && test -s /app/plugins/screen_share/assets/style.css \
+    && test -s /app/plugins/screen_share/assets/app.js
 
 RUN ln -s /app/config/runtime.py /app/config.py \
     && ln -s /app/config/private_key.py /app/private_key.py \

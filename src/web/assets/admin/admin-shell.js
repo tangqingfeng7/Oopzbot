@@ -3,7 +3,6 @@
     { key: "dashboard", href: "/admin", label: "总览" },
     { key: "music", href: "/admin/music", label: "音乐" },
     { key: "config", href: "/admin/config", label: "配置" },
-    { key: "screen-share", href: "/admin/screen-share", label: "屏幕共享" },
     { key: "stats", href: "/admin/stats", label: "统计" },
     { key: "activity", href: "/admin/activity", label: "活跃" },
     { key: "scheduler", href: "/admin/scheduler", label: "定时" },
@@ -12,6 +11,7 @@
     { key: "plugins", href: "/admin/plugins", label: "插件" },
     { key: "setup", href: "/admin/setup", label: "体检" },
     { key: "system", href: "/admin/system", label: "系统" },
+    ...JSON.parse(document.getElementById("pluginNavigation")?.textContent || "[]"),
   ];
 
   function byId(target) {
@@ -135,7 +135,7 @@
       NAV_ITEMS.map((item) => {
         const activeClass = item.key === currentPage ? " is-active" : "";
         const current = item.key === currentPage ? ' aria-current="page"' : "";
-        return `<a class="nav-link${activeClass}" href="${item.href}" data-nav-key="${item.key}"${current}>${item.label}</a>`;
+        return `<a class="nav-link${activeClass}" href="${escapeHtml(item.href)}" data-nav-key="${escapeHtml(item.key)}"${current}>${escapeHtml(item.label)}</a>`;
       }).join("")
     );
   }

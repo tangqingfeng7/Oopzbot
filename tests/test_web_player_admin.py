@@ -1,4 +1,5 @@
 import copy
+import importlib
 import json
 import sys
 import tempfile
@@ -141,6 +142,14 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         import web.web_rate_limit as web_rate_limit
 
         web_rate_limit.reset_all()
+        from fastapi import APIRouter
+
+        from web.plugin_routes import register_web
+
+        router = APIRouter()
+        for name in ("web", "admin"):
+            router.include_router(importlib.import_module(f"plugins.screen_share.{name}").router)
+        self.addCleanup(register_web(self.module.app, router))
         self.client = TestClient(self.module.app, client=("127.0.0.1", 50000))
 
     def test_plugins_api_requires_login(self) -> None:
@@ -151,7 +160,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
 
     def test_screen_share_heartbeat_rate_limit_is_per_presenter(self) -> None:
         service = SimpleNamespace(heartbeat=AsyncMock(return_value={"ok": True}))
-        with patch("screen_share.web.get_screen_share_service", return_value=service):
+        with patch("plugins.screen_share.web.get_screen_share_service", return_value=service):
             for _ in range(30):
                 response = self.client.post(
                     "/screen-share/api/presenter/heartbeat",
@@ -194,10 +203,10 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             patch.object(self.module, "_admin_enabled", return_value=True),
             patch.object(self.module, "_is_admin_authorized", return_value=True),
             patch(
-                "web.admin.screen_share.get_screen_share_service",
+                "plugins.screen_share.admin.get_screen_share_service",
                 return_value=service,
             ),
-            patch("web.admin.screen_share.announce_ended", announce),
+            patch("plugins.screen_share.admin.announce_ended", announce),
         ):
             response = self.client.post(
                 f"/admin/api/screen-shares/{session_id}/stop",

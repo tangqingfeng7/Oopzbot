@@ -291,10 +291,10 @@ nginx/ssl/key.pem    # 私钥
 |------|------|
 | `src/web/web_player.py` | FastAPI 主应用实例、播放器 API 路由（`/api/*`）、共享状态（Redis / Netease 客户端） |
 | `src/web/web_player_admin.py` | Admin 路由入口：聚合 `web.admin` 包路由为 `admin_router`，对 `web_player` 与旧调用方保持稳定 facade |
-| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`screen_share`（活动共享和停止控制）/`scheduler`（定时消息、消息统计、提醒）/`plugins`（插件管理）/`members`（成员、频道、域配置、Bot 管理员、消息）/`shared`（共享工具） |
-| `src/screen_share/` | 屏幕共享会话、AccessToken2、页面 API 和模块内 TypeScript 客户端源码 |
+| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`scheduler`（定时消息、消息统计、提醒）/`plugins`（插件管理）/`members`（成员、频道、域配置、Bot 管理员、消息）/`shared`（共享工具） |
+| `plugins/screen_share/` | 屏幕共享插件，动态注册页面、后台管理 API 和导航，包含 TypeScript 源码和编译产物 |
 | `src/web/web_player_config.py` | 配置常量引用、分组定义、基线值、config.py 写回与热更新 |
-| `src/web/assets/` | Web 播放器、Admin 页面以及随仓库发布的屏幕共享编译产物 |
+| `src/web/assets/` | Web 播放器和 Admin 页面 |
 
 ## 相关文档
 

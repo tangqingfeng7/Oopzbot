@@ -1,18 +1,34 @@
-"""管理后台的活动屏幕共享视图。"""
-
 import logging
 import re
+from pathlib import Path
 
 from fastapi import APIRouter
-from fastapi.responses import JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 
 from oopz.name_resolver import get_resolver
-from screen_share import ScreenShareError, get_screen_share_service
-from screen_share.web import announce_ended
+from web.admin.shared._pages import render_admin_page
+
+from .service import ScreenShareError, get_screen_share_service
+from .web import announce_ended
 
 router = APIRouter()
 logger = logging.getLogger(__name__)
 _SESSION_ID_RE = re.compile(r"^[A-Za-z0-9_-]{16,128}$")
+_PAGE = {
+    "page_title": "屏幕共享",
+    "page_id": "screen-share",
+    "brand_title": "屏幕共享",
+    "brand_copy": "集中查看活动共享、频道归属和临时观看链接。",
+    "topbar_actions": [{"action": "refresh-screen-shares", "label": "刷新共享"}],
+    "login_title": "登录屏幕共享管理",
+    "login_copy": "登录后查看当前活动共享与观看链接。",
+    "login_button": "进入屏幕共享",
+}
+
+
+@router.get("/admin/screen-share", response_class=HTMLResponse)
+def admin_screen_share_page():
+    return render_admin_page(_PAGE, Path(__file__).with_name("admin_assets"))
 
 
 @router.get("/admin/api/screen-shares")

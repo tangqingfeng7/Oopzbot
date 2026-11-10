@@ -1,5 +1,3 @@
-"""屏幕共享频道消息的名称解析。"""
-
 from __future__ import annotations
 
 import logging

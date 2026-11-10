@@ -26,8 +26,8 @@ NETEASE_REPO = "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git
 NETEASE_DOCKER_IMAGE = "moefurina/ncm-api:latest"
 NETEASE_DEFAULT_DIR = "NeteaseCloudMusicApi"
 REDIS_HOST, REDIS_PORT = "127.0.0.1", 6379
-SCREEN_SHARE_CLIENT_DIR = ROOT / "src" / "screen_share" / "client"
-SCREEN_SHARE_ASSET_DIR = ROOT / "src" / "web" / "assets" / "screen-share"
+SCREEN_SHARE_CLIENT_DIR = ROOT / "plugins" / "screen_share" / "client"
+SCREEN_SHARE_ASSET_DIR = ROOT / "plugins" / "screen_share" / "assets"
 SCREEN_SHARE_REQUIRED_ASSETS = ("index.html", "style.css", "app.js")
 
 _STEP = 0
