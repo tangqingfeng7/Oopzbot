@@ -15,6 +15,7 @@ from web.admin.shared import (
     SetupDiagnostics,
     SongCache,
     Statistics,
+    TtlCache,
     _add_song_to_queue,
     _current_song_snapshot,
     _execute_control_action,
@@ -41,6 +42,8 @@ from web.admin.shared import (
 )
 
 router = APIRouter()
+# 多个后台标签页各自每秒推送一次，共享同一份快照避免重复查询 Redis/SQLite。
+_overview_stream_cache = TtlCache(0.9, maxsize=1)
 
 
 def _area_unavailable_response() -> JSONResponse:
@@ -69,8 +72,10 @@ async def admin_overview_stream(request: Request):
                     alive = None
                 if not alive:
                     break
-            payload = await _overview_payload()
-            payload_text = compact_json(payload)
+            payload_text = _overview_stream_cache.get("overview")
+            if payload_text is None:
+                payload_text = compact_json(await _overview_payload())
+                _overview_stream_cache.set("overview", payload_text)
             if payload_text != last_payload:
                 yield f"event: overview\ndata: {payload_text}\n\n"
                 last_payload = payload_text

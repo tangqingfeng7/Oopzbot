@@ -6,19 +6,13 @@ import time
 from typing import Any
 from urllib.parse import urlparse
 
+import requests
+
 import web.web_player_config as cfg
 from core.http_constants import HTTP_TIMEOUT_DEFAULT
 from core.logger_config import get_logger
 
 from ._debug import _cookie_debug_summary, _cookie_pairs_from_header, _debug_profile_text
-
-try:
-    import requests
-
-    RequestsException = requests.RequestException
-except Exception:
-    requests = None
-    RequestsException = RuntimeError
 
 logger = get_logger("WebPlayerAdmin")
 
@@ -55,8 +49,6 @@ def _netease_api_get(
     headers: dict | None = None,
 ) -> tuple[dict, Any]:
     """请求本地/远端 NeteaseCloudMusicApi 并返回 JSON。"""
-    if requests is None:
-        raise RuntimeError("缺少 requests 依赖，请先安装 requirements.txt")
     request_headers = {"Cache-Control": "no-cache"}
     if headers:
         request_headers.update(headers)
@@ -80,8 +72,6 @@ def _netease_api_post(
     headers: dict | None = None,
 ) -> tuple[dict, Any]:
     """POST 请求网易云 API；用于避免把长 Cookie 暴露在查询串里。"""
-    if requests is None:
-        raise RuntimeError("缺少 requests 依赖，请先安装 requirements.txt")
     request_headers = {"Cache-Control": "no-cache"}
     if headers:
         request_headers.update(headers)

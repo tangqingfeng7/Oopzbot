@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import os
 import time
 from collections import deque
@@ -21,16 +22,17 @@ async def _overview_payload() -> dict:
     redis_status = "connected"
     queue_len = 0
     playing: dict = {}
-    area_context = await _music_area_context()
+    r = await _get_redis()
+    area_context = await _music_area_context(r)
     try:
-        r = await _get_redis()
         await r.ping()
-        area_context = await _music_area_context(r)
         area = area_context.get("area", "")
         if area:
-            queue_len = await r.llen(_area_key(KEY_QUEUE, area))
-            current_raw = await r.get(_area_key(KEY_CURRENT, area))
-            play_state_raw = await r.get(_area_key(KEY_PLAY_STATE, area))
+            queue_len, current_raw, play_state_raw = await asyncio.gather(
+                r.llen(_area_key(KEY_QUEUE, area)),
+                r.get(_area_key(KEY_CURRENT, area)),
+                r.get(_area_key(KEY_PLAY_STATE, area)),
+            )
             playing = {
                 "available": True,
                 "current": (
@@ -56,8 +58,12 @@ async def _overview_payload() -> dict:
     except Exception as e:
         redis_status = f"error: {e}"
 
-    today = (await Statistics.get_today()) or {}
-    summary = await Statistics.get_summary()
+    today, summary, today_messages, active_users = await asyncio.gather(
+        Statistics.get_today(),
+        Statistics.get_summary(),
+        MessageStatsDB.get_today_total(),
+        MessageStatsDB.get_active_users_today(),
+    )
     return {
         "ok": True,
         "uptime_seconds": int(time.time() - _get_started_at()),
@@ -65,10 +71,10 @@ async def _overview_payload() -> dict:
         "queue_length": queue_len,
         "playing": playing,
         "music_area": area_context,
-        "statistics_today": today,
+        "statistics_today": today or {},
         "statistics_summary": summary,
-        "today_messages": await MessageStatsDB.get_today_total(),
-        "active_users_today": await MessageStatsDB.get_active_users_today(),
+        "today_messages": today_messages,
+        "active_users_today": active_users,
     }
 
 

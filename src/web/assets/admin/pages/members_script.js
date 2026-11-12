@@ -407,82 +407,43 @@
 
     /* ========= 管理操作 ========= */
 
-    async function doMute(uid) {
-      var dur = await pickDuration("text");
-      if (!dur) return;
+    async function moderate(uid, action, label, extra, closeAfter) {
       var area = await getMemberArea(uid);
       if (!area) return;
       try {
-        await AdminShell.req("/admin/api/members/" + uid + "/mute", {
-          method: "POST", body: JSON.stringify({ duration: dur, area: area }),
+        await AdminShell.req("/admin/api/members/" + uid + "/" + action, {
+          method: "POST", body: JSON.stringify(Object.assign({ area: area }, extra)),
         });
-        setPageState("已禁言", "success");
-        showDetail(uid, area);
+        setPageState("已" + label, "success");
+        if (closeAfter) closeDrawer(); else showDetail(uid, area);
         loadMembers();
-      } catch (e) { setPageState("禁言失败: " + e.message, "error"); }
+      } catch (e) { setPageState(label + "失败: " + e.message, "error"); }
     }
 
-    async function doUnmute(uid) {
-      var area = await getMemberArea(uid);
-      if (!area) return;
-      try {
-        await AdminShell.req("/admin/api/members/" + uid + "/unmute", { method: "POST", body: JSON.stringify({ area: area }) });
-        setPageState("已解除禁言", "success");
-        showDetail(uid, area);
-        loadMembers();
-      } catch (e) { setPageState("解除禁言失败: " + e.message, "error"); }
+    async function doMute(uid) {
+      var dur = await pickDuration("text");
+      if (dur) await moderate(uid, "mute", "禁言", { duration: dur });
     }
+
+    async function doUnmute(uid) { await moderate(uid, "unmute", "解除禁言"); }
 
     async function doMuteMic(uid) {
       var dur = await pickDuration("mic");
-      if (!dur) return;
-      var area = await getMemberArea(uid);
-      if (!area) return;
-      try {
-        await AdminShell.req("/admin/api/members/" + uid + "/mute-mic", {
-          method: "POST", body: JSON.stringify({ duration: dur, area: area }),
-        });
-        setPageState("已禁麦", "success");
-        showDetail(uid, area);
-        loadMembers();
-      } catch (e) { setPageState("禁麦失败: " + e.message, "error"); }
+      if (dur) await moderate(uid, "mute-mic", "禁麦", { duration: dur });
     }
 
-    async function doUnmuteMic(uid) {
-      var area = await getMemberArea(uid);
-      if (!area) return;
-      try {
-        await AdminShell.req("/admin/api/members/" + uid + "/unmute-mic", { method: "POST", body: JSON.stringify({ area: area }) });
-        setPageState("已解除禁麦", "success");
-        showDetail(uid, area);
-        loadMembers();
-      } catch (e) { setPageState("解除禁麦失败: " + e.message, "error"); }
-    }
+    async function doUnmuteMic(uid) { await moderate(uid, "unmute-mic", "解除禁麦"); }
 
     async function doKick(uid) {
-      var ok = await AdminShell.confirm("踢出用户", "确认将该用户<strong>踢出域</strong>？此操作不可撤销。");
-      if (!ok) return;
-      var area = await getMemberArea(uid);
-      if (!area) return;
-      try {
-        await AdminShell.req("/admin/api/members/" + uid + "/kick", { method: "POST", body: JSON.stringify({ area: area }) });
-        setPageState("已踢出", "success");
-        closeDrawer();
-        loadMembers();
-      } catch (e) { setPageState("踢出失败: " + e.message, "error"); }
+      if (await AdminShell.confirm("踢出用户", "确认将该用户<strong>踢出域</strong>？此操作不可撤销。")) {
+        await moderate(uid, "kick", "踢出", null, true);
+      }
     }
 
     async function doBlock(uid) {
-      var ok = await AdminShell.confirm("封禁用户", "确认<strong>封禁</strong>该用户？封禁后将被踢出域且无法再加入。");
-      if (!ok) return;
-      var area = await getMemberArea(uid);
-      if (!area) return;
-      try {
-        await AdminShell.req("/admin/api/members/" + uid + "/block", { method: "POST", body: JSON.stringify({ area: area }) });
-        setPageState("已封禁", "success");
-        closeDrawer();
-        loadMembers();
-      } catch (e) { setPageState("封禁失败: " + e.message, "error"); }
+      if (await AdminShell.confirm("封禁用户", "确认<strong>封禁</strong>该用户？封禁后将被踢出域且无法再加入。")) {
+        await moderate(uid, "block", "封禁", null, true);
+      }
     }
 
     // 被封禁的人已不在成员列表里，查不到 memberAreaMap，域由列表行直接带过来
