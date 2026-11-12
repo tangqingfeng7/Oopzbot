@@ -110,7 +110,8 @@ async def _query_int(sql: str, parameters: Iterable[Any] = ()) -> int:
 async def init_database() -> None:
     """异步创建全部项目数据表和索引。"""
     async with db_connection() as conn:
-        await conn.execute("PRAGMA journal_mode=WAL")
+        # 该 PRAGMA 会返回结果行，游标不关闭时同一连接上的 DROP INDEX 会报 table is locked。
+        await _fetchone(conn, "PRAGMA journal_mode=WAL")
         await conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS image_cache (

@@ -67,6 +67,27 @@ class DatabaseSchemaTest(AsyncDatabaseTestCase):
         await init_database()
         self.assertIn("statistics", await self._table_names())
 
+    async def test_init_database_drops_indexes_left_by_old_versions(self) -> None:
+        legacy = {
+            "idx_message_stats_date": "message_stats (date)",
+            "idx_play_history_played_at": "play_history (played_at)",
+            "idx_play_history_user": "play_history (user_id, played_at)",
+            "idx_reminders_fire_at": "reminders (fire_at, fired)",
+        }
+        async with db_connection() as conn:
+            for name, target in legacy.items():
+                await conn.execute(f"CREATE INDEX {name} ON {target}")
+
+        await init_database()
+
+        async with (
+            db_connection() as conn,
+            conn.execute("SELECT name FROM sqlite_master WHERE type='index'") as cursor,
+        ):
+            indexes = {row["name"] for row in await cursor.fetchall()}
+        self.assertFalse(indexes & legacy.keys())
+        self.assertIn("idx_reminders_fired_fire_at", indexes)
+
 
 class TransactionBoundaryTest(AsyncDatabaseTestCase):
     async def test_connection_commits_on_success(self) -> None:
