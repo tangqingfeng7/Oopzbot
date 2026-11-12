@@ -24,7 +24,7 @@ OOPZ_CONFIG = {
 
     "default_area": "",    # 默认区域 ID
     "default_channel": "", # 默认频道 ID
-    "voice_chat_channels": {},  # 房外也接收这些语音频道的文字消息，格式 {"语音频道 ID": "域 ID"}，启动时读取
+    "voice_chat": True,  # 接收所有语音频道的文字消息并响应命令（拉取有人在的频道）
     "use_announcement_style": False,  # 全局默认是否使用公告样式（styleTags=IMPORTANT）；可在 admin 后台 → 域配置 → 公告样式 单独覆盖。bot 不是域主时一般保持 False，否则发公告会被服务端拒
 
     # Agora RTC（语音频道推流；Playwright 优先，Selenium 可回退）
