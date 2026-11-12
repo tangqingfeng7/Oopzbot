@@ -210,6 +210,10 @@ class MusicCacheTest(AsyncDatabaseTestCase):
         self.assertEqual(top[0]["song_name"], "夜曲")
         self.assertEqual(top[0]["play_count"], 2)
         self.assertEqual(len(await SongCache.get_recent_songs(10)), 1)
+        today = await Statistics.get_today()
+        assert today is not None
+        self.assertEqual(today["total_plays"], 2)
+        self.assertEqual(today["platform_breakdown"], {"netease": 2})
 
         # 清理只删播放流水，歌曲缓存本身保留。
         self.assertEqual(await SongCache.clear_play_history(), 2)

@@ -16,12 +16,13 @@ from oopz_sdk.models import ImageAttachment
 from oopz_sdk.models.segment import Image as ImageSegment
 
 from config import WEB_PLAYER_CONFIG
-from core.database import SongCache, Statistics
+from core.database import SongCache
 from core.http_constants import HTTP_TIMEOUT_DOWNLOAD, HTTP_TIMEOUT_PROBE
 from core.logger_config import get_logger
 from domain.playback import PlaybackSessionSnapshot
 from oopz.remote_fetch import SafeRemoteFetcher
 from web.web_link_token import ensure_token
+from web.web_player_config import on_config_refresh
 
 if TYPE_CHECKING:
     from core.queue_manager import QueueManager
@@ -306,14 +307,10 @@ def reset_web_player_url_cache() -> None:
     _resolved_web_url = None
 
 
-try:
-    from web.web_player_config import on_config_refresh
-    on_config_refresh(reset_web_player_url_cache)
-except ImportError:
-    pass
+on_config_refresh(reset_web_player_url_cache)
 
 
-def _get_web_player_url() -> str:
+async def _get_web_player_url() -> str:
     """获取 Web 播放器 URL，自动检测 IP（公网优先，回退内网）"""
     global _resolved_web_url
     if _resolved_web_url is not None:
@@ -330,7 +327,7 @@ def _get_web_player_url() -> str:
             return _resolved_web_url
 
     port = WEB_PLAYER_CONFIG.get("port", 8080)
-    ip = _detect_ip()
+    ip = await asyncio.to_thread(_detect_ip)
     if ip:
         host_part = f"[{ip}]" if ":" in ip else ip
         _resolved_web_url = f"http://{host_part}:{port}"
@@ -394,7 +391,7 @@ def _detect_ip() -> str:
 
 async def _web_player_link(redis_client=None) -> str:
     """生成 Markdown 格式的 Web 播放器跳转链接"""
-    url = _get_web_player_url()
+    url = await _get_web_player_url()
     if not url:
         return ""
     try:
@@ -551,13 +548,7 @@ class PlaybackMixin:
                                             )
                                         wait_seconds = 2
                                     else:
-                                        next_song["play_uuid"] = str(uuid.uuid4())
-                                        await self._mark_web_active_area(area, queue=queue)
-                                        await self._start_playing(
-                                            next_song.get("duration_ms", 0),
-                                            area=area,
-                                        )
-                                        await queue.set_current(next_song)
+                                        await self._set_current_song(next_song, area, queue)
 
                                         stream_song = next_song
                                         stream_session = session
@@ -578,20 +569,7 @@ class PlaybackMixin:
                         await self._release_web_link_if_needed(queue=queue)
 
                 if record_song is not None:
-                    try:
-                        await SongCache.record_play(
-                            song_id=str(record_song.get("song_id") or ""),
-                            platform=str(record_song.get("platform") or "netease"),
-                            data=record_song,
-                            channel_id=record_channel,
-                            user_id=str(record_song.get("user") or ""),
-                        )
-                        await Statistics.update_today(
-                            str(record_song.get("platform") or "netease"),
-                            cache_hit=False,
-                        )
-                    except Exception:
-                        logger.debug("记录自动播放历史失败", exc_info=True)
+                    await self._record_play(record_song, record_channel, str(record_song.get("user") or ""))
                 if stream_song is not None and stream_session is not None:
                     self._start_stream_task(stream_song, stream_session)
                     await self._preload_next_song_if_any(queue=queue)
@@ -769,6 +747,36 @@ class PlaybackMixin:
                     await q.clear_play_state()
                 except Exception as clear_e:
                     logger.debug(f"推流失败后清理 play_state 失败: {clear_e}")
+
+    async def _set_current_song(self, song: dict, area: str, queue: QueueManager) -> None:
+        """调用方须持有播放锁：给歌曲分配新的 play_uuid 并写为当前播放。"""
+        song["play_uuid"] = str(uuid.uuid4())
+        await self._mark_web_active_area(area, queue=queue)
+        await self._start_playing(song.get("duration_ms", 0), area=area)
+        await queue.set_current(song)
+
+    @staticmethod
+    async def _record_play(
+        song: dict,
+        channel: str,
+        user: str,
+        *,
+        image_cache_id: int | None = None,
+        cache_hit: bool = False,
+    ) -> None:
+        """写播放历史与统计；失败只记日志，不能影响已经开始的播放。"""
+        try:
+            await SongCache.record_play(
+                str(song.get("song_id") or ""),
+                str(song.get("platform") or "netease"),
+                song,
+                image_cache_id,
+                channel,
+                user,
+                cache_hit=cache_hit,
+            )
+        except Exception:
+            logger.debug("记录播放历史失败", exc_info=True)
 
     async def _start_playing(self, duration_ms: int, area: str | None = None):
         """记录播放开始时间和时长，同步到 Redis 供 Web 播放器读取"""

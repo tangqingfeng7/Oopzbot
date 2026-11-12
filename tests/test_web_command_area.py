@@ -139,6 +139,8 @@ class CommandAreaGateTest(unittest.TestCase):
 
         handler = MusicHandler.__new__(MusicHandler)  # 跳过 __init__ 的重量级构造
         handler._voice_channel_area = current_area
+        handler._voice_channel_id = None
+        handler._playback_generation = 0
         return handler
 
     def test_command_from_another_area_is_skipped(self) -> None:
@@ -171,6 +173,8 @@ class ConsumeWebCommandTest(unittest.IsolatedAsyncioTestCase):
 
         handler = MusicHandler.__new__(MusicHandler)
         handler._voice_channel_area = current_area
+        handler._voice_channel_id = None
+        handler._playback_generation = 0
         handler._playback_lock = asyncio.Lock()
         handler._get_queue = mock.Mock(return_value=mock.sentinel.queue)
         handler._execute_web_command = mock.AsyncMock()

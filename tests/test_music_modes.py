@@ -38,6 +38,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         # __new__ 跳过了 __init__，补上生产路径依赖的异步锁与缓存
         self.handler._playback_lock = asyncio.Lock()
         self.handler._voice_lock = asyncio.Lock()
+        self.handler._playback_generation = 0
         self.handler._active_area_cache = ""
         self.handler._background_area_cache = ("", 0.0)
 
@@ -237,8 +238,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(self.handler._web_link_released_due_to_idle)
 
     async def test_song_request_omits_web_link_when_sending_is_disabled(self) -> None:
-        self.handler.names = Mock()
-        self.handler.names.user.return_value = "测试用户"
+        self.handler.names = Mock(ensure_users=AsyncMock(return_value={"user-1": "测试用户"}))
         self.handler._get_web_link = AsyncMock(return_value="[打开播放器](https://example.test/player)")
         song = {
             "platform": "netease",
@@ -258,8 +258,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._get_web_link.assert_not_called()
 
     async def test_song_request_includes_web_link_when_sending_is_enabled(self) -> None:
-        self.handler.names = Mock()
-        self.handler.names.user.return_value = "测试用户"
+        self.handler.names = Mock(ensure_users=AsyncMock(return_value={"user-1": "测试用户"}))
         self.handler._get_web_link = AsyncMock(return_value="[打开播放器](https://example.test/player)")
         song = {
             "platform": "netease",
@@ -275,6 +274,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         with patch.dict("music.music.WEB_PLAYER_CONFIG", {"send_link_enabled": True}):
             text = await self.handler._build_song_request_text(song)
 
+        self.assertTrue(text.startswith("测试用户 点播了"))
         self.assertIn("[打开播放器](https://example.test/player)", text)
         self.handler._get_web_link.assert_called_once_with(
             area="area-1",
@@ -287,8 +287,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         queue.client = AsyncMock(return_value=queue_client)
         self.handler._get_queue = Mock(return_value=queue)
         self.handler._web_link_released_due_to_idle = False
-        self.handler.names = Mock()
-        self.handler.names.user.return_value = "旧请求用户"
+        self.handler.names = Mock(ensure_users=AsyncMock(return_value={"user-A": "旧请求用户"}))
         old_request_ready = asyncio.Event()
         release_old_request = asyncio.Event()
         texts: list[str] = []
@@ -447,8 +446,8 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler.platforms = Mock()
         self.handler.platforms.get.return_value = platform
         self.handler.sender = AsyncMock()
-        self.handler.names = Mock()
-        self.handler.names.user.return_value = "测试用户"
+        self.handler.names = Mock(ensure_users=AsyncMock(return_value={"user-1": "Nami"}))
+        self.handler.names.user.return_value = "user-1"
         self.handler._check_and_enter_voice_channel = AsyncMock(return_value=True)
         self.handler._commit_song_request = AsyncMock(return_value={"message": "ok", "attachments": []})
 
@@ -474,6 +473,8 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
             song_name="稻香",
         )
         platform.summarize_by_id.assert_not_called()
+        self.handler.names.ensure_users.assert_awaited_once_with(["user-1"])
+        self.assertEqual(self.handler._commit_song_request.call_args.kwargs["prefix"], "Nami 从搜歌结果中选择了")
         committed_song = self.handler._commit_song_request.call_args.args[0]
         self.assertEqual(committed_song["url"], "https://example.com/song.mp3")
         self.assertEqual(committed_song["duration"], "3:42")
