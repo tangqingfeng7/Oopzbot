@@ -47,7 +47,7 @@ class RecallService:
             message_id = recent["messageId"]
             content_preview = recent.get("content", "")[:30]
 
-        if not isinstance(message_id, str) or not message_id:
+        if not message_id:
             await self._sender.send_message(
                 f"{Msg.ERR} 消息记录缺少有效的消息 ID",
                 channel=channel,
@@ -63,9 +63,9 @@ class RecallService:
         except Exception as exc:
             error = str(exc)
             hint = ""
-            if "record not found" in (error or "").lower() or "服务异常" in (error or ""):
+            if "record not found" in error.lower() or "服务异常" in error:
                 hint = "\n提示: 该消息可能已撤回/过期，或消息 ID 无效（请用长按消息复制得到的完整 ID）。"
-            mid_preview = (message_id[:24] + "...") if len(str(message_id)) > 24 else str(message_id)
+            mid_preview = (message_id[:24] + "...") if len(message_id) > 24 else message_id
             await self._sender.send_message(
                 f"{Msg.ERR} 撤回失败: {error}\n消息ID: {mid_preview}{hint}",
                 channel=channel,
@@ -164,28 +164,20 @@ class RecallService:
             )
             return
 
-        if arg.startswith("开"):
-            rest = arg[1:].strip()
-            if rest and rest.isdigit():
-                AUTO_RECALL_CONFIG["delay"] = int(rest)
-            AUTO_RECALL_CONFIG["enabled"] = True
-            delay = AUTO_RECALL_CONFIG["delay"]
-            await self._sender.send_message(f"{Msg.OK} 自动撤回已开启，延迟 {delay} 秒", channel=channel, area=area)
-            return
-
         if arg in ("关", "关闭", "off"):
             AUTO_RECALL_CONFIG["enabled"] = False
             await self._sender.send_message(f"{Msg.OK} 自动撤回已关闭", channel=channel, area=area)
             return
 
-        if arg.startswith("on"):
-            rest = arg[2:].strip()
-            if rest and rest.isdigit():
-                AUTO_RECALL_CONFIG["delay"] = int(rest)
-            AUTO_RECALL_CONFIG["enabled"] = True
-            delay = AUTO_RECALL_CONFIG["delay"]
-            await self._sender.send_message(f"{Msg.OK} 自动撤回已开启，延迟 {delay} 秒", channel=channel, area=area)
-            return
+        for prefix in ("开", "on"):
+            if arg.startswith(prefix):
+                rest = arg[len(prefix):].strip()
+                if rest.isdigit():
+                    AUTO_RECALL_CONFIG["delay"] = int(rest)
+                AUTO_RECALL_CONFIG["enabled"] = True
+                delay = AUTO_RECALL_CONFIG["delay"]
+                await self._sender.send_message(f"{Msg.OK} 自动撤回已开启，延迟 {delay} 秒", channel=channel, area=area)
+                return
 
         if arg.isdigit():
             seconds = int(arg)

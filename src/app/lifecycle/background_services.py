@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import inspect
-
 from app.lifecycle.context import AppContext
 from core.logger_config import setup_logger
 from web import web_player_config as web_cfg
 from web.web_player import WebPlayerService
 
 logger = setup_logger("BackgroundServices")
-
-
-async def _await_if_needed(value):
-    if inspect.isawaitable(value):
-        return await value
-    return value
 
 
 class BackgroundServiceRunner:
@@ -31,13 +23,12 @@ class BackgroundServiceRunner:
 
     async def _start_music_services(self, context: AppContext) -> None:
         music = context.handler.infrastructure.music
-        await _await_if_needed(music.start_auto_play_monitor())
-        await _await_if_needed(music.start_web_command_listener())
+        await music.start_auto_play_monitor()
+        await music.start_web_command_listener()
         logger.info("自动播放监控已启动。")
         # 语音浏览器放到后台预热：冷启动时首次进频道的身份绑定会赶不上，
         # 服务端因此不把 bot 显示为频道成员。预热不能阻塞启动，失败也不致命。
-        voice = getattr(context, "voice", None)
-        warmup = getattr(voice, "warmup", None)
+        warmup = getattr(context.voice, "warmup", None)
         if warmup is not None and context.supervisor is not None:
             context.supervisor.create(warmup(), name="voice-browser-warmup")
 
@@ -113,7 +104,7 @@ class BackgroundServiceRunner:
         )
         for name, stop in services:
             try:
-                await _await_if_needed(stop(timeout=timeout))
+                await stop(timeout=timeout)
             except Exception as exc:
                 logger.warning("停止 %s 时出现异常: %s", name, exc)
         notifier = context.notifier_callback

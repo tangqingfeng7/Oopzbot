@@ -215,23 +215,6 @@ def resolve_proxy_settings_with_env(proxy_value=None) -> ProxySettings:
     return settings
 
 
-def get_websocket_proxy_kwargs(proxy_value=None) -> dict:
-    settings = resolve_proxy_settings_with_env(proxy_value)
-    if not settings.enabled:
-        return {}
-
-    proxy_type = "http" if settings.scheme in {"http", "https"} else settings.scheme
-    kwargs = {
-        "http_proxy_host": settings.host,
-        "http_proxy_port": settings.port,
-        "proxy_type": proxy_type,
-        "http_proxy_timeout": 10,
-    }
-    if settings.username:
-        kwargs["http_proxy_auth"] = (settings.username, settings.password or "")
-    return kwargs
-
-
 def get_playwright_proxy(proxy_value=None) -> dict | None:
     settings = resolve_proxy_settings_with_env(proxy_value)
     if not settings.enabled:
@@ -251,64 +234,6 @@ def get_selenium_proxy_argument(proxy_value=None) -> str | None:
     return f"--proxy-server={settings.server}"
 
 
-def apply_process_proxy_env(env: dict, proxy_value=None) -> dict:
-    settings = resolve_proxy_settings(proxy_value)
-    updated = dict(env)
-    if settings.mode == "direct":
-        for key in _PROXY_ENV_KEYS:
-            updated.pop(key, None)
-    elif settings.enabled:
-        for key in ("HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY"):
-            updated[key] = settings.server
-        for key in ("http_proxy", "https_proxy", "all_proxy"):
-            updated[key] = settings.server
-        _ensure_no_proxy(updated)
-    return updated
-
-
-def _ensure_no_proxy(env: dict) -> None:
-    """Populate NO_PROXY / no_proxy so internal services bypass the proxy."""
-    existing = env.get("NO_PROXY") or env.get("no_proxy") or ""
-    parts = {s.strip() for s in existing.split(",") if s.strip()}
-    for item in _NO_PROXY_DEFAULTS.split(","):
-        parts.add(item.strip())
-    merged = ",".join(sorted(parts))
-    env["NO_PROXY"] = merged
-    env["no_proxy"] = merged
-
-
-# ---------------------------------------------------------------------------
-# Plugin helper: resolve a plugin-level proxy config value to a requests
-# proxies dict, with full support for aliases ("clash"), "direct", socks, etc.
-# ---------------------------------------------------------------------------
-
-def resolve_requests_proxies(proxy_value: str | None) -> dict[str, str] | None:
-    """Resolve a raw proxy config string into a ``requests``-compatible proxies
-    dict.  Returns ``None`` when the caller should use default behaviour
-    (system env / no proxy), or an empty dict for explicit direct connection.
-
-    Supports the same aliases and schemes as the core proxy system (e.g.
-    ``"clash"``, ``"direct"``, ``"socks5://host:port"``).
-    """
-    if not proxy_value or not isinstance(proxy_value, str) or not proxy_value.strip():
-        return None
-
-    value = proxy_value.strip()
-    if value.lower() in _DIRECT_VALUES:
-        return {}
-
-    normalized = _PROXY_ALIASES.get(value.lower(), value)
-    try:
-        settings = _parse_proxy_url(normalized)
-    except ValueError:
-        _log.warning("Invalid plugin proxy value %r, ignoring", proxy_value)
-        return None
-    server = settings.server
-    if server is None:
-        return None
-    return {"http": server, "https": server}
-
-
 def configure_requests_session(session, proxy_value=None) -> ProxySettings:
     settings = resolve_proxy_settings(proxy_value)
     session.proxies.clear()
@@ -324,19 +249,4 @@ def configure_requests_session(session, proxy_value=None) -> ProxySettings:
         session.proxies["no_proxy"] = ",".join(sorted(parts))
     else:
         session.trust_env = True
-    return settings
-
-
-def log_proxy_summary(label: str, proxy_value=None) -> ProxySettings:
-    """Resolve and log proxy settings once at startup for a named component."""
-    settings = resolve_proxy_settings_with_env(proxy_value)
-    if settings.mode == "direct":
-        _log.info("[%s] proxy: direct (disabled)", label)
-    elif settings.enabled:
-        display = settings.server or ""
-        if settings.username:
-            display = f"{settings.scheme}://***@{settings.host}:{settings.port}"
-        _log.info("[%s] proxy: %s", label, display)
-    else:
-        _log.debug("[%s] proxy: system (env / none)", label)
     return settings

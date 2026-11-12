@@ -95,71 +95,52 @@ class ModerationCommandActions:
             return
         await self._sender.send_message(f"找不到用户: {target}", channel=channel, area=area)
 
-    async def mute_user(self, raw: str, channel: str, area: str, usage: str) -> None:
+    async def _resolve(
+        self, raw: str, channel: str, area: str, usage: str, *, with_duration: bool = False,
+    ) -> tuple[str | None, int | None]:
+        """解析管理命令的目标用户；失败时已回复用户，调用方只需检查 uid。"""
+        resolution = self._services.community.target_resolution
         try:
-            uid, duration = await self._services.community.target_resolution.parse_mute_args(raw, area=area)
+            if with_duration:
+                uid, duration = await resolution.parse_mute_args(raw, area=area)
+            else:
+                uid, duration = await resolution.resolve_target(raw, area=area), None
         except Exception as exc:
             await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+            return None, None
+        if not uid:
+            await self._send_target_error(raw, usage, channel, area)
+        return uid, duration
+
+    async def mute_user(self, raw: str, channel: str, area: str, usage: str) -> None:
+        uid, duration = await self._resolve(raw, channel, area, usage, with_duration=True)
         if uid:
             await self._services.safety.moderation.mute_user(uid, duration, channel, area)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def unmute_user(self, raw: str, channel: str, area: str, usage: str) -> None:
-        try:
-            uid = await self._services.community.target_resolution.resolve_target(raw, area=area)
-        except Exception as exc:
-            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+        uid, _ = await self._resolve(raw, channel, area, usage)
         if uid:
             await self._services.safety.moderation.unmute_user(uid, channel, area)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def mute_mic(self, raw: str, channel: str, area: str, usage: str) -> None:
-        try:
-            uid, duration = await self._services.community.target_resolution.parse_mute_args(raw, area=area)
-        except Exception as exc:
-            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+        uid, duration = await self._resolve(raw, channel, area, usage, with_duration=True)
         if uid:
             await self._services.safety.moderation.mute_mic(uid, channel, area, duration)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def unmute_mic(self, raw: str, channel: str, area: str, usage: str) -> None:
-        try:
-            uid = await self._services.community.target_resolution.resolve_target(raw, area=area)
-        except Exception as exc:
-            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+        uid, _ = await self._resolve(raw, channel, area, usage)
         if uid:
             await self._services.safety.moderation.unmute_mic(uid, channel, area)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def remove_from_area(self, raw: str, channel: str, area: str, usage: str) -> None:
-        try:
-            uid = await self._services.community.target_resolution.resolve_target(raw, area=area)
-        except Exception as exc:
-            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+        uid, _ = await self._resolve(raw, channel, area, usage)
         if uid:
             await self._services.safety.moderation.remove_from_area(uid, channel, area)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def unblock_in_area(self, raw: str, channel: str, area: str, usage: str) -> None:
-        try:
-            uid = await self._services.community.target_resolution.resolve_target(raw, area=area)
-        except Exception as exc:
-            await self._sender.send_message(f"查询成员失败: {exc}", channel=channel, area=area)
-            return
+        uid, _ = await self._resolve(raw, channel, area, usage)
         if uid:
             await self._services.safety.moderation.unblock_in_area(uid, channel, area)
-            return
-        await self._send_target_error(raw, usage, channel, area)
 
     async def show_block_list(self, channel: str, area: str) -> None:
         await self._services.safety.moderation.show_block_list(channel, area)

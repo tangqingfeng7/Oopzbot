@@ -120,22 +120,6 @@ class NameResolver:
             self._evict_unnamed_users()
         self._mark_dirty()
 
-    def register_ids(self, **categories: str) -> None:
-        changed = False
-        for category, id_val in categories.items():
-            if not id_val:
-                continue
-            bucket = self._data.setdefault(category, {})
-            if id_val not in bucket:
-                bucket[id_val] = ""
-                changed = True
-        self._evict_unnamed_users()
-        if changed:
-            self._mark_dirty()
-
-    async def batch_resolve_users(self, uids: list[str]) -> dict[str, str]:
-        return await self.ensure_users(uids)
-
     async def ensure_users(self, uids: list[str]) -> dict[str, str]:
         unique = [str(uid) for uid in dict.fromkeys(uids) if str(uid)]
         if not unique:
