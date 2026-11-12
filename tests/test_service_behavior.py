@@ -1106,7 +1106,7 @@ class SetupServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("系统体检", message)
         self.assertIn("Redis 无法连接", message)
         self.assertIn("@bot 首启向导", message)
-        self.assertIn("/admin/setup", message)
+        self.assertNotIn("/admin/setup", message)
 
     async def test_show_setup_wizard_formats_steps(self) -> None:
         from app.services.interaction.setup_service import SetupService

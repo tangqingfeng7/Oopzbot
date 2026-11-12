@@ -60,16 +60,6 @@ class SetupDiagnostics:
             "summary": summary,
             "checks": checks,
             "wizard_steps": wizard_steps,
-            "first_run_needed": any(
-                step["required"] and step["status"] in {"blocked", "pending"}
-                for step in wizard_steps
-            ),
-            "quick_links": [
-                {"label": "配置中心", "href": "/admin/config"},
-                {"label": "系统页", "href": "/admin/system"},
-                {"label": "插件页", "href": "/admin/plugins"},
-                {"label": "域管理", "href": "/admin/areas"},
-            ],
         }
 
     def _make_check(

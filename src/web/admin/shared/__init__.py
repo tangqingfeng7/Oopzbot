@@ -13,7 +13,6 @@ from __future__ import annotations
 from requests import RequestException as RequestsException
 
 import web.web_player_config as cfg
-from app.services.interaction.setup_diagnostics import SetupDiagnostics
 from core.database import (
     DB_PATH,
     MessageStatsDB,
@@ -117,7 +116,6 @@ __all__ = [
     "_BILIBILI_QR_POLL_PATH",
     "MessageStatsDB",
     "RequestsException",
-    "SetupDiagnostics",
     "SongCache",
     "Statistics",
     "TtlCache",

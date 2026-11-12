@@ -174,7 +174,6 @@ nginx/ssl/key.pem    # 私钥
 | GET | `/admin/members` | 成员管理页 |
 | GET | `/admin/areas` | 域配置管理页 |
 | GET | `/admin/plugins` | 插件管理页 |
-| GET | `/admin/setup` | 首启向导页 |
 | GET | `/admin/system` | 系统页 |
 
 ---
@@ -213,11 +212,10 @@ nginx/ssl/key.pem    # 私钥
 | GET | `/admin/api/message-stats/daily?days=14` | 频道每日消息量（折线图数据） |
 | GET | `/admin/api/message-stats/ranking?days=7&limit=10&area_id=` | 用户活跃排行（柱状图数据） |
 | GET | `/admin/api/message-stats/overview` | 消息统计概览（今日消息数、本周消息数、今日活跃用户） |
-| GET | `/admin/api/keyword-replies` | 当前生效的关键词回复；保存走 `/admin/api/plugins/keyword_reply/config` |
 | GET | `/admin/api/reminders` | 查看所有待执行提醒 |
+| GET | `/admin/api/keyword-replies` | 当前生效的关键词回复；保存走 `/admin/api/plugins/keyword_reply/config` |
 | GET | `/admin/api/scheduled-message-templates` | 获取内置定时消息模板列表 |
 | POST | `/admin/api/scheduled-message-templates/{template_key}/apply` | 套用模板创建定时消息 |
-| GET | `/admin/api/setup/diagnostics` | 首启向导 / 核心依赖体检诊断 |
 
 ### 插件管理
 

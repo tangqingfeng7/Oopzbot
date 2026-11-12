@@ -12,7 +12,6 @@ from core.json_utils import compact_json
 from core.redis_protocol import RedisAdminClient
 from web.admin.shared import (
     DB_PATH,
-    SetupDiagnostics,
     SongCache,
     Statistics,
     TtlCache,
@@ -21,9 +20,7 @@ from web.admin.shared import (
     _execute_control_action,
     _execute_queue_action,
     _get_netease,
-    _get_plugin_runtime,
     _get_redis,
-    _get_sender,
     _get_started_at,
     _music_area_context,
     _overview_payload,
@@ -348,12 +345,5 @@ async def admin_system():
     except Exception as e:
         data["db_tables"] = {"error": str(e)}
     return JSONResponse(data)
-
-
-@router.get("/admin/api/setup/diagnostics")
-async def admin_setup_diagnostics():
-    diagnostics = SetupDiagnostics(sender=_get_sender(), plugins=_get_plugin_runtime())
-    report = await diagnostics.build_report()
-    return JSONResponse({"ok": True, **report}, headers={"Cache-Control": "no-store"})
 
 __all__ = ["router"]

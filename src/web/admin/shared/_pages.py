@@ -129,18 +129,6 @@ _ADMIN_PAGES: dict[str, dict[str, Any]] = {
         "login_copy": "登录后管理插件与配置。",
         "login_button": "进入插件管理",
     },
-    "setup": {
-        "page_title": "系统体检",
-        "page_id": "setup",
-        "brand_title": "系统体检",
-        "brand_copy": "把首启检查、运行时诊断和下一步配置建议放在一个页面里。",
-        "topbar_actions": [
-            {"action": "refresh-diagnostics", "label": "重新体检"},
-        ],
-        "login_title": "登录系统体检",
-        "login_copy": "登录后查看系统体检与首启向导。",
-        "login_button": "进入体检页",
-    },
 }
 
 

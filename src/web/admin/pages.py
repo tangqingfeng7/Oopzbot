@@ -45,9 +45,4 @@ def admin_areas_page():
 def admin_plugins_page():
     return _render_admin_page("plugins")
 
-
-@router.get("/admin/setup", response_class=HTMLResponse)
-def admin_setup_page():
-    return _render_admin_page("setup")
-
 __all__ = ["router"]

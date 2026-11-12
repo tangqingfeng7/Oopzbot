@@ -115,7 +115,6 @@ HELP_TOPICS: dict[str, HelpTopic] = {
             "@bot 首启向导  查看分步配置建议",
             "/health  查看系统体检摘要",
             "/setup  查看首启向导",
-            "后台入口: /admin/setup",
         ),
     ),
     "screen_share": HelpTopic(
