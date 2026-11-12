@@ -32,7 +32,6 @@ def _handler_stub(plugins: Any = None, music: Any = None) -> Any:
             chat=AsyncMock(),
         ),
         services=SimpleNamespace(
-            scheduler=SimpleNamespace(scheduled=AsyncMock(), reminder=AsyncMock()),
             safety=SimpleNamespace(recall_scheduler=AsyncMock()),
         ),
     )
@@ -317,16 +316,13 @@ class BackgroundServiceRunnerIsolationTest(unittest.IsolatedAsyncioTestCase):
         music = AsyncMock()
         music.stop.side_effect = RuntimeError("music stop failed")
         notifier = AsyncMock()
-        scheduled = AsyncMock()
-        scheduled.stop.side_effect = RuntimeError("scheduled stop failed")
-        reminder = AsyncMock()
         recall = AsyncMock()
+        recall.stop.side_effect = RuntimeError("recall stop failed")
         plugins = AsyncMock()
         context: Any = SimpleNamespace(
             handler=SimpleNamespace(
                 infrastructure=SimpleNamespace(music=music, plugins=plugins),
                 services=SimpleNamespace(
-                    scheduler=SimpleNamespace(scheduled=scheduled, reminder=reminder),
                     safety=SimpleNamespace(recall_scheduler=recall),
                 ),
             ),
@@ -338,10 +334,8 @@ class BackgroundServiceRunnerIsolationTest(unittest.IsolatedAsyncioTestCase):
 
         await runner.stop_producers(timeout=1)
 
-        # 前两个抛异常也不能影响后面的服务被停掉
+        # 前面的服务抛异常也不能影响后面的服务被停掉
         music.stop.assert_awaited_once()
-        scheduled.stop.assert_awaited_once()
-        reminder.stop.assert_awaited_once()
         recall.stop.assert_awaited_once()
         notifier.stop.assert_awaited_once()
         plugins.stop.assert_not_awaited()

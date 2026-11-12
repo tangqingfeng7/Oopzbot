@@ -4,7 +4,7 @@
             <button class="cfg-tab is-active" data-tab="basic" type="button">基础设置</button>
             <button class="cfg-tab" data-tab="bot" type="button">机器人</button>
             <button class="cfg-tab" data-tab="music" type="button">音乐与平台</button>
-            <button class="cfg-tab" data-tab="schedule" type="button">定时与通知</button>
+            <button class="cfg-tab" data-tab="schedule" type="button">通知</button>
           </div>
           <div id="msg" class="msg config-message" aria-live="polite"></div>
 
@@ -98,12 +98,6 @@
                 <div class="field"><label for="cfg_area_poll">区域成员轮询间隔（秒）</label><input id="cfg_area_poll" type="number" min="2" /></div>
                 <div class="field"><label for="cfg_area_auto_role_id">新人自动分配身份组 ID</label><input id="cfg_area_auto_role_id" type="text" placeholder="留空不分配" /></div>
                 <div class="field"><label for="cfg_area_auto_role_name">或按名称匹配身份组</label><input id="cfg_area_auto_role_name" type="text" placeholder="优先使用 ID" /></div>
-                <div class="field field--check"><label><input id="cfg_chat_enabled" type="checkbox" /> 启用聊天自动回复</label></div>
-                <div class="field field--wide">
-                  <label>关键词回复</label>
-                  <div id="cfg_kw_list" class="kw-editor"></div>
-                  <button type="button" class="kw-add-btn" data-action="kw-add">+ 添加关键词</button>
-                </div>
               </div>
             </section>
 
@@ -305,23 +299,8 @@
           </div>
 
 
-          <!-- Tab: 定时与通知 -->
+          <!-- Tab: 通知 -->
           <div class="cfg-panel" data-panel="schedule">
-            <section id="section-scheduler" class="field-section">
-              <div class="section-head">
-                <h3 class="section-title">定时任务与提醒</h3>
-                <p class="section-copy">定时消息调度和用户提醒的全局参数。</p>
-              </div>
-              <div class="field-grid">
-                <div class="field field--check"><label><input id="cfg_scheduler_enabled" type="checkbox" /> 启用定时消息</label></div>
-                <div class="field"><label for="cfg_scheduler_interval">定时检查间隔（秒）</label><input id="cfg_scheduler_interval" type="number" min="10" /></div>
-                <div class="field field--check"><label><input id="cfg_reminder_enabled" type="checkbox" /> 启用用户提醒</label></div>
-                <div class="field"><label for="cfg_reminder_max_per_user">每用户最大提醒数</label><input id="cfg_reminder_max_per_user" type="number" min="1" /></div>
-                <div class="field"><label for="cfg_reminder_max_delay">最大提醒延迟（小时）</label><input id="cfg_reminder_max_delay" type="number" min="1" /></div>
-                <div class="field"><label for="cfg_reminder_interval">提醒检查间隔（秒）</label><input id="cfg_reminder_interval" type="number" min="5" /></div>
-              </div>
-            </section>
-
             <section id="section-notify-tpl" class="field-section">
               <div class="section-head">
                 <h3 class="section-title">通知模板</h3>

@@ -1,0 +1,21 @@
+{
+  "plugin_name": "keyword_reply",
+  "fields": [
+    {
+      "name": "keyword_replies",
+      "type": "object",
+      "required": false,
+      "description": "关键词 → 回复内容；先整句匹配，再按包含匹配，不区分大小写",
+      "default": {
+        "你好": "你好呀！我是 Oopz Bot ~",
+        "帮助": "输入 /help 查看可用命令",
+        "ping": "pong!"
+      },
+      "example": {
+        "你好": "你好呀！我是 Oopz Bot ~",
+        "帮助": "输入 /help 查看可用命令",
+        "ping": "pong!"
+      }
+    }
+  ]
+}

@@ -3,7 +3,7 @@ from oopz.name_resolver import get_resolver
 
 
 class CommonCommandService:
-    """处理语音频道和每日一句。"""
+    """处理语音频道查看和进入。"""
 
     def __init__(self, runtime: CommandRuntimeView):
         self._sender = sender_of(runtime)
@@ -73,22 +73,3 @@ class CommonCommandService:
 
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 
-    async def show_daily_speech(self, channel: str, area: str) -> None:
-        """获取并展示每日一句名言。"""
-        try:
-            data = await self._sender.bot.general.get_daily_speech()
-        except Exception as exc:
-            await self._sender.send_message(f"获取每日一句失败: {exc}", channel=channel, area=area)
-            return
-
-        words = data.words
-        author = data.author
-
-        if words:
-            text = f"「{words}」"
-            if author:
-                text += f"\n—— {author}"
-        else:
-            text = "暂无内容"
-
-        await self._sender.send_message(text, channel=channel, area=area)

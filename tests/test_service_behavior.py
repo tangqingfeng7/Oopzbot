@@ -21,7 +21,6 @@ from oopz_sdk.models import (  # noqa: E402
     UserInfo,
 )
 from oopz_sdk.models.channel import VoiceChannelMembersResult  # noqa: E402
-from oopz_sdk.models.general import DailySpeech  # noqa: E402
 
 from app.services.runtime import CommandRuntimeView  # noqa: E402
 
@@ -865,23 +864,6 @@ class CommonCommandServiceTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("共 2 人在线", message)
         self.assertIn("机器人2 [Bot]", message)
 
-    async def test_daily_speech_formats_sdk_result_and_reports_query_failure(self) -> None:
-        from app.services.interaction.common_command_service import CommonCommandService
-
-        service = CommonCommandService(self.handler)
-        for payload, expected in [
-            ({"words": "一句话", "author": "作者"}, "「一句话」\n—— 作者"),
-            ({"words": "一句话"}, "「一句话」"),
-            ({}, "暂无内容"),
-        ]:
-            with self.subTest(payload=payload):
-                self.sender.bot.general.get_daily_speech.return_value = DailySpeech.from_api(payload)
-                await service.show_daily_speech("channel", "area")
-                self.assertEqual(self.sender.send_message.call_args.args[0], expected)
-        self.sender.bot.general.get_daily_speech.side_effect = RuntimeError("请求失败")
-        await service.show_daily_speech("channel", "area")
-        self.assertEqual(self.sender.send_message.call_args.args[0], "获取每日一句失败: 请求失败")
-
 
 
 class ChatInteractionServiceTest(unittest.IsolatedAsyncioTestCase):
@@ -890,32 +872,6 @@ class ChatInteractionServiceTest(unittest.IsolatedAsyncioTestCase):
         self.handler = _runtime(
             infrastructure=SimpleNamespace(sender=self.sender),
         )
-
-    async def test_handle_plain_chat_returns_false_when_no_reply(self) -> None:
-        from app.services.interaction.chat_interaction_service import ChatInteractionService
-
-        with patch(
-            "app.services.interaction.chat_interaction_service.CHAT_CONFIG",
-            {"enabled": True, "keyword_replies": {}},
-        ):
-            service = ChatInteractionService(self.handler)
-            result = await service.handle_plain_chat("hello", "channel-1", "area-1")
-
-        self.assertFalse(result)
-        self.sender.send_message.assert_not_called()
-
-    async def test_handle_plain_chat_sends_reply_when_available(self) -> None:
-        from app.services.interaction.chat_interaction_service import ChatInteractionService
-
-        with patch(
-            "app.services.interaction.chat_interaction_service.CHAT_CONFIG",
-            {"enabled": True, "keyword_replies": {"hello": "自动回复"}},
-        ):
-            service = ChatInteractionService(self.handler)
-            result = await service.handle_plain_chat("hello", "channel-1", "area-1")
-
-        self.assertTrue(result)
-        self.sender.send_message.assert_called_once_with("自动回复", channel="channel-1", area="area-1")
 
 
     async def test_send_unknown_command_sends_help_hint(self) -> None:

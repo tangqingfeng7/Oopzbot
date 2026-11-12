@@ -17,7 +17,7 @@ from oopz_sdk.testing.factories import make_config  # noqa: E402
 
 from app.infrastructure.gateways.sender_gateway import SenderGateway  # noqa: E402
 from oopz.name_resolver import NameResolver  # noqa: E402
-from web.admin.scheduler import admin_message_stats_ranking  # noqa: E402
+from plugins.stats.admin import admin_message_stats_ranking  # noqa: E402
 
 
 class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
@@ -39,9 +39,9 @@ class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
         self.bot.person._request_data = self.request
         await self.resolver.bind_gateway(self.gateway)
         self.addAsyncCleanup(self.resolver.close)
-        patches.enter_context(patch("web.admin.scheduler.get_resolver", return_value=self.resolver))
+        patches.enter_context(patch("plugins.stats.admin.get_resolver", return_value=self.resolver))
         self.ranking = patches.enter_context(patch(
-            "web.admin.scheduler.MessageStatsDB.get_user_ranking", new_callable=AsyncMock,
+            "plugins.stats.admin.MessageStatsDB.get_user_ranking", new_callable=AsyncMock,
         ))
 
     async def test_new_member_name_is_fetched_and_reused(self) -> None:
@@ -65,7 +65,7 @@ class MessageStatsRankingNameTest(unittest.IsolatedAsyncioTestCase):
             RuntimeError("temporary failure"), [{"uid": uid, "name": "恢复后的昵称"}],
         ]
 
-        with self.assertLogs("WebPlayerAdmin", level="WARNING"):
+        with self.assertLogs("StatsAdmin", level="WARNING"):
             response = await admin_message_stats_ranking(days=7, limit=10, area_id="")
         payload = json.loads(bytes(response.body))
         self.assertTrue(payload["ok"])

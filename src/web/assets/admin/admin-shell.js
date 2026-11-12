@@ -4,8 +4,6 @@
     { key: "music", href: "/admin/music", label: "音乐" },
     { key: "config", href: "/admin/config", label: "配置" },
     { key: "stats", href: "/admin/stats", label: "统计" },
-    { key: "activity", href: "/admin/activity", label: "活跃" },
-    { key: "scheduler", href: "/admin/scheduler", label: "定时" },
     { key: "members", href: "/admin/members", label: "成员" },
     { key: "areas", href: "/admin/areas", label: "域管理" },
     { key: "plugins", href: "/admin/plugins", label: "插件" },

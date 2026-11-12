@@ -193,12 +193,30 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 - 每日密码定时推送会按 `daily_keyword_push_time` 在所有已订阅频道每日推送一次。
 - 特勤处制造完成推送会按 `place_push_interval_sec` 周期轮询当前已订阅频道，并在检测到生产任务完成时推送到原频道。
 
-### 聊天自动回复 (`CHAT_CONFIG`)
+### 关键词自动回复插件 (`config/plugins/keyword_reply/config.json`)
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用（默认 `True`） |
-| `keyword_replies` | 关键词 → 回复内容的映射字典 |
+| `keyword_replies` | 关键词 → 回复内容的映射；普通聊天消息（不是 @bot 也不是 / 命令）先整句匹配，再按包含匹配，不区分大小写 |
+
+后台“关键词”页面可直接编辑，保存后立即生效。卸载 `keyword_reply` 插件即关闭自动回复。
+
+### 定时任务插件 (`config/plugins/scheduler/config.json`)
+
+管理员定时消息与用户提醒，后台“定时”页面管理定时消息和查看待执行提醒。卸载 `scheduler` 插件即同时关闭两者。
+
+| 配置项 | 说明 |
+|--------|------|
+| `scheduled_check_interval_seconds` | 定时消息检查间隔（秒，`10`～`3600`，默认 `30`） |
+| `reminder_check_interval_seconds` | 提醒检查间隔（秒，`5`～`3600`，默认 `15`） |
+| `reminder_max_per_user` | 每用户最多的待执行提醒数（默认 `5`） |
+| `reminder_max_delay_hours` | 提醒最远可设置到多少小时后（默认 `72`） |
+
+### 统计与每日一句插件
+
+`stats` 插件提供活跃排行、频道统计、点歌排行、最近播放和后台“活跃”页面，`daily_speech` 插件提供每日一句，两者均无配置项。消息计数本身仍由核心按 `MESSAGE_STATS_CONFIG` 记录。
+
+升级后首次发现的插件会默认加载；手动卸载过的插件会保持卸载，记录在 `data/plugin_runtime_state.json` 的 `known_plugins` 中。
 
 ### Web 播放器 (`WEB_PLAYER_CONFIG`)
 
@@ -290,27 +308,11 @@ SDK 内置 OneBot v11 服务默认关闭。启用后，当前 Oopz Bot 会继续
 需配置 `default_area`、`default_channel`（或由 Bot 自动取第一个已加入域及第一个文字频道）。通知消息与 Bot 其他消息一致，默认是普通气泡；把 `use_announcement_style` 设为 `True`
 才会用公告样式（Bot 不是高级管理员时服务端会拒绝发公告）。
 
-### 定时消息调度 (`SCHEDULER_CONFIG`)
-
-| 配置项 | 说明 |
-|--------|------|
-| `enabled` | 是否启用（默认 `True`） |
-| `check_interval_seconds` | 检查间隔（秒），最小 `10`（默认 `30`） |
-
-### 用户提醒 (`REMINDER_CONFIG`)
-
-| 配置项 | 说明 |
-|--------|------|
-| `enabled` | 是否启用（默认 `True`） |
-| `max_per_user` | 每用户最大待执行提醒数（默认 `5`） |
-| `max_delay_hours` | 最大提醒延迟（小时）（默认 `72`） |
-| `check_interval_seconds` | 检查间隔（秒），最小 `5`（默认 `15`） |
-
 ### 消息统计 (`MESSAGE_STATS_CONFIG`)
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用消息统计（活跃排行、频道统计依赖此项，默认 `True`） |
+| `enabled` | 是否启用消息统计（`stats` 插件的活跃排行、频道统计依赖此项，默认 `True`） |
 
 ### 命令冷却 (`COMMAND_COOLDOWN_CONFIG`)
 

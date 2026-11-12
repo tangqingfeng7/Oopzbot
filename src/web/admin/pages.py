@@ -36,16 +36,6 @@ def admin_system_page():
     return _render_admin_page("system")
 
 
-@router.get("/admin/activity", response_class=HTMLResponse)
-def admin_activity_page():
-    return _render_admin_page("activity")
-
-
-@router.get("/admin/scheduler", response_class=HTMLResponse)
-def admin_scheduler_page():
-    return _render_admin_page("scheduler")
-
-
 @router.get("/admin/areas", response_class=HTMLResponse)
 def admin_areas_page():
     return _render_admin_page("areas")

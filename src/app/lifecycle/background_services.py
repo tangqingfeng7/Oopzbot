@@ -19,7 +19,6 @@ class BackgroundServiceRunner:
         self._context = context
         await self._start_music_services(context)
         await self._start_web_player(context)
-        self._start_scheduler_services(context)
 
     async def _start_music_services(self, context: AppContext) -> None:
         music = context.handler.infrastructure.music
@@ -77,12 +76,6 @@ class BackgroundServiceRunner:
         except Exception:
             logger.debug("成员缓存预热异常", exc_info=True)
 
-    @staticmethod
-    def _start_scheduler_services(context: AppContext) -> None:
-        scheduler = context.handler.services.scheduler
-        scheduler.scheduled.start(context.supervisor)
-        scheduler.reminder.start(context.supervisor)
-
     async def stop_ingress(self, timeout: float = 5.0) -> None:
         web_player = self._web_player
         self._web_player = None
@@ -98,8 +91,6 @@ class BackgroundServiceRunner:
             return
         services = (
             ("音乐后台服务", context.handler.infrastructure.music.stop),
-            ("定时消息", context.handler.services.scheduler.scheduled.stop),
-            ("提醒", context.handler.services.scheduler.reminder.stop),
             ("自动撤回", context.handler.services.safety.recall_scheduler.stop),
         )
         for name, stop in services:

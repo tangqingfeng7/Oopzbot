@@ -17,8 +17,6 @@ from app.services.interaction.setup_diagnostics import SetupDiagnostics
 from core.database import (
     DB_PATH,
     MessageStatsDB,
-    ReminderDB,
-    ScheduledMessageDB,
     SongCache,
     Statistics,
     db_connection,
@@ -33,7 +31,6 @@ from core.queue_manager import (
 )
 from core.ttl_cache import TtlCache
 from oopz.name_resolver import get_resolver
-from services.scheduler_templates import get_scheduled_template, list_scheduled_templates
 from web.web_link_token import (
     clear_token,
     ensure_token,
@@ -119,9 +116,7 @@ __all__ = [
     "_BILIBILI_QR_GENERATE_PATH",
     "_BILIBILI_QR_POLL_PATH",
     "MessageStatsDB",
-    "ReminderDB",
     "RequestsException",
-    "ScheduledMessageDB",
     "SetupDiagnostics",
     "SongCache",
     "Statistics",
@@ -182,9 +177,7 @@ __all__ = [
     "get_logger",
     "get_redis_client",
     "get_resolver",
-    "get_scheduled_template",
     "get_token",
-    "list_scheduled_templates",
     "logger",
     "read_json_body",
     "require_sender",

@@ -1,18 +1,25 @@
-from fastapi import APIRouter, Query, Request
-from fastapi.responses import JSONResponse
+from pathlib import Path
 
-from web.admin.shared import (
-    MessageStatsDB,
-    ReminderDB,
-    ScheduledMessageDB,
-    get_resolver,
-    get_scheduled_template,
-    list_scheduled_templates,
-    logger,
-    read_json_body,
-)
+from fastapi import APIRouter, Request
+from fastapi.responses import HTMLResponse, JSONResponse
+
+from core.database import ReminderDB, ScheduledMessageDB
+from web.admin.shared import read_json_body
+from web.admin.shared._pages import render_admin_page
+
+from .templates import get_scheduled_template, list_scheduled_templates
 
 router = APIRouter()
+_PAGE = {
+    "page_title": "定时任务",
+    "page_id": "scheduler",
+    "brand_title": "定时任务",
+    "brand_copy": "管理定时消息与用户提醒。",
+    "topbar_actions": [{"action": "refresh-scheduler", "label": "刷新列表"}],
+    "login_title": "登录定时任务",
+    "login_copy": "登录后管理定时消息与查看提醒。",
+    "login_button": "进入定时任务",
+}
 
 
 def _cron_range_error(hour: int, minute: int):
@@ -24,9 +31,11 @@ def _cron_range_error(hour: int, minute: int):
         )
     return None
 
-# ---------------------------------------------------------------------------
-# 定时消息 CRUD API
-# ---------------------------------------------------------------------------
+
+@router.get("/admin/scheduler", response_class=HTMLResponse)
+def admin_scheduler_page():
+    return render_admin_page(_PAGE, Path(__file__).with_name("admin_assets"))
+
 
 @router.get("/admin/api/scheduled-messages")
 async def admin_scheduled_messages_list():
@@ -119,8 +128,7 @@ async def admin_scheduled_messages_update(task_id: int, request: Request):
 
 @router.delete("/admin/api/scheduled-messages/{task_id}")
 async def admin_scheduled_messages_delete(task_id: int):
-    deleted = await ScheduledMessageDB.delete(task_id)
-    if not deleted:
+    if not await ScheduledMessageDB.delete(task_id):
         return JSONResponse({"ok": False, "error": "未找到"}, status_code=404)
     return JSONResponse({"ok": True})
 
@@ -133,50 +141,9 @@ async def admin_scheduled_messages_toggle(task_id: int):
     return JSONResponse({"ok": True, "enabled": result})
 
 
-# ---------------------------------------------------------------------------
-# 消息统计 API
-# ---------------------------------------------------------------------------
-
-@router.get("/admin/api/message-stats/daily")
-async def admin_message_stats_daily(days: int = Query(14, ge=1, le=90)):
-    daily = await MessageStatsDB.get_all_daily(days=days)
-    return JSONResponse({"ok": True, "daily": daily})
-
-
-@router.get("/admin/api/message-stats/ranking")
-async def admin_message_stats_ranking(
-    days: int = Query(7, ge=1, le=90),
-    limit: int = Query(10, ge=1, le=50),
-    area_id: str = Query(""),
-):
-    # area_id 留空时跨全部域聚合，与日趋势/概览口径一致
-    ranking = await MessageStatsDB.get_user_ranking(area_id, days=days, limit=limit)
-    resolver = get_resolver()
-    try:
-        await resolver.ensure_users([item["user_id"] for item in ranking])
-    except Exception:
-        logger.warning("消息排行榜补全用户昵称失败", exc_info=True)
-    for item in ranking:
-        item["display_name"] = resolver.user(item["user_id"])
-    return JSONResponse({"ok": True, "ranking": ranking})
-
-
-@router.get("/admin/api/message-stats/overview")
-async def admin_message_stats_overview():
-    return JSONResponse({
-        "ok": True,
-        "today_messages": await MessageStatsDB.get_today_total(),
-        "week_messages": await MessageStatsDB.get_week_total(),
-        "active_users_today": await MessageStatsDB.get_active_users_today(),
-    })
-
-
-# ---------------------------------------------------------------------------
-# 提醒查看 API
-# ---------------------------------------------------------------------------
-
 @router.get("/admin/api/reminders")
 async def admin_reminders_list():
     return JSONResponse({"ok": True, "items": await ReminderDB.get_all_pending()})
+
 
 __all__ = ["router"]

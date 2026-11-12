@@ -281,7 +281,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
     """曾用 ``asyncio.to_thread`` 包装 async 函数的调用点，回归到真正落库。"""
 
     async def test_scheduler_service_tick_marks_task_fired(self) -> None:
-        from services.scheduler_service import ScheduledMessageService
+        from plugins.scheduler.service import ScheduledMessageService
 
         task_id = await ScheduledMessageDB.create(
             "整点播报", 0, 0, "channel-1", "area-1", "整点了", "0,1,2,3,4,5,6"
@@ -295,7 +295,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(task["last_fired_date"], database.cn_today())
 
     async def test_reminder_service_tick_sends_and_marks_fired(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         await ReminderDB.create("user-1", "channel-1", "area-1", "喝水", "2020-01-01 08:00:00")
         sender = mock.AsyncMock()
@@ -305,7 +305,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(await ReminderDB.get_all_pending(), [])
 
     async def test_reminder_service_create_persists_reminder(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         service = ReminderService(mock.AsyncMock())
         reply = await service.create_reminder("30分钟后 喝水", "channel-1", "area-1", "user-1")
@@ -314,7 +314,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(await ReminderDB.count_user_pending("user-1"), 1)
 
     async def test_reminder_service_enforces_per_user_quota(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         service = ReminderService(mock.AsyncMock(), max_per_user=1)
         await service.create_reminder("30分钟后 第一件事", "channel-1", "area-1", "user-1")

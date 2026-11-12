@@ -32,12 +32,9 @@ CONFIG_GROUP_SOURCES: dict[str, str] = {
     "web_player": "WEB_PLAYER_CONFIG",
     "auto_recall": "AUTO_RECALL_CONFIG",
     "area_join_notify": "AREA_JOIN_NOTIFY",
-    "chat": "CHAT_CONFIG",
     "oopz": "OOPZ_CONFIG",
     "netease": "NETEASE_CLOUD",
     "redis": "REDIS_CONFIG",
-    "scheduler": "SCHEDULER_CONFIG",
-    "reminder": "REMINDER_CONFIG",
     "music": "MUSIC_CONFIG",
     "command_cooldown": "COMMAND_COOLDOWN_CONFIG",
     "qq_music": "QQ_MUSIC_CONFIG",
@@ -93,18 +90,6 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
         "auto_assign_role_name": {"type": "str", "max_len": 128, "default": ""},
         "member_fetch_max": {"type": "int", "min": 200, "max": 100000, "default": 5000},
     },
-    "chat": {
-        "enabled": {"type": "bool", "default": True},
-        "keyword_replies": {
-            "type": "json_dict",
-            "max_len": 5000,
-            "default": {
-                "你好": "你好呀！我是 Oopz Bot ~",
-                "帮助": "输入 /help 查看可用命令",
-                "ping": "pong!",
-            },
-        },
-    },
     "oopz": {
         "login_phone": {"type": "str", "max_len": 128, "sensitive": True, "expose_in_admin": True, "default": ""},
         "login_password": {"type": "str", "max_len": 256, "sensitive": True, "default": ""},
@@ -130,16 +115,6 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
         "socket_connect_timeout": {"type": "float", "min": 0.1, "max": 60, "default": 3.0},
         "socket_timeout": {"type": "float", "min": 0.1, "max": 300, "default": 5.0},
         "health_check_interval": {"type": "int", "min": 1, "max": 3600, "default": 30},
-    },
-    "scheduler": {
-        "enabled": {"type": "bool", "default": True},
-        "check_interval_seconds": {"type": "int", "min": 10, "max": 3600, "default": 30},
-    },
-    "reminder": {
-        "enabled": {"type": "bool", "default": True},
-        "max_per_user": {"type": "int", "min": 1, "max": 100, "default": 5},
-        "max_delay_hours": {"type": "int", "min": 1, "max": 720, "default": 72},
-        "check_interval_seconds": {"type": "int", "min": 5, "max": 3600, "default": 15},
     },
     "music": {
         "auto_play_enabled": {"type": "bool", "default": True},
@@ -211,12 +186,9 @@ _GROUP_TARGETS: dict[str, dict] = {group: _resolve_group_target(group) for group
 WEB_PLAYER_CONFIG = _GROUP_TARGETS["web_player"]
 AUTO_RECALL_CONFIG = _GROUP_TARGETS["auto_recall"]
 AREA_JOIN_NOTIFY = _GROUP_TARGETS["area_join_notify"]
-CHAT_CONFIG = _GROUP_TARGETS["chat"]
 OOPZ_CONFIG = _GROUP_TARGETS["oopz"]
 NETEASE_CLOUD = _GROUP_TARGETS["netease"]
 REDIS_CONFIG = _GROUP_TARGETS["redis"]
-SCHEDULER_CONFIG = _GROUP_TARGETS["scheduler"]
-REMINDER_CONFIG = _GROUP_TARGETS["reminder"]
 MUSIC_CONFIG = _GROUP_TARGETS["music"]
 COMMAND_COOLDOWN_CONFIG = _GROUP_TARGETS["command_cooldown"]
 QQ_MUSIC_CONFIG = _GROUP_TARGETS["qq_music"]
@@ -441,23 +413,6 @@ def coerce_config_value(meta: dict, raw: object) -> object:
                 except ValueError as exc:
                     raise ValueError(f"无效网段: {item}") from exc
         return items
-    if value_type == "json_dict":
-        if isinstance(raw, dict):
-            d = raw
-        elif isinstance(raw, str):
-            try:
-                d = json.loads(raw)
-            except Exception as exc:
-                raise ValueError("JSON 格式无效") from exc
-            if not isinstance(d, dict):
-                raise ValueError("必须是 JSON 对象")
-        else:
-            raise ValueError("需要 JSON 对象或字符串")
-        max_len = meta.get("max_len")
-        serialized = json.dumps(d, ensure_ascii=False)
-        if max_len is not None and len(serialized) > max_len:
-            raise ValueError(f"总长度不能超过 {max_len}")
-        return d
     raise ValueError(f"未知类型: {value_type}")
 
 

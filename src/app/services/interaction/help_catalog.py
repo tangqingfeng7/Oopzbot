@@ -61,45 +61,12 @@ HELP_TOPICS: dict[str, HelpTopic] = {
             "@bot 查看 <用户名>  查看用户资料",
             "@bot 搜索 <关键词>  搜索成员并生成候选",
             "@bot 选择 <编号>  查看最近一次成员搜索/歧义解析结果",
-            "@bot 成员 / 语音 / 每日一句",
+            "@bot 成员 / 语音",
             "@bot 角色 <用户> / 可分配角色 <用户>",
             "/me  /myinfo  /whois <用户>",
             "/role <用户>  /roles <用户>",
             "/search <关键词>  /pick <编号>",
-            "/members  /voice  /daily",
-        ),
-    ),
-    "reminder": HelpTopic(
-        key="reminder",
-        title="提醒与统计",
-        description="个人提醒、活跃排行和播放统计。",
-        aliases=("提醒", "统计", "排行", "活跃"),
-        menu_label="提醒",
-        menu_blurb="提醒、排行、统计",
-        lines=(
-            "@bot 提醒 30分钟后 <内容>",
-            "@bot 我的提醒 / 删除提醒 <ID>",
-            "@bot 活跃排行 / 频道统计 / 点歌排行 / 最近播放",
-            "/remind <时间> <内容>",
-            "/remind list  /remind del <ID>",
-            "/ranking  /chatstats  /topsongs  /recentsongs",
-        ),
-    ),
-    "schedule": HelpTopic(
-        key="schedule",
-        title="定时消息",
-        description="管理员定时消息与频道推送。",
-        aliases=("定时", "定时消息", "schedule"),
-        menu_label="定时",
-        menu_blurb="定时消息与提醒管理",
-        lines=(
-            "@bot 定时消息列表",
-            "@bot 添加定时消息 HH:MM <内容>",
-            "@bot 添加定时消息 HH:MM [1,2,3,4,5] <内容>",
-            "@bot 删除定时消息 <ID>",
-            "@bot 开启定时消息 <ID> / 关闭定时消息 <ID>",
-            "后台支持模板一键创建: /admin/scheduler",
-            "/schedule list|add|del|on|off",
+            "/members  /voice",
         ),
     ),
     "admin": HelpTopic(
@@ -171,7 +138,7 @@ HELP_TOPICS: dict[str, HelpTopic] = {
 
 # 总览菜单展示顺序（单一来源）；列出的主题必须存在于 HELP_TOPICS。
 MENU_ORDER: tuple[str, ...] = (
-    "music", "query", "reminder", "screen_share", "admin", "schedule", "plugin", "setup",
+    "music", "query", "screen_share", "admin", "plugin", "setup",
 )
 
 
@@ -219,8 +186,6 @@ COMMAND_SUGGESTIONS: tuple[tuple[str, str], ...] = (
     ("查看", "@bot 查看 <用户名>"),
     ("搜索", "@bot 搜索 <关键词>"),
     ("选择", "@bot 选择 <编号>"),
-    ("提醒", "@bot 提醒 30分钟后 <内容>"),
-    ("定时消息", "@bot 定时消息列表"),
     ("插件列表", "@bot 插件列表"),
     ("体检", "@bot 体检"),
     ("首启向导", "@bot 首启向导"),
@@ -232,8 +197,6 @@ COMMAND_SUGGESTIONS: tuple[tuple[str, str], ...] = (
     ("/songsearch", "/songsearch <关键词>"),
     ("/pick", "/pick <编号>"),
     ("/search", "/search <关键词>"),
-    ("/remind", "/remind <时间> <内容>"),
-    ("/schedule", "/schedule list"),
     ("/plugins", "/plugins"),
 )
 

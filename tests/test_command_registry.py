@@ -33,7 +33,6 @@ _LEGACY_ADMIN_ONLY_COMMANDS = frozenset(
         "/autorecall",
         "/recall",
         "/clear",
-        "/schedule",
         "/addrole",
         "/removerole",
     }
@@ -51,9 +50,6 @@ _LEGACY_ADMIN_ONLY_MENTION_PREFIXES = (
     "封禁列表", "封禁名单", "黑名单",
     "自动撤回", "撤回",
     "清理历史", "清理记录", "清除历史", "清空历史", "清理数据",
-    "定时消息列表", "定时消息",
-    "添加定时消息", "新增定时消息", "删除定时消息", "移除定时消息",
-    "开启定时消息", "启用定时消息", "关闭定时消息", "停用定时消息",
     "给身份组", "添加身份组", "addrole",
     "取消身份组", "移除身份组", "removerole",
 )
@@ -127,12 +123,10 @@ class SlashRouterAliasGoldenTest(unittest.TestCase):
             self._aliases(router._exact_rules("c", "a", "u", "")),
             {
                 "/members", "/online", "/me", "/myinfo", "/voice",
-                "/daily", "/quote", "/health", "/doctor", "/setup", "/wizard",
+                "/health", "/doctor", "/setup", "/wizard",
                 "/禁言", "/mute", "/解禁", "/unmute", "/禁麦", "/mutemic",
                 "/解麦", "/unmutemic", "/ban", "/unblock", "/blocklist",
-                "/autorecall", "/recall", "/ranking", "/活跃", "/活跃排行",
-                "/chatstats", "/频道统计", "/topsongs", "/点歌排行", "/播放排行",
-                "/recentsongs", "/最近播放",
+                "/autorecall", "/recall",
             },
         )
 
@@ -154,8 +148,6 @@ class SlashRouterAliasGoldenTest(unittest.TestCase):
         from domain.routing.command_registry import slash_of
 
         self.assertEqual(set(slash_of("clear_history")), {"/clear"})
-        self.assertEqual(set(slash_of("remind")), {"/remind", "/提醒"})
-        self.assertEqual(set(slash_of("schedule")), {"/schedule"})
 
 
 class MentionRouterAliasGoldenTest(unittest.TestCase):
@@ -184,19 +176,12 @@ class MentionRouterAliasGoldenTest(unittest.TestCase):
                 "个人信息", "我是谁", "信息",
                 "我的资料", "我的详细资料", "我的信息",
                 "语音", "语音频道", "语音在线", "谁在语音",
-                "每日一句", "一句", "名言", "语录", "鸡汤",
                 "体检", "系统体检", "健康检查",
                 "首启向导", "向导",
                 "清理历史", "清理记录", "清除历史", "清空历史", "清理数据",
                 "封禁列表", "封禁名单", "黑名单",
                 "插件列表", "扩展列表", "插件",
                 "帮助", "help", "指令", "命令",
-                "活跃排行", "活跃榜", "排行榜",
-                "频道统计", "消息统计",
-                "点歌排行", "播放排行", "热歌榜",
-                "最近播放", "播放历史",
-                "定时消息列表", "定时消息",
-                "我的提醒", "提醒列表",
             },
         )
 
@@ -231,25 +216,10 @@ class MentionRouterAliasGoldenTest(unittest.TestCase):
             {
                 "禁言", "解除禁言", "解禁", "禁麦", "解除禁麦", "解麦",
                 "移出域", "踢出", "移出", "解除域内封禁", "解封",
-                "自动撤回", "撤回", "提醒", "删除提醒", "取消提醒",
-                "添加定时消息", "新增定时消息", "删除定时消息", "移除定时消息",
-                "开启定时消息", "启用定时消息", "关闭定时消息", "停用定时消息",
+                "自动撤回", "撤回",
                 "选择", "选歌", "搜歌", "搜索歌曲",
             },
         )
-
-    def test_schedule_literal_groups_stay_in_sync_with_registry(self) -> None:
-        # 定时消息别名仍保留字面量；用此测试防止其与注册表静默背离。
-        from domain.routing.command_registry import mention_of
-
-        literal_schedule = {
-            "定时消息列表", "定时消息",
-            "添加定时消息", "新增定时消息",
-            "删除定时消息", "移除定时消息",
-            "开启定时消息", "启用定时消息",
-            "关闭定时消息", "停用定时消息",
-        }
-        self.assertEqual(literal_schedule, set(mention_of("schedule")))
 
     def test_help_arg_subset_within_registry(self) -> None:
         from domain.routing.command_registry import mention_of
@@ -263,7 +233,7 @@ class HelpCatalogDerivationTest(unittest.TestCase):
     # 主题级 admin 判定改为 fail-closed（主题内任一命令 admin=True 即受限）后的期望值。
     # 早先是 AND 归约 + /role /roles 挂在 admin 主题下，导致 admin 主题被降级成公开，
     # 非管理员发「帮助 管理」能看到全量管理命令清单。
-    _EXPECTED_ADMIN_ONLY_TOPICS = frozenset({"plugin", "schedule", "admin"})
+    _EXPECTED_ADMIN_ONLY_TOPICS = frozenset({"plugin", "admin"})
 
     def test_admin_only_topics_are_fail_closed(self) -> None:
         from app.services.interaction.help_catalog import ADMIN_ONLY_TOPICS
@@ -330,10 +300,8 @@ class OverviewMenuDerivationTest(unittest.TestCase):
         "帮助主题:",
         "  帮助 音乐  点歌、队列、喜欢列表",
         "  帮助 查询  成员、资料、语音、身份组",
-        "  帮助 提醒  提醒、排行、统计",
         "  帮助 共享  网页屏幕共享",
         "  帮助 管理  禁言、撤回、清理、身份组变更",
-        "  帮助 定时  定时消息与提醒管理",
         "  帮助 插件  插件命令与管理",
         "  帮助 系统  系统体检与首启向导",
     )

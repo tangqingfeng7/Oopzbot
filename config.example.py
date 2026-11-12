@@ -199,30 +199,6 @@ AREA_JOIN_NOTIFY = {
     "member_fetch_max": 5000,     # 单次成员快照翻页上限；超过该人数的域会暂停加入/退出检测并告警
 }
 
-# 聊天自动回复配置
-CHAT_CONFIG = {
-    "enabled": True,
-    "keyword_replies": {
-        "你好": "你好呀！我是 Oopz Bot ~",
-        "帮助": "输入 /help 查看可用命令",
-        "ping": "pong!",
-    },
-}
-
-# 定时消息调度配置
-SCHEDULER_CONFIG = {
-    "enabled": True,
-    "check_interval_seconds": 30,  # 检查间隔（秒），最小 10
-}
-
-# 用户提醒配置
-REMINDER_CONFIG = {
-    "enabled": True,
-    "max_per_user": 5,             # 每用户最大待执行提醒数
-    "max_delay_hours": 72,         # 最大提醒延迟（小时）
-    "check_interval_seconds": 15,  # 检查间隔（秒），最小 5
-}
-
 # 消息统计配置
 MESSAGE_STATS_CONFIG = {
     "enabled": True,

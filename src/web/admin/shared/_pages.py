@@ -93,30 +93,6 @@ _ADMIN_PAGES: dict[str, dict[str, Any]] = {
         "login_copy": "登录后查看链接、系统信息和日志。",
         "login_button": "进入系统页",
     },
-    "activity": {
-        "page_title": "活跃统计",
-        "page_id": "activity",
-        "brand_title": "活跃统计",
-        "brand_copy": "频道消息趋势与用户活跃排行一览。",
-        "topbar_actions": [
-            {"action": "refresh-activity", "label": "刷新统计"},
-        ],
-        "login_title": "登录活跃统计",
-        "login_copy": "登录后查看消息趋势与活跃排行。",
-        "login_button": "进入活跃统计",
-    },
-    "scheduler": {
-        "page_title": "定时任务",
-        "page_id": "scheduler",
-        "brand_title": "定时任务",
-        "brand_copy": "管理定时消息与用户提醒。",
-        "topbar_actions": [
-            {"action": "refresh-scheduler", "label": "刷新列表"},
-        ],
-        "login_title": "登录定时任务",
-        "login_copy": "登录后管理定时消息与查看提醒。",
-        "login_button": "进入定时任务",
-    },
     "members": {
         "page_title": "成员管理",
         "page_id": "members",

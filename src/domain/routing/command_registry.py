@@ -47,17 +47,6 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("autorecall", ("/autorecall",), ("自动撤回",), admin=True, help_topic="admin"),
     CommandSpec("recall", ("/recall",), ("撤回",), admin=True, help_topic="admin"),
     CommandSpec("clear_history", ("/clear",), ("清理历史", "清理记录", "清除历史", "清空历史", "清理数据"), admin=True, help_topic="admin"),
-    CommandSpec(
-        "schedule",
-        ("/schedule",),
-        (
-            "定时消息列表", "定时消息", "添加定时消息", "新增定时消息",
-            "删除定时消息", "移除定时消息", "开启定时消息", "启用定时消息",
-            "关闭定时消息", "停用定时消息",
-        ),
-        admin=True,
-        help_topic="schedule",
-    ),
     CommandSpec("addrole", ("/addrole",), ("给身份组", "添加身份组", "addrole"), admin=True, help_topic="admin"),
     CommandSpec("removerole", ("/removerole",), ("取消身份组", "移除身份组", "removerole"), admin=True, help_topic="admin"),
     # --- 社区查询（公开） ---
@@ -65,21 +54,12 @@ COMMANDS: tuple[CommandSpec, ...] = (
     CommandSpec("profile", ("/me",), ("个人信息", "我是谁", "信息"), help_topic="query"),
     CommandSpec("myinfo", ("/myinfo",), ("我的资料", "我的详细资料", "我的信息"), help_topic="query"),
     CommandSpec("voice", ("/voice",), ("语音", "语音频道", "语音在线", "谁在语音"), help_topic="query"),
-    CommandSpec("daily", ("/daily", "/quote"), ("每日一句", "一句", "名言", "语录", "鸡汤"), help_topic="query"),
     CommandSpec("whois", ("/whois",), ("查看", "资料", "查询资料"), help_topic="query"),
     # 这两条是查身份组，本就是公开查询；挂在 admin 主题下会把整个管理主题降级成公开
     CommandSpec("role", ("/role",), ("角色",), help_topic="query"),
     CommandSpec("roles", ("/roles",), ("可分配角色", "分配角色"), help_topic="query"),
     CommandSpec("search", ("/search",), ("搜索成员", "搜索", "找人"), help_topic="query"),
     CommandSpec("enter", ("/enter",), ("进入频道", "进入"), help_topic="query"),
-    # --- 提醒 / 统计（公开） ---
-    CommandSpec("ranking", ("/ranking", "/活跃", "/活跃排行"), ("活跃排行", "活跃榜", "排行榜"), help_topic="reminder"),
-    CommandSpec("chatstats", ("/chatstats", "/频道统计"), ("频道统计", "消息统计"), help_topic="reminder"),
-    CommandSpec("topsongs", ("/topsongs", "/点歌排行", "/播放排行"), ("点歌排行", "播放排行", "热歌榜"), help_topic="reminder"),
-    CommandSpec("recentsongs", ("/recentsongs", "/最近播放"), ("最近播放", "播放历史"), help_topic="reminder"),
-    CommandSpec("remind", ("/remind", "/提醒"), ("提醒",), help_topic="reminder"),
-    CommandSpec("delete_reminder", (), ("删除提醒", "取消提醒"), help_topic="reminder"),
-    CommandSpec("reminders_list", (), ("我的提醒", "提醒列表"), help_topic="reminder"),
     # --- 音乐候选选择（公开；其余音乐命令由音乐服务独立分发） ---
     CommandSpec("songsearch", ("/songsearch",), ("搜歌", "搜索歌曲"), help_topic="music"),
     CommandSpec("pick", ("/pick",), ("选择", "选歌"), help_topic="music"),

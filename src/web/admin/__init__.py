@@ -2,12 +2,12 @@
 
 from fastapi import APIRouter
 
-from . import auth, config, members, music, pages, plugins, scheduler
+from . import auth, config, members, music, pages, plugins
 
 
 def create_admin_router() -> APIRouter:
     router = APIRouter()
-    for module in (pages, auth, config, music, scheduler, members, plugins):
+    for module in (pages, auth, config, music, members, plugins):
         router.include_router(module.router)
     return router
 

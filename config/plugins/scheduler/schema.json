@@ -1,0 +1,41 @@
+{
+  "plugin_name": "scheduler",
+  "fields": [
+    {
+      "name": "scheduled_check_interval_seconds",
+      "type": "integer",
+      "required": false,
+      "description": "定时消息检查间隔（秒）",
+      "constraint": "10 - 3600",
+      "default": 30,
+      "example": 30
+    },
+    {
+      "name": "reminder_check_interval_seconds",
+      "type": "integer",
+      "required": false,
+      "description": "提醒检查间隔（秒）",
+      "constraint": "5 - 3600",
+      "default": 15,
+      "example": 15
+    },
+    {
+      "name": "reminder_max_per_user",
+      "type": "integer",
+      "required": false,
+      "description": "每个用户最多的待执行提醒数",
+      "constraint": "1 - 100",
+      "default": 5,
+      "example": 5
+    },
+    {
+      "name": "reminder_max_delay_hours",
+      "type": "integer",
+      "required": false,
+      "description": "提醒最远可设置到多少小时后",
+      "constraint": "1 - 720",
+      "default": 72,
+      "example": 72
+    }
+  ]
+}

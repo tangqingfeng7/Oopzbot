@@ -143,9 +143,7 @@ NeteaseCloud API (:3000)
 │   │   ├── remote_fetch.py      # 远端资源抓取
 │   │   └── name_resolver.py     # ID → 名称解析
 │   ├── services/                # 独立服务
-│   │   ├── area_join_notifier.py # 域成员加入/退出通知
-│   │   ├── scheduler_service.py # 定时任务服务
-│   │   └── scheduler_templates.py # 定时消息模板预设
+│   │   └── area_join_notifier.py # 域成员加入/退出通知
 │   ├── screen_share/            # 网页屏幕共享会话、Token、API 与客户端源码
 │   │   └── client/             # TypeScript 客户端和构建配置
 │   ├── web/                     # Web 播放器与 Admin 后台
@@ -153,11 +151,10 @@ NeteaseCloud API (:3000)
 │   │   ├── web_player_admin.py  # Admin 路由入口（聚合 web.admin 包，对外稳定 facade）
 │   │   ├── web_player_config.py # Web / Admin 配置管理
 │   │   ├── web_link_token.py    # Web 播放器访问令牌
-│   │   ├── admin/               # Admin 后台路由包（含 screen_share 管理接口）
-│   │   └── assets/              # Web 前端资源
+│   │   ├── admin/               # Admin 后台路由包
+│   │   └── assets/              # Web 前端资源（插件页面在各插件的 admin_assets/）
 │   │       ├── player.html      # Web 播放器前端
-│   │       ├── admin/           # Admin 后台前端资源
-│   │       └── screen-share/    # 屏幕共享已编译页面资源
+│   │       └── admin/           # Admin 后台外壳与核心页面
 │   │                            # （Agora RTC 页面位于
 │   │                            #   src/oopz/assets/voice/agora_player.html）
 │   ├── app/                     # 应用启动、运行时和服务编排
@@ -180,6 +177,10 @@ NeteaseCloud API (:3000)
 │   ├── apex/                    # Apex Legends 战绩与游戏信息查询插件
 │   ├── arc_raiders/             # ARC Raiders 物品与掉率查询插件
 │   ├── steam_price/             # Steam 游戏价格查询与降价提醒插件
+│   ├── daily_speech/            # 每日一句插件
+│   ├── stats/                   # 活跃排行、频道统计、点歌统计插件（含后台“活跃”页）
+│   ├── scheduler/               # 定时消息与用户提醒插件（含后台“定时”页）
+│   ├── keyword_reply/           # 普通聊天关键词自动回复插件（含后台“关键词”页）
 │   ├── _shared/                 # 插件共享基类与小工具（IntervalWorker 后台任务 / JsonHttpClient）
 │   └── README.md                # 插件说明
 │
@@ -248,7 +249,7 @@ NeteaseCloud API (:3000)
 命令、后台与新人通知分别处理结果，成功后刷新成员展示缓存。角色查询直接读取 SDK 模型，
 禁言与禁麦的字符串毫秒截止时间在展示入口转换。启动名称填充直接调用 SDK 并写入名称解析器。
 默认域、频道分组、后台播放域和诊断使用 SDK 模型；自动选择通知频道时排除 `VOICE` 与 `AUDIO`。
-语音成员和每日一句命令直接读取 SDK 字段，展示层保留名称映射、Bot 标记和空结果提示。
+语音成员命令直接读取 SDK 字段，展示层保留名称映射、Bot 标记和空结果提示。
 成员列表、资料、搜索及封禁列表直接使用 SDK 模型；搜索将完整 UID 列表交给 SDK 批量查询，
 返回最多 50 个匹配成员，展示继续使用名称解析器。完整资料的 VIP、IP 属地和徽章由 `Profile` 提供。
 批量撤回直接读取 SDK 历史消息模型，与本地记录按消息 ID 合并，保留数量限制及逐条失败统计。
@@ -293,7 +294,7 @@ SOCKS 代理使用连接器。Playwright 初始化还负责代理和项目页面
 |------|------|
 | `src/web/web_player.py` | FastAPI 主应用实例、播放器 API 路由、共享状态（Redis/Netease 客户端） |
 | `src/web/web_player_admin.py` | 9 行稳定 facade（外观入口）：调用 `create_admin_router()` 并对外导出 `admin_router` |
-| `src/web/admin/` | Admin 后台的实际路由包；按登录、页面、配置、音乐、定时任务、插件、成员与共享辅助拆分 |
+| `src/web/admin/` | Admin 后台的实际路由包；按登录、页面、配置、音乐、插件、成员与共享辅助拆分 |
 | `src/web/web_player_config.py` | 配置常量（`WEB_PLAYER_CONFIG` 引用）、分组定义、基线值、config.py 写回与热更新 |
 | `plugins/screen_share/` | 屏幕共享插件，提供频道命令、Redis 会话、AccessToken2 签发和 Web 路由 |
 

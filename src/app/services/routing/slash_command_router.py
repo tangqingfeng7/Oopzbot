@@ -75,7 +75,6 @@ class SlashCommandRouter:
             (slash_of("profile"), lambda: self._actions.community.show_profile(channel, area, user)),
             (slash_of("myinfo"), lambda: self._actions.community.show_myinfo(channel, area, user)),
             (slash_of("voice"), lambda: self._actions.interaction.show_voice_channels(channel, area)),
-            (slash_of("daily"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
             (slash_of("health"), lambda: self._actions.interaction.show_health_check(channel, area)),
             (slash_of("setup"), lambda: self._actions.interaction.show_setup_wizard(channel, area, user)),
             (slash_of("mute"), lambda: self._actions.moderation.mute_user(raw, channel, area, "用法: /禁言 谁 10")),
@@ -95,10 +94,6 @@ class SlashCommandRouter:
             (slash_of("blocklist"), lambda: self._actions.moderation.show_block_list(channel, area)),
             (slash_of("autorecall"), lambda: self._actions.recall.configure_auto_recall(raw, channel, area)),
             (slash_of("recall"), lambda: self._actions.recall.recall(raw or None, channel, area)),
-            (slash_of("ranking"), lambda: self._actions.scheduler.show_ranking(channel, area)),
-            (slash_of("chatstats"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
-            (slash_of("topsongs"), lambda: self._actions.scheduler.show_music_ranking(channel, area)),
-            (slash_of("recentsongs"), lambda: self._actions.scheduler.show_recent_songs(channel, area)),
         )
 
     def _arg_rules(self, channel: str, area: str, user: str):
@@ -200,49 +195,6 @@ class SlashCommandRouter:
 
         if command in slash_of("clear_history") and subcommand == "history":
             await self._actions.recall.clear_history(channel, area)
-            return
-
-        if command in slash_of("remind"):
-            if subcommand == "list":
-                await self._actions.scheduler.list_reminders(channel, area, user)
-            elif subcommand == "del" and arg:
-                await self._actions.scheduler.delete_reminder(arg, channel, area, user)
-            elif raw:
-                await self._actions.scheduler.set_reminder(raw, channel, area, user)
-            else:
-                await self._sender.send_message(
-                    "用法:\n/remind 30分钟后 提醒内容\n/remind list  查看我的提醒\n/remind del <ID>  删除提醒",
-                    channel=channel, area=area,
-                )
-            return
-
-        if command in slash_of("schedule"):
-            if subcommand == "list" or not subcommand:
-                await self._actions.scheduler.list_scheduled(channel, area)
-            elif subcommand == "add":
-                if arg:
-                    await self._actions.scheduler.add_scheduled(arg, channel, area)
-                else:
-                    await self._sender.send_message("用法: /schedule add 08:00 早上好", channel=channel, area=area)
-            elif subcommand == "del":
-                if arg:
-                    await self._actions.scheduler.delete_scheduled(arg, channel, area)
-                else:
-                    await self._sender.send_message("用法: /schedule del <ID>", channel=channel, area=area)
-            elif subcommand == "on":
-                if arg:
-                    await self._actions.scheduler.toggle_scheduled(arg, channel, area, True)
-                else:
-                    await self._sender.send_message("用法: /schedule on <ID>", channel=channel, area=area)
-            elif subcommand == "off":
-                if arg:
-                    await self._actions.scheduler.toggle_scheduled(arg, channel, area, False)
-                else:
-                    await self._sender.send_message("用法: /schedule off <ID>", channel=channel, area=area)
-            else:
-                await self._sender.send_message(
-                    "用法: /schedule list | add | del | on | off", channel=channel, area=area,
-                )
             return
 
         await self._services.interaction.chat.send_unknown_command(

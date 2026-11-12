@@ -147,8 +147,9 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         from web.plugin_routes import register_web
 
         router = APIRouter()
-        for name in ("web", "admin"):
-            router.include_router(importlib.import_module(f"plugins.screen_share.{name}").router)
+        for name in ("screen_share.web", "screen_share.admin", "stats.admin", "scheduler.admin"):
+            router.include_router(importlib.import_module(f"plugins.{name}").router)
+        router.include_router(importlib.import_module("plugins.keyword_reply.admin").build_router(dict))
         self.addCleanup(register_web(self.module.app, router))
         self.client = TestClient(self.module.app, client=("127.0.0.1", 50000))
 
@@ -877,6 +878,9 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             "/admin/music",
             "/admin/config",
             "/admin/screen-share",
+            "/admin/activity",
+            "/admin/scheduler",
+            "/admin/keyword-reply",
             "/admin/stats",
             "/admin/system",
             "/admin/setup",
@@ -945,7 +949,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(self.module, "_admin_enabled", return_value=True),
             patch.object(self.module, "_is_admin_authorized", return_value=True),
-            patch("web.admin.scheduler.ScheduledMessageDB.create", return_value=99) as create_task,
+            patch("plugins.scheduler.admin.ScheduledMessageDB.create", return_value=99) as create_task,
         ):
             response = self.client.post(
                 "/admin/api/scheduled-message-templates/morning/apply",
