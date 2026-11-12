@@ -65,7 +65,7 @@ class PluginRuntimeStateTest(unittest.IsolatedAsyncioTestCase):
         from app.infrastructure.runtime import PluginRuntime
 
         self.state_path.write_text(
-            json.dumps({"enabled_plugins": ["beta"]}, ensure_ascii=False),
+            json.dumps({"enabled_plugins": ["beta"], "known_plugins": ["alpha", "beta"]}, ensure_ascii=False),
             encoding="utf-8",
         )
         runtime = PluginRuntime(state_path=self.state_path)
@@ -78,6 +78,46 @@ class PluginRuntimeStateTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(loaded, ["beta"])
         self.assertEqual(load_plugin.call_count, 1)
         self.assertEqual(runtime.enabled_plugin_names(), ["beta"])
+
+    async def test_load_all_loads_new_plugins_and_remembers_them(self) -> None:
+        from app.infrastructure.runtime import PluginRuntime
+
+        self.state_path.write_text(json.dumps({"enabled_plugins": ["beta"]}), encoding="utf-8")
+        runtime = PluginRuntime(state_path=self.state_path)
+        with (
+            patch("app.infrastructure.runtime.discover_plugins", return_value=["alpha", "beta"]),
+            patch("app.infrastructure.runtime.load_plugin", side_effect=self._load_side_effect),
+            patch("app.infrastructure.runtime.unload_plugin", side_effect=self._unload_side_effect),
+        ):
+            loaded = await runtime.load_all()
+            await runtime.unload("alpha")
+
+        self.assertEqual(loaded, ["alpha", "beta"])
+        payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload, {"enabled_plugins": ["beta"], "known_plugins": ["alpha", "beta"]})
+
+    async def test_load_all_retries_new_plugin_that_failed_to_load(self) -> None:
+        from app.infrastructure.runtime import PluginRuntime
+
+        self.state_path.write_text(
+            json.dumps({"enabled_plugins": ["beta"], "known_plugins": ["beta"]}),
+            encoding="utf-8",
+        )
+        runtime = PluginRuntime(state_path=self.state_path)
+
+        async def fail_alpha(registry, plugin_name, plugins_dir="plugins", handler=None):
+            if plugin_name == "alpha":
+                return PluginOperationResult.failure("配置错误", plugin_name=plugin_name)
+            return await self._load_side_effect(registry, plugin_name, plugins_dir, handler)
+
+        with (
+            patch("app.infrastructure.runtime.discover_plugins", return_value=["alpha", "beta"]),
+            patch("app.infrastructure.runtime.load_plugin", side_effect=fail_alpha),
+        ):
+            await runtime.load_all()
+
+        payload = json.loads(self.state_path.read_text(encoding="utf-8"))
+        self.assertEqual(payload["known_plugins"], ["beta"])
 
     async def test_load_and_unload_refresh_state_file(self) -> None:
         from app.infrastructure.runtime import PluginRuntime

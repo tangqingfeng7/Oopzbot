@@ -50,6 +50,9 @@ class FooPlugin(PluginCommandMixin, BotModule):
 只有需要特殊路由的插件（例如 arc 的 `/arcevent` 走独立截图逻辑）才自行覆盖 `handle_slash`；
 普通插件不要再手写 `handle_mention` / `handle_slash`。
 
+需要响应普通聊天消息（不是 @bot 也不是 / 命令）的插件覆盖 `async def handle_message(text, channel, area, user, handler) -> bool`，
+返回 `True` 表示已处理，后续插件不再收到这条消息，参考 `keyword_reply`。
+
 最核心的几个模型：
 
 - `PluginMetadata`

@@ -218,3 +218,25 @@ class PluginRegistry:
             except Exception as e:
                 logger.exception("PluginRegistry: 模块 %s handle_slash 异常: %s", name, e)
         return False
+
+    async def try_dispatch_message(
+        self,
+        text: str,
+        channel: str,
+        area: str,
+        user: str,
+        handler: Any,
+    ) -> bool:
+        """按注册顺序把普通聊天消息交给插件，任一插件返回 `True` 即停止。"""
+        if not text.strip():
+            return False
+        for name in self._order:
+            module = self._modules.get(name)
+            if not module:
+                continue
+            try:
+                if await module.handle_message(text, channel, area, user, handler):
+                    return True
+            except Exception as e:
+                logger.exception("PluginRegistry: 模块 %s handle_message 异常: %s", name, e)
+        return False

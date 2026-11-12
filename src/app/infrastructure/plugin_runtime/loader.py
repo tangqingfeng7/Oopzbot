@@ -79,7 +79,8 @@ def discover_plugins(plugins_dir: str) -> list[str]:
 def _validate_async_plugin(plugin_class: type) -> str | None:
     """同步插件会阻塞主事件循环，因此在实例化前明确拒绝。"""
     required = (
-        "handle_mention", "handle_slash", "on_load", "on_config_reload", "on_disable", "on_unload",
+        "handle_mention", "handle_slash", "handle_message",
+        "on_load", "on_config_reload", "on_disable", "on_unload",
     )
     invalid = [name for name in required if not inspect.iscoroutinefunction(getattr(plugin_class, name, None))]
     if invalid:
