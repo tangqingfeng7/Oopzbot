@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import math
 import os
 import secrets
 import time
-from collections.abc import Mapping
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 
@@ -81,6 +81,7 @@ _LYRIC_CACHE_MAX = 200
 
 started_at: float = time.time()
 liked_ids_cache: list = []
+_liked_details_cache: tuple[tuple, list] = ((), [])
 
 # 可选播放模式取值（与 src/music.py 中的 PLAY_MODE_* 常量保持一致）。
 # 注意：autoplay 不是可选模式，仅为队列播完自动续播时的来源标识。
@@ -237,20 +238,7 @@ def refresh_music_platforms() -> dict:
     _platform_cache.clear()
     if _music_dependency is None:
         return {"available": False, "reason": "music 未注册"}
-    refresh = getattr(_music_dependency, "refresh_platforms", None)
-    if callable(refresh):
-        result = refresh()
-        if isinstance(result, Mapping):
-            return dict(result)
-        return {"available": False, "reason": "音乐处理器刷新结果无效"}
-    handler = getattr(_music_dependency, "_handler", None)
-    refresh = getattr(handler, "refresh_platforms", None)
-    if callable(refresh):
-        result = refresh()
-        if isinstance(result, Mapping):
-            return dict(result)
-        return {"available": False, "reason": "音乐处理器刷新结果无效"}
-    return {"available": False, "reason": "音乐处理器尚未初始化"}
+    return _music_dependency.refresh_platforms()
 
 
 def _admin_enabled() -> bool:
@@ -540,10 +528,10 @@ async def api_debug(area: str = Query("", description="域 ID")):
         area = await _resolve_area(r, area)
         current_key = _area_key(KEY_CURRENT, area)
         queue_key = _area_key(KEY_QUEUE, area)
-        current = r.get(current_key)
         ps_key = _area_key(KEY_PLAY_STATE, area)
-        play_state = r.get(ps_key)
-        queue_len = r.llen(queue_key)
+        current, play_state, queue_len = await asyncio.gather(
+            r.get(current_key), r.get(ps_key), r.llen(queue_key)
+        )
         return JSONResponse({
             "redis": "connected",
             "area": area or "(default)",
@@ -564,7 +552,7 @@ async def api_liked(
     keyword: str | None = Query(None, max_length=200),
 ):
     """获取喜欢的音乐列表（分页）。若传 keyword 则在全部喜欢中搜索后分页返回。"""
-    global liked_ids_cache
+    global liked_ids_cache, _liked_details_cache
     try:
         nc = get_netease()
         if not liked_ids_cache:
@@ -576,14 +564,13 @@ async def api_liked(
             return JSONResponse({"songs": [], "total": 0, "page": 1, "pages": 0})
 
         if keyword and keyword.strip():
-            all_ids = list(liked_ids_cache)
-            batch_size = 50
-            all_songs: list = []
-            for i in range(0, len(all_ids), batch_size):
-                chunk = all_ids[i : i + batch_size]
-                details = await nc.get_song_details_batch(chunk)
-                all_songs.extend(details)
-            filtered = _filter_songs_by_keyword(all_songs, keyword)
+            ids_key = tuple(liked_ids_cache)
+            if _liked_details_cache[0] != ids_key:
+                all_songs: list = []
+                for i in range(0, len(ids_key), 50):
+                    all_songs.extend(await nc.get_song_details_batch(list(ids_key[i : i + 50])))
+                _liked_details_cache = (ids_key, all_songs)
+            filtered = _filter_songs_by_keyword(_liked_details_cache[1], keyword)
             total = len(filtered)
             pages = (total + limit - 1) // limit if total else 1
             page = min(page, max(1, pages))
@@ -771,6 +758,12 @@ def index():
     return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
 
 
+@functools.cache
+def _player_html() -> str:
+    with open(os.path.join(_WEB_ASSETS_DIR, "player.html"), encoding="utf-8") as f:
+        return f.read()
+
+
 @app.get("/w/{token}", response_class=HTMLResponse)
 async def index_with_token(token: str, request: Request):
     r = await get_redis()
@@ -779,10 +772,7 @@ async def index_with_token(token: str, request: Request):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
     await set_token(token, redis_client=r, ttl_seconds=cfg.token_ttl_seconds())
     area = (request.query_params.get("area") or "").strip()
-    html_path = os.path.join(_WEB_ASSETS_DIR, "player.html")
-    with open(html_path, encoding="utf-8") as f:
-        html = f.read()
-    html = html.replace(
+    html = _player_html().replace(
         "</head>",
         f"<script>window.__OOPZ_AREA__={json.dumps(area)};</script></head>",
         1,

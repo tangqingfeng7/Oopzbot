@@ -14,6 +14,7 @@ from core.async_http import ManagedHttpClient
 from core.constants import USER_AGENT
 from core.http_constants import HTTP_TIMEOUT_DEFAULT
 from core.logger_config import get_logger
+from web.web_player_config import BILIBILI_MUSIC_CONFIG
 
 logger = get_logger("BilibiliMusic")
 
@@ -33,21 +34,6 @@ _HEADERS = {
     "Referer": _BILIBILI_HOME,
 }
 
-
-_cached_config: dict | None = None
-
-
-def _load_config() -> dict:
-    global _cached_config
-    if _cached_config is not None:
-        return _cached_config
-    try:
-        from config import BILIBILI_MUSIC_CONFIG
-        _cached_config = BILIBILI_MUSIC_CONFIG
-        return _cached_config
-    except (ImportError, AttributeError):
-        _cached_config = {}
-        return _cached_config
 
 
 def _cookie_dict(raw: str) -> dict[str, str]:
@@ -89,7 +75,7 @@ class BilibiliMusic:
     display_name = "B站"
 
     def __init__(self):
-        cfg = _load_config()
+        cfg = BILIBILI_MUSIC_CONFIG
         self.enabled = cfg.get("enabled", False)
         self.cookie = cfg.get("cookie", "")
         self.last_song_url_error = ""

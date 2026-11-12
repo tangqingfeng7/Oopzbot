@@ -58,13 +58,7 @@ class MusicGateway:
         """配置热更新时刷新已创建的音乐平台实例。"""
         if self._handler is None:
             return {"available": True, "refreshed": False, "reason": "音乐处理器尚未初始化"}
-        refresh = getattr(self._handler, "refresh_platforms", None)
-        if callable(refresh):
-            result = refresh()
-            if isinstance(result, dict):
-                return result
-            return {"available": False, "refreshed": False, "reason": "刷新结果格式无效"}
-        return {"available": False, "refreshed": False, "reason": "音乐处理器不支持刷新"}
+        return self._handler.refresh_platforms()
 
 
 class PluginRuntime:

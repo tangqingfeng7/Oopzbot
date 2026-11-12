@@ -144,6 +144,7 @@ class NeteaseCloud:
         self._search_cache: _SearchCache[dict] = _SearchCache()
         self._http = ManagedHttpClient()
         self._last_song_url_error = ""
+        self._user_id: int | None = None
         if not self.base_url:
             logger.warning("网易云 API 地址未配置 (NETEASE_CLOUD.base_url)")
 
@@ -213,7 +214,7 @@ class NeteaseCloud:
         cache_key = f"s:{keyword}:{limit}"
         cached = self._search_cache.get(cache_key)
         if cached is not None:
-            return cached
+            return dict(cached)
 
         data = await self._get("/cloudsearch", params={"keywords": keyword, "limit": limit, "type": 1})
         if not data or data.get("code") != 200:
@@ -225,7 +226,7 @@ class NeteaseCloud:
 
         result = self._parse_song(songs[0])
         if result:
-            self._search_cache.put(cache_key, result)
+            self._search_cache.put(cache_key, dict(result))
         return result
 
     async def search_many(self, keyword: str, limit: int = 10, offset: int = 0) -> list[dict]:
@@ -389,15 +390,14 @@ class NeteaseCloud:
         }
 
     async def get_user_id(self) -> int | None:
-        """获取当前登录用户的 ID。"""
+        """获取当前登录用户的 ID；Cookie 只在构造时读取，成功结果可整个实例复用。"""
+        if self._user_id is not None:
+            return self._user_id
         profile = await self.get_account_profile()
         if not profile:
             return None
-        try:
-            return int(profile["user_id"])
-        except (KeyError, TypeError, ValueError):
-            logger.warning("网易云账号返回了无效的用户 ID")
-            return None
+        self._user_id = int(profile["user_id"])
+        return self._user_id
 
     async def get_liked_ids(self, uid: int) -> list:
         """获取用户喜欢的歌曲 ID 列表"""
