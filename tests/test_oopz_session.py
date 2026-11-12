@@ -9,6 +9,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 
+from oopz_sdk.models import Message
 from oopz_sdk.testing.factories import make_config
 
 from app.infrastructure.runtime import build_bot_infrastructure
@@ -87,3 +88,29 @@ class OopzSessionTest(unittest.IsolatedAsyncioTestCase):
         assert task is not None
         self.assertTrue(task.cancelled())
         self.assertFalse(self.session.ready)
+
+    async def test_voice_chat_history_dispatches_new_messages_once(self):
+        with patch.dict(oopz_session.OOPZ_CONFIG, {"voice_chat_channels": {"voice": "area"}}):
+            dispatch = AsyncMock()
+            session = await oopz_session.OopzSession.create(on_chat_message=dispatch)
+        self.addAsyncCleanup(session.stop)
+        history = session._voice_chat_history["voice"]
+        old = Message(channel="voice", messageId="1", timestamp="100", person="user", content="/help")
+        live = Message(channel="voice", messageId="2", timestamp="200", person="user", area="area", content="/help")
+        polled = Message(channel="voice", messageId="3", timestamp="300", person="user", content="/help")
+        own = Message(channel="voice", messageId="4", timestamp="400", person=session.bot.config.person_uid)
+        with patch.object(
+            session.bot.messages,
+            "get_channel_messages",
+            AsyncMock(side_effect=[[old], [own, polled, live, old], [own, polled, live, old]]),
+        ):
+            await session._poll_voice_chat("voice", history)
+            dispatch.assert_not_awaited()
+            await session._handle_sdk_message(live, None)
+            await session._poll_voice_chat("voice", history)
+            await session._poll_voice_chat("voice", history)
+            await session._handle_sdk_message(polled, None)
+
+        messages = [call.args[0] for call in dispatch.await_args_list]
+        self.assertEqual([message["messageId"] for message in messages], ["2", "3"])
+        self.assertEqual([message["area"] for message in messages], ["area", "area"])

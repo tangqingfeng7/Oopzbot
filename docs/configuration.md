@@ -33,6 +33,7 @@ Copy-Item private_key.example.py private_key.py
 | `jwt_token` | JWT Token |
 | `default_area` | 默认区域 ID |
 | `default_channel` | 默认频道 ID |
+| `voice_chat_channels` | Bot 不在语音频道内时也读取这些频道的文字消息并响应命令，格式 `{"语音频道 ID": "域 ID"}`；每 3 秒拉取一次，仅启动时读取 |
 | `base_url` | 网关 API 地址（默认 `https://gateway.oopz.cn`） |
 | `ws_url` | 留空时按 `base_url` 配对官方 WebSocket 线路；显式地址优先 |
 | `use_announcement_style` | Bot 发送消息默认是否使用公告样式（`styleTags: ["IMPORTANT"]`）。可在 admin 后台 → 域配置 → 公告样式 给单个域覆盖 |

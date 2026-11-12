@@ -81,6 +81,8 @@ class SenderGateway:
     ) -> MessageSendResult:
         area = self._default_area(area)
         channel = self._default_channel(channel)
+        voice_chat_channels = OOPZ_CONFIG.get("voice_chat_channels") or {}
+        version = kwargs.get("version") or ("v2" if channel in voice_chat_channels else "v1")
         try:
             result = await self.bot.messages.send_message(
                 str(text),
@@ -94,7 +96,7 @@ class SenderGateway:
                 animated=bool(kwargs.get("animated", False)),
                 display_name=str(kwargs.get("displayName") or ""),
                 duration=int(kwargs.get("duration") or 0),
-                version=str(kwargs.get("version") or "v1"),
+                version=str(version),
             )
         except OopzError as exc:
             if is_sensitive_rejection(str(exc)):
