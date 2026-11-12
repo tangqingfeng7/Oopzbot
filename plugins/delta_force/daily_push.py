@@ -5,6 +5,8 @@ from datetime import datetime
 from core.logger_config import get_logger
 from plugins._shared.background import IntervalWorker
 
+from .formatters import format_daily_keyword_text
+
 logger = get_logger("DeltaForceDailyPush")
 
 
@@ -16,21 +18,9 @@ class DeltaForceDailyKeywordPushManager(IntervalWorker):
         self._api = api_client
         self._store = store
         self._handler = None
-        super().__init__(int(self._config.get("daily_keyword_push_check_interval_sec", 60) or 60))
-        self._interval = max(30, self._interval)
-        self._push_hour, self._push_minute = self._parse_push_time(
-            str(self._config.get("daily_keyword_push_time") or "08:00")
-        )
-
-    @staticmethod
-    def _parse_push_time(value: str) -> tuple[int, int]:
-        try:
-            hour_text, minute_text = (value or "08:00").split(":", 1)
-            hour = min(23, max(0, int(hour_text)))
-            minute = min(59, max(0, int(minute_text)))
-            return hour, minute
-        except Exception:
-            return 8, 0
+        super().__init__(int(self._config.get("daily_keyword_push_check_interval_sec", 60)))
+        hour_text, minute_text = str(self._config.get("daily_keyword_push_time", "08:00")).split(":", 1)
+        self._push_hour, self._push_minute = int(hour_text), int(minute_text)
 
     def ensure_started(self, handler) -> None:
         self._handler = handler
@@ -55,39 +45,25 @@ class DeltaForceDailyKeywordPushManager(IntervalWorker):
         if (now.hour, now.minute) < (self._push_hour, self._push_minute):
             return
         today = now.strftime("%Y-%m-%d")
-        for sub in await self._store.list_daily_keyword_push_subscriptions():
-            if self.stopping:
-                return
-            last_push_date = str(sub.get("last_push_date") or "")
-            if last_push_date == today:
-                continue
-            await self._push_to_subscription(sub, today)
-
-    async def _push_to_subscription(self, sub: dict, today: str) -> None:
-        handler = self._handler
-        if handler is None:
+        pending = [
+            sub
+            for sub in await self._store.list_daily_keyword_push_subscriptions()
+            if str(sub.get("last_push_date") or "") != today and sub.get("channel_id") and sub.get("area_id")
+        ]
+        if not pending:
             return
         payload = await self._api.get_daily_keyword()
-        if not isinstance(payload, dict):
+        data = payload.get("data") if isinstance(payload, dict) else None
+        if not isinstance(data, dict) or not data.get("list"):
             return
-        raw_data = payload.get("data")
-        data = raw_data if isinstance(raw_data, dict) else {}
-        raw_items = data.get("list")
-        items = raw_items if isinstance(raw_items, list) else []
-        if not items:
-            return
-        lines = ["【每日密码】"]
-        for item in items:
-            if not isinstance(item, dict):
-                continue
-            lines.append(f"【{item.get('mapName') or '未知地图'}】: {item.get('secret') or '-'}")
-        text = "\n".join(lines)
-        channel_id = str(sub.get("channel_id") or "")
-        area_id = str(sub.get("area_id") or "")
-        if not channel_id or not area_id:
-            return
-        try:
-            await handler.sender.send_message(text, channel=channel_id, area=area_id)
-            await self._store.mark_daily_keyword_pushed(channel_id, area_id, today)
-        except Exception as exc:
-            logger.warning("DeltaForceDailyPush: send failed: %s", exc)
+        text = format_daily_keyword_text(payload)
+        for sub in pending:
+            if self.stopping:
+                return
+            channel_id = str(sub["channel_id"])
+            area_id = str(sub["area_id"])
+            try:
+                await self._handler.sender.send_message(text, channel=channel_id, area=area_id)
+                await self._store.mark_daily_keyword_pushed(channel_id, area_id, today)
+            except Exception as exc:
+                logger.warning("DeltaForceDailyPush: send failed: %s", exc)

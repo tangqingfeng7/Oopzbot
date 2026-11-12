@@ -23,6 +23,7 @@ from domain.plugins.base import (
     parse_int,
     validate_min,
 )
+from plugins._shared.browser import HeadlessBrowser
 from plugins._shared.command_mixin import PluginCommandMixin
 
 logger = get_logger("ArcRaidersPlugin")
@@ -65,18 +66,6 @@ MAP_ZH = {
 }
 
 
-def _rgb_pixel(value: object) -> tuple[int, int, int] | None:
-    """把 Pillow 的宽泛像素联合类型收窄为 RGB 三元组。"""
-
-    if (
-        isinstance(value, tuple)
-        and len(value) >= 3
-        and all(isinstance(channel, int) for channel in value[:3])
-    ):
-        return value[0], value[1], value[2]
-    return None
-
-
 class ArcRaidersPlugin(PluginCommandMixin, BotModule):
     command_error_prefix = "Arc 查询出错"
     command_log_name = "ArcRaidersPlugin"
@@ -85,6 +74,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
         self._handler = None
         self._config: dict[str, Any] = {}
         self._http = ManagedHttpClient()
+        self._browser = HeadlessBrowser()
         self._index_cache: list[dict[str, Any]] = []
         self._index_expire_at = 0.0
 
@@ -191,6 +181,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
 
     async def on_unload(self) -> None:
         await self._http.close()
+        await self._browser.close()
 
     async def handle_slash(self, command, subcommand, arg, channel, area, user, handler) -> bool:
         if (command or "").strip().lower() == "/arcevent":
@@ -268,16 +259,17 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
             await self._send(handler, "命中物品缺少ID，暂时无法查询。", channel, area)
             return
 
+        image_mode = bool(self._config.get("image_mode", True)) and not force_text_mode
+        if image_mode:
+            await self._send(handler, "正在使用直观截图模式查询，查询时间可能较长，请耐心等待", channel, area)
+            if await self._send_item_image(handler, item_id, channel, area):
+                return
         stats, locations = await asyncio.gather(
             self._fetch_drop_stats(item_id),
             self._fetch_locations(item_id),
         )
-        if bool(self._config.get("image_mode", True)) and not force_text_mode:
-            await self._send(handler, "正在使用直观截图模式查询，查询时间可能较长，请耐心等待", channel, area)
-            if await self._send_item_image(handler, item_id, channel, area):
-                return
-            if await self._send_fallback_card_image(handler, item, stats, locations, channel, area):
-                return
+        if image_mode and await self._send_fallback_card_image(handler, item, stats, locations, channel, area):
+            return
         await self._send(handler, self._format_result(item, stats, locations), channel, area)
 
     async def _send_item_image(self, handler, item_id: str, channel: str, area: str) -> bool:
@@ -299,39 +291,21 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
         return await self._render_card_from_url(f"{base}/{item_id}", f"item_{item_id}")
 
     async def _render_card_from_url(self, url: str, file_prefix: str = "page") -> str | None:
-        try:
-            from playwright.async_api import async_playwright
-        except Exception as exc:
-            logger.warning("ArcRaiders: playwright unavailable: %s", exc)
-            return None
-
-        timeout_ms = int(self._config.get("render_timeout_sec", 20) or 20) * 1000
-        temp_root = Path(str(self._config.get("temp_dir") or "data/arc_raiders"))
-        render_dir = temp_root / "renders"
-        render_dir.mkdir(parents=True, exist_ok=True)
+        timeout_ms = int(self._config.get("render_timeout_sec", 20)) * 1000
+        render_dir = Path(str(self._config.get("temp_dir") or "data/arc_raiders")) / "renders"
+        await asyncio.to_thread(render_dir.mkdir, parents=True, exist_ok=True)
         out_path = render_dir / f"{file_prefix}_{os.getpid()}_{int(time.time()*1000)}.png"
 
         try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(
-                    headless=True,
-                    channel="chromium",
-                    args=["--no-sandbox", "--disable-dev-shm-usage"],
-                )
-                page = await browser.new_page(
-                    viewport={"width": 1365, "height": 2400},
-                    locale="zh-CN",
-                )
+            async with self._browser.page(viewport={"width": 1365, "height": 2400}, locale="zh-CN") as page:
                 await page.goto(url, wait_until="domcontentloaded", timeout=timeout_ms)
                 with contextlib.suppress(Exception):
                     await page.wait_for_load_state("networkidle", timeout=min(8000, timeout_ms // 2))
                 await page.wait_for_timeout(1800)
                 card = page.locator('[data-slot="card"]')
-                if await card.count() > 0:
-                    await card.first.screenshot(path=str(out_path))
-                else:
+                if await card.count() == 0:
                     raise RuntimeError("card element not found")
-                await browser.close()
+                await card.first.screenshot(path=str(out_path))
         except Exception as exc:
             logger.warning("ArcRaiders: render screenshot failed: %s", exc)
             with contextlib.suppress(Exception):
@@ -339,47 +313,6 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
             return None
 
         return str(out_path)
-
-    @staticmethod
-    def _trim_bottom_blank(path: Path) -> None:
-        """裁掉截图底部大块纯背景区域，避免出现黑色空白。"""
-        try:
-            img = Image.open(path).convert("RGB")
-            w, h = img.size
-            if h < 200:
-                return
-
-            # 取页面背景色基准（左下角），向上扫描找“非背景行”作为裁剪终点。
-            bg = _rgb_pixel(img.getpixel((10, h - 10)))
-            if bg is None:
-                return
-            threshold = 18
-            crop_y = h
-            min_keep = min(h, 900)  # 至少保留顶部内容，避免误裁
-
-            for y in range(h - 1, min_keep - 1, -1):
-                non_bg = 0
-                for x in range(0, w, max(1, w // 40)):
-                    pixel = _rgb_pixel(img.getpixel((x, y)))
-                    if pixel is None:
-                        continue
-                    r, g, b = pixel
-                    if (
-                        abs(r - bg[0]) > threshold
-                        or abs(g - bg[1]) > threshold
-                        or abs(b - bg[2]) > threshold
-                    ):
-                        non_bg += 1
-                        if non_bg >= 3:
-                            break
-                if non_bg >= 3:
-                    crop_y = min(h, y + 40)
-                    break
-
-            if crop_y < h - 60:
-                img.crop((0, 0, w, crop_y)).save(path, format="PNG")
-        except Exception:
-            return
 
     async def _send_fallback_card_image(
         self,
@@ -390,7 +323,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
         channel: str,
         area: str,
     ) -> bool:
-        img_path = self._render_text_card(item, stats, locations)
+        img_path = await asyncio.to_thread(self._render_text_card, item, stats, locations)
         if not img_path:
             return False
         try:
@@ -431,19 +364,8 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
                 f"类型/稀有度: {item_type_zh} / {rarity_zh}",
                 f"场景: {'、'.join(locations) if locations else '暂无'}",
             ]
-            if stats and isinstance(stats, dict):
-                raw_overall = stats.get("overall")
-                overall = raw_overall if isinstance(raw_overall, dict) else {}
-                rate = overall.get("averageDropRate")
-                sample = overall.get("totalSampleSize")
-                conf = overall.get("confidence")
-                if isinstance(rate, (int, float)):
-                    lines.append(f"整体掉率: {rate * 100:.2f}%")
-                if isinstance(sample, int):
-                    lines.append(f"样本量: {sample}")
-                if conf:
-                    lines.append(f"可靠度: {conf}")
-                lines.extend(self._format_all_map_rates(stats))
+            if stats:
+                lines.extend(self._stats_lines(stats))
 
             lines.append(f"详情页: https://arctracker.io/zh-CN/items/{item.get('id') or ''}")
 
@@ -464,7 +386,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
             return self._index_cache
 
         index_url = str(self._config.get("index_url") or "").strip()
-        timeout = int(self._config.get("request_timeout_sec", 12) or 12)
+        timeout = int(self._config.get("request_timeout_sec", 12))
 
         payload = None
         if index_url.startswith("http://") or index_url.startswith("https://"):
@@ -477,14 +399,14 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
             path = Path(index_url)
             if not path.is_absolute():
                 path = Path.cwd() / path
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            payload = json.loads(await asyncio.to_thread(path.read_text, encoding="utf-8"))
 
         items = payload.get("items") if isinstance(payload, dict) else None
         if not isinstance(items, list):
             raise ValueError("invalid items index format")
 
         self._index_cache = [it for it in items if isinstance(it, dict)]
-        ttl = int(self._config.get("cache_ttl_sec", 600) or 600)
+        ttl = int(self._config.get("cache_ttl_sec", 600))
         self._index_expire_at = now + ttl
         return self._index_cache
 
@@ -527,7 +449,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
     async def _fetch_drop_stats(self, item_id: str) -> dict[str, Any] | None:
         try:
             base = str(self._config.get("stats_api_base") or "").rstrip("/")
-            timeout = int(self._config.get("request_timeout_sec", 12) or 12)
+            timeout = int(self._config.get("request_timeout_sec", 12))
             status, data = await self._http.request_payload(
                 "GET",
                 f"{base}/{item_id}",
@@ -544,7 +466,7 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
     async def _fetch_locations(self, item_id: str) -> list[str]:
         try:
             base = str(self._config.get("item_page_base") or "").rstrip("/")
-            timeout = int(self._config.get("request_timeout_sec", 12) or 12)
+            timeout = int(self._config.get("request_timeout_sec", 12))
             _status, html = await self._http.request_text(
                 "GET",
                 f"{base}/{item_id}",
@@ -580,25 +502,29 @@ class ArcRaidersPlugin(PluginCommandMixin, BotModule):
         if locations:
             lines.append("使用/产出场景: " + "、".join(locations))
 
-        if stats and isinstance(stats, dict):
-            raw_overall = stats.get("overall")
-            overall = raw_overall if isinstance(raw_overall, dict) else {}
-            rate = overall.get("averageDropRate")
-            sample = overall.get("totalSampleSize")
-            conf = overall.get("confidence")
-            if isinstance(rate, (int, float)):
-                lines.append(f"整体掉率: {rate * 100:.2f}%")
-            if isinstance(sample, int):
-                lines.append(f"样本量: {sample}")
-            if conf:
-                lines.append(f"可靠度: {conf}")
-
-            lines.extend(self._format_all_map_rates(stats))
+        if stats:
+            lines.extend(self._stats_lines(stats))
         else:
             lines.append("掉率: 暂无统计数据")
 
         lines.append(f"详情页: https://arctracker.io/zh-CN/items/{item_id}")
         return "\n".join(lines)
+
+    def _stats_lines(self, stats: dict[str, Any]) -> list[str]:
+        raw_overall = stats.get("overall")
+        overall = raw_overall if isinstance(raw_overall, dict) else {}
+        rate = overall.get("averageDropRate")
+        sample = overall.get("totalSampleSize")
+        conf = overall.get("confidence")
+        lines: list[str] = []
+        if isinstance(rate, (int, float)):
+            lines.append(f"整体掉率: {rate * 100:.2f}%")
+        if isinstance(sample, int):
+            lines.append(f"样本量: {sample}")
+        if conf:
+            lines.append(f"可靠度: {conf}")
+        lines.extend(self._format_all_map_rates(stats))
+        return lines
 
     @staticmethod
     def _to_type_zh(value: str) -> str:

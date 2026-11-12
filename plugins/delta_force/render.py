@@ -1,19 +1,22 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import os
 from pathlib import Path
 from string import Template
 
 from core.logger_config import get_logger
+from plugins._shared.browser import HeadlessBrowser
 
 from .assets import TEMPLATES_DIR
 
 logger = get_logger("DeltaForceRender")
-_PLAYWRIGHT_RENDER_ARGS = [
-    "--no-sandbox",
-    "--disable-dev-shm-usage",
-]
+
+
+@functools.cache
+def _base_template() -> Template:
+    return Template((TEMPLATES_DIR / "base.html").read_text(encoding="utf-8"))
 
 # ---------------------------------------------------------------------------
 # Theme CSS-variable values for each template (used by base.html)
@@ -231,30 +234,25 @@ THEMES: dict[str, dict[str, str]] = {
 class DeltaForceRenderer:
     def __init__(self, config: dict) -> None:
         self._config = config or {}
-        self._width = max(720, int(self._config.get("render_width", 1365) or 1365))
-        self._timeout_ms = max(5000, int(float(self._config.get("render_timeout_sec", 30) or 30) * 1000))
+        self._width = int(self._config.get("render_width", 1365))
+        self._timeout_ms = int(float(self._config.get("render_timeout_sec", 30)) * 1000)
         self._temp_dir = Path(str(self._config.get("temp_dir") or "data/delta_force"))
         self._render_dir = self._temp_dir / "renders"
+        self._browser = HeadlessBrowser()
 
     async def setup(self) -> None:
         await asyncio.to_thread(self._render_dir.mkdir, parents=True, exist_ok=True)
 
-    @property
-    def render_dir(self) -> Path:
-        return self._render_dir
+    async def close(self) -> None:
+        await self._browser.close()
 
     async def render_to_image(self, template_name: str, context: dict) -> str | None:
-        base_tpl_path = TEMPLATES_DIR / "base.html"
-        if not base_tpl_path.is_file():
-            logger.warning("DeltaForceRender: base template not found: %s", base_tpl_path)
-            return None
         if template_name not in THEMES:
             logger.warning("DeltaForceRender: unknown theme %r", template_name)
             return None
         try:
             theme_vars = {**_THEME_DEFAULTS, **THEMES[template_name]}
-            template_text = await asyncio.to_thread(base_tpl_path.read_text, encoding="utf-8")
-            tpl = Template(template_text)
+            tpl = await asyncio.to_thread(_base_template)
             html = tpl.safe_substitute(
                 title=str(context.get("title") or ""),
                 subtitle=str(context.get("subtitle") or ""),
@@ -267,37 +265,15 @@ class DeltaForceRenderer:
             logger.warning("DeltaForceRender: failed to build html: %s", exc)
             return None
 
-        base_name = f"{template_name}_{os.getpid()}_{id(context)}"
-        html_path = self._render_dir / f"{base_name}.html"
-        png_path = self._render_dir / f"{base_name}.png"
-
+        png_path = self._render_dir / f"{template_name}_{os.getpid()}_{id(context)}.png"
         try:
-            await asyncio.to_thread(html_path.write_text, html, encoding="utf-8")
-        except OSError as exc:
-            logger.warning("DeltaForceRender: failed to write html: %s", exc)
-            return None
-
-        try:
-            from playwright.async_api import async_playwright
-        except Exception as exc:
-            logger.warning("DeltaForceRender: playwright unavailable: %s", exc)
-            await self.safe_cleanup(html_path)
-            return None
-
-        try:
-            async with async_playwright() as pw:
-                browser = await pw.chromium.launch(headless=True, channel="chromium", args=_PLAYWRIGHT_RENDER_ARGS)
-                page = await browser.new_page(viewport={"width": self._width, "height": 2200})
-                await page.goto(html_path.resolve().as_uri(), wait_until="networkidle", timeout=self._timeout_ms)
+            async with self._browser.page(viewport={"width": self._width, "height": 2200}) as page:
+                await page.set_content(html, wait_until="networkidle", timeout=self._timeout_ms)
                 await page.locator("#poster").screenshot(path=str(png_path))
-                await browser.close()
         except Exception as exc:
             logger.warning("DeltaForceRender: screenshot failed: %s", exc)
-            await self.safe_cleanup(html_path)
             await self.safe_cleanup(png_path)
             return None
-
-        await self.safe_cleanup(html_path)
         return str(png_path)
 
     @staticmethod

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+from typing import Any
+
 from core.logger_config import get_logger
 from plugins._shared.background import IntervalWorker
 
@@ -20,10 +23,9 @@ class SteamPriceMonitor(IntervalWorker):
         self._config = config or {}
         self._api = api
         self._store = store
-        super().__init__(int(self._config.get("check_interval_sec", 1800) or 1800))
-        self._interval = max(300, self._interval)
-        self._min_discount = max(0, int(self._config.get("min_discount_for_push", 50) or 50))
-        self._handler = None
+        super().__init__(int(self._config.get("check_interval_sec", 1800)))
+        self._min_discount = int(self._config.get("min_discount_for_push", 50))
+        self._handler: Any = None
 
     def ensure_started(self, handler) -> None:
         self._handler = handler
@@ -60,8 +62,10 @@ class SteamPriceMonitor(IntervalWorker):
         if not itad_ids:
             return
 
-        overviews = await self._api.itad_price_overview(itad_ids)
-        history_lows = await self._api.itad_history_low(itad_ids)
+        overviews, history_lows = await asyncio.gather(
+            self._api.itad_price_overview(itad_ids),
+            self._api.itad_history_low(itad_ids),
+        )
 
         await self._check_personal_alerts(personal_watches, overviews, history_lows)
         await self._check_channel_push(channel_subs, overviews, game_names, appid_map)
@@ -77,9 +81,11 @@ class SteamPriceMonitor(IntervalWorker):
         overviews: dict[str, dict],
         history_lows: dict[str, dict],
     ) -> None:
+        # 同一游戏同一价格只判定一次，本轮所有关注者都收到提醒后再统一落库。
+        already_notified: dict[str, bool] = {}
         for watch in watches:
             if self.stopping:
-                return
+                break
             itad_id = watch.get("itad_id") or ""
             if not itad_id:
                 continue
@@ -95,15 +101,21 @@ class SteamPriceMonitor(IntervalWorker):
             await self._store.update_watch_price(int(watch["id"]), current_price, history_low or lowest)
 
             trigger_price = history_low if history_low is not None else lowest
-            if trigger_price is not None and current_price <= trigger_price:
-                if await self._store.has_notified(itad_id, current_price):
-                    continue
+            if trigger_price is None or current_price > trigger_price:
+                continue
+            if itad_id not in already_notified:
+                already_notified[itad_id] = await self._store.has_notified(itad_id, current_price, "personal")
+            if not already_notified[itad_id]:
                 await self._send_personal_alert(watch, overview, history)
-                await self._store.mark_notified(itad_id, current_price, overview.get("current_cut", 0))
+
+        for itad_id, notified in already_notified.items():
+            if not notified:
+                overview = overviews[itad_id]
+                await self._store.mark_notified(
+                    itad_id, overview["current_price"], overview.get("current_cut", 0), "personal"
+                )
 
     async def _send_personal_alert(self, watch: dict, overview: dict, history: dict) -> None:
-        if not self._handler:
-            return
         channel = watch.get("channel") or ""
         area = watch.get("area") or ""
         user_id = watch.get("user_id") or ""
@@ -170,12 +182,15 @@ class SteamPriceMonitor(IntervalWorker):
         for itad_id, detail in overviews.items():
             cut = detail.get("current_cut", 0)
             current_price = detail.get("current_price")
-            if cut >= self._min_discount and current_price is not None:
-                if not await self._store.has_notified(itad_id, current_price):
-                    detail["_itad_id"] = itad_id
-                    detail["_game_name"] = game_names.get(itad_id, "")
-                    detail["_appid"] = appid_map.get(itad_id)
-                    deals.append(detail)
+            if (
+                cut >= self._min_discount
+                and current_price is not None
+                and not await self._store.has_notified(itad_id, current_price, "channel")
+            ):
+                detail["_itad_id"] = itad_id
+                detail["_game_name"] = game_names.get(itad_id, "")
+                detail["_appid"] = appid_map.get(itad_id)
+                deals.append(detail)
 
         if not deals:
             return
@@ -188,7 +203,9 @@ class SteamPriceMonitor(IntervalWorker):
                 return
             channel = sub.get("channel") or ""
             area = sub.get("area") or ""
-            sub_min = int(sub.get("min_discount", self._min_discount) or self._min_discount)
+            sub_min = sub.get("min_discount")
+            if sub_min is None:
+                sub_min = self._min_discount
             if not channel or not area:
                 continue
             filtered = [d for d in top_deals if d.get("current_cut", 0) >= sub_min]
@@ -200,11 +217,10 @@ class SteamPriceMonitor(IntervalWorker):
                 deal.get("_itad_id", ""),
                 deal.get("current_price", 0),
                 deal.get("current_cut", 0),
+                "channel",
             )
 
     async def _send_channel_deals(self, deals: list[dict], channel: str, area: str) -> None:
-        if not self._handler:
-            return
         lines = ["**Steam 特惠推送**", ""]
         for d in deals:
             name = d.get("_game_name") or ""

@@ -441,7 +441,7 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
             return
 
         if enable:
-            min_discount = int(self._config.get("min_discount_for_push", 50) or 50)
+            min_discount = int(self._config.get("min_discount_for_push", 50))
             await self._store.subscribe_channel(channel, area, min_discount)
             if self._monitor and self._api and self._api.configured:
                 self._monitor.ensure_started(self._handler or handler)

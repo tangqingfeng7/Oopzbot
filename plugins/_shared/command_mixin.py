@@ -45,7 +45,7 @@ class PluginCommandMixin:
         return parent.command_capabilities
 
     async def handle_mention(self, text: str, channel: str, area: str, user: str, handler: Any) -> bool:
-        for prefix in self.command_capabilities.mention_prefixes:
+        for prefix in sorted(self.command_capabilities.mention_prefixes, key=len, reverse=True):
             if text.startswith(prefix):
                 await self._run_plugin_command(text[len(prefix):].strip(), channel, area, user, handler)
                 return True

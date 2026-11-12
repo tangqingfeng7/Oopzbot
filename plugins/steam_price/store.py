@@ -70,6 +70,11 @@ class SteamPriceStore:
                     ON steam_price_log (itad_id, recorded_at);
                 """
             )
+            cursor = await connection.execute("PRAGMA table_info(steam_price_log)")
+            if not any(row["name"] == "kind" for row in await cursor.fetchall()):
+                await connection.execute(
+                    "ALTER TABLE steam_price_log ADD COLUMN kind TEXT NOT NULL DEFAULT ''"
+                )
             await connection.commit()
 
     async def add_personal_watch(
@@ -194,19 +199,20 @@ class SteamPriceStore:
             )
             return await cursor.fetchone() is not None
 
-    async def has_notified(self, itad_id: str, price: float) -> bool:
+    async def has_notified(self, itad_id: str, price: float, kind: str) -> bool:
+        # kind='' 是加列前的旧记录，对两类推送都视为已推送。
         async with self._connect() as connection:
             cursor = await connection.execute(
-                "SELECT 1 FROM steam_price_log WHERE itad_id=? AND price=?",
-                (itad_id, price),
+                "SELECT 1 FROM steam_price_log WHERE itad_id=? AND price=? AND kind IN (?, '')",
+                (itad_id, price, kind),
             )
             return await cursor.fetchone() is not None
 
-    async def mark_notified(self, itad_id: str, price: float, discount: int) -> None:
+    async def mark_notified(self, itad_id: str, price: float, discount: int, kind: str) -> None:
         async with self._connect() as connection:
             await connection.execute(
-                "INSERT INTO steam_price_log (itad_id, price, discount, recorded_at) VALUES (?, ?, ?, ?)",
-                (itad_id, price, discount, cn_now()),
+                "INSERT INTO steam_price_log (itad_id, price, discount, kind, recorded_at) VALUES (?, ?, ?, ?, ?)",
+                (itad_id, price, discount, kind, cn_now()),
             )
             await connection.commit()
 
