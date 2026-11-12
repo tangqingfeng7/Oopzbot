@@ -8,21 +8,25 @@ import unittest
 from contextlib import ExitStack
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, patch
+from typing import TYPE_CHECKING, cast
+from unittest.mock import AsyncMock, Mock, patch
 
+import httpx2
 from oopz_sdk.models import MessageSendResult, OperationResult
-from starlette.testclient import httpx
 
 SRC_ROOT = Path(__file__).resolve().parents[1] / "src"
 if str(SRC_ROOT) not in sys.path:
     sys.path.insert(0, str(SRC_ROOT))
 
-from app.infrastructure.runtime import PluginHost, PluginRuntime  # noqa: E402
+from app.infrastructure.runtime import BotInfrastructure, PluginHost, PluginRuntime  # noqa: E402
 from domain.plugins.plugin_operation import PluginOperationCode  # noqa: E402
 from tests.test_screen_share import CONFIG, FakeRedis  # noqa: E402
 from web import web_player  # noqa: E402
 from web.admin.shared import _pages  # noqa: E402
 from web.web_rate_limit import reset_all  # noqa: E402
+
+if TYPE_CHECKING:
+    from plugins.screen_share import ScreenSharePlugin
 
 
 class ScreenShareRuntimeTest(unittest.IsolatedAsyncioTestCase):
@@ -45,10 +49,10 @@ class ScreenShareRuntimeTest(unittest.IsolatedAsyncioTestCase):
         services = SimpleNamespace(
             routing=SimpleNamespace(access=SimpleNamespace(is_admin=lambda _user: True))
         )
-        self.host = PluginHost(SimpleNamespace(sender=self.sender), lambda: services)
+        self.host = PluginHost(Mock(spec=BotInfrastructure, sender=self.sender), lambda: services)
         self.redis = FakeRedis()
-        self.client = httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=web_player.app, client=("127.0.0.1", 50000)),
+        self.client = httpx2.AsyncClient(
+            transport=httpx2.ASGITransport(app=web_player.app, client=("127.0.0.1", 50000)),
             base_url="http://localhost",
         )
         self.addAsyncCleanup(self.client.aclose)
@@ -82,7 +86,10 @@ class ScreenShareRuntimeTest(unittest.IsolatedAsyncioTestCase):
 
         await self._load()
         plugin = self.runtime.registry.get("screen_share")
+        assert plugin is not None
+        plugin = cast("ScreenSharePlugin", plugin)
         first_task = plugin._watchdog._task
+        assert first_task is not None
         for path in page_paths:
             self.assertEqual((await self.client.get(path)).status_code, 200)
         self.assertIn("/admin/screen-share", (await self.client.get("/admin")).text)

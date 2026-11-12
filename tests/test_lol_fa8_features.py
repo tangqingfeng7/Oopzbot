@@ -2,6 +2,7 @@ import asyncio
 import copy
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -138,7 +139,7 @@ class DetailCommandsTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("从 1 开始", self.sender.send_message.await_args.args[0])
         await self.send("详情 abc")
         self.assertIn("用法", self.sender.send_message.await_args.args[0])
-        self.plugin._recent_queries[("area", "channel", "user")] = (0, result())
+        self.plugin._recent_queries[("area", "channel", "user")] = (time.monotonic() - 601, result())
         await self.send("详情 1")
         self.assertIn("请先查询", self.sender.send_message.await_args.args[0])
         self.plugin._handler.query.return_value["games_response"] = {"code": 1, "message": "战绩不可用"}

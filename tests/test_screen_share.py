@@ -321,6 +321,7 @@ class ScreenShareServiceTest(unittest.IsolatedAsyncioTestCase):
                 )
             )
             stopped = await self.service.stop(ready["session"])
+            assert stopped is not None
             self.assertEqual(stopped["viewer_message_id"], "message-1")
             self.assertEqual(stopped["viewer_message_timestamp"], "timestamp-1")
             with self.assertRaises(ScreenShareError):

@@ -496,7 +496,7 @@
           method: "POST", body: JSON.stringify({ uid: uid }),
         });
         setPageState("已设为管理员", "success");
-        showDetail(uid, area);
+        showDetail(uid);
         loadMembers();
       } catch (e) { setPageState("设置管理员失败: " + e.message, "error"); }
     }
@@ -507,7 +507,7 @@
       try {
         await AdminShell.req("/admin/api/bot-admins/" + uid, { method: "DELETE" });
         setPageState("已撤销管理员", "success");
-        showDetail(uid, area);
+        showDetail(uid);
         loadMembers();
       } catch (e) { setPageState("撤销管理员失败: " + e.message, "error"); }
     }
