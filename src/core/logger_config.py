@@ -23,20 +23,22 @@ def _env_level(env_key: str, default: int) -> int:
     raw = os.environ.get(env_key, "").upper().strip()
     return _LEVEL_MAP.get(raw, default)
 
+_FORMATTER = logging.Formatter(
+    fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+)
+
 _initialized = False
+_file_handler: RotatingFileHandler | None = None
 
 
-def _ensure_log_dir():
-    os.makedirs(LOG_DIR, exist_ok=True)
-
-
-def _cleanup_old_logs():
+def _cleanup_old_logs(log_dir: str) -> None:
     """删除超过 LOG_RETENTION_DAYS 天的日志文件。"""
-    if not os.path.isdir(LOG_DIR):
+    if not os.path.isdir(log_dir):
         return
     cutoff = time.time() - LOG_RETENTION_DAYS * 86400
     removed = 0
-    for path in glob.glob(os.path.join(LOG_DIR, "*.log*")):
+    for path in glob.glob(os.path.join(log_dir, "*.log*")):
         try:
             if os.path.getmtime(path) < cutoff:
                 os.remove(path)
@@ -52,7 +54,7 @@ def _cleanup_old_logs():
 def setup_logger(name: str, level=logging.DEBUG) -> logging.Logger:
     """
     创建并返回一个配置好的 logger。
-    首次调用时初始化文件 handler，后续调用复用同一 handler。
+    首次调用时初始化控制台 handler；文件日志由 bot 入口通过 `enable_file_logging()` 开启。
     """
     global _initialized
 
@@ -60,25 +62,7 @@ def setup_logger(name: str, level=logging.DEBUG) -> logging.Logger:
     logger.setLevel(level)
 
     if not _initialized:
-        _ensure_log_dir()
-        _cleanup_old_logs()
-
-        formatter = logging.Formatter(
-            fmt="%(asctime)s [%(name)s] %(levelname)s: %(message)s",
-            datefmt="%Y-%m-%d %H:%M:%S",
-        )
-
-        file_level = _env_level("BOT_LOG_FILE_LEVEL", logging.DEBUG)
         console_level = _env_level("BOT_LOG_CONSOLE_LEVEL", logging.INFO)
-
-        file_handler = RotatingFileHandler(
-            LOG_FILE,
-            maxBytes=10 * 1024 * 1024,
-            backupCount=5,
-            encoding="utf-8",
-        )
-        file_handler.setLevel(file_level)
-        file_handler.setFormatter(formatter)
 
         if sys.platform == "win32" and sys.stdout is sys.__stdout__ and sys.stderr is sys.__stderr__:
             sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
@@ -86,17 +70,45 @@ def setup_logger(name: str, level=logging.DEBUG) -> logging.Logger:
 
         console_handler = logging.StreamHandler(sys.stderr)
         console_handler.setLevel(console_level)
-        console_handler.setFormatter(formatter)
+        console_handler.setFormatter(_FORMATTER)
 
         root = logging.getLogger()
-        root.setLevel(min(file_level, console_level))
-        root.addHandler(file_handler)
+        root.setLevel(min(root.level or logging.WARNING, console_level))
         root.addHandler(console_handler)
 
-        _attach_sdk_logger(file_handler, console_handler)
+        _attach_sdk_logger(console_handler)
         _initialized = True
 
     return logger
+
+
+def enable_file_logging(log_file: str = LOG_FILE) -> logging.Handler:
+    """为当前进程开启滚动文件日志；只有 bot 主进程应调用，重复调用返回同一 handler。"""
+    global _file_handler
+
+    if _file_handler is not None:
+        return _file_handler
+
+    log_dir = os.path.dirname(log_file) or LOG_DIR
+    os.makedirs(log_dir, exist_ok=True)
+    _cleanup_old_logs(log_dir)
+
+    file_level = _env_level("BOT_LOG_FILE_LEVEL", logging.DEBUG)
+    handler = RotatingFileHandler(
+        log_file,
+        maxBytes=10 * 1024 * 1024,
+        backupCount=5,
+        encoding="utf-8",
+    )
+    handler.setLevel(file_level)
+    handler.setFormatter(_FORMATTER)
+
+    root = logging.getLogger()
+    root.setLevel(min(root.level or logging.WARNING, file_level))
+    root.addHandler(handler)
+    _attach_sdk_logger(handler)
+    _file_handler = handler
+    return handler
 
 
 def _attach_sdk_logger(*handlers: logging.Handler) -> None:

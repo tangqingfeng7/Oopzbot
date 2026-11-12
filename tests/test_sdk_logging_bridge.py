@@ -85,5 +85,40 @@ class SdkLoggingBridgeTest(unittest.TestCase):
         )
 
 
+class FileLoggingTest(unittest.TestCase):
+    def test_get_logger_does_not_write_bot_log_file(self) -> None:
+        logger_config.get_logger("FileLoggingTest")
+
+        file_handlers = [
+            handler
+            for handler in logging.getLogger().handlers
+            if isinstance(handler, logging.FileHandler)
+        ]
+        self.assertEqual(file_handlers, [], "测试和工具进程不该写入 bot 的日志文件")
+
+    def test_enable_file_logging_attaches_once(self) -> None:
+        import tempfile
+
+        directory = tempfile.TemporaryDirectory()
+        self.addCleanup(directory.cleanup)
+        log_file = str(Path(directory.name) / "bot.log")
+        root = logging.getLogger()
+        sdk_logger = logging.getLogger("oopz_sdk")
+        self.addCleanup(setattr, logger_config, "_file_handler", None)
+        self.addCleanup(root.setLevel, root.level)
+
+        handler = logger_config.enable_file_logging(log_file)
+        self.addCleanup(handler.close)
+        self.addCleanup(sdk_logger.removeHandler, handler)
+        self.addCleanup(root.removeHandler, handler)
+
+        self.assertIs(logger_config.enable_file_logging(log_file), handler)
+        self.assertEqual(root.handlers.count(handler), 1)
+        self.assertIn(handler, sdk_logger.handlers)
+        logging.getLogger("FileLoggingTest").warning("写入文件")
+        handler.flush()
+        self.assertIn("写入文件", Path(log_file).read_text(encoding="utf-8"))
+
+
 if __name__ == "__main__":
     unittest.main()
