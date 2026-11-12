@@ -260,7 +260,7 @@ docker compose up -d --build
 | 音乐 | `@bot 播放 稻香`、`@bot 下一首`、`@bot 队列`、`@bot 随机` |
 | 提醒 | `@bot 提醒 30分钟后 开会`、`@bot 我的提醒` |
 | 管理 | `@bot 禁言 <用户> 5`、`@bot 解禁 <用户>`、`@bot 踢出 <用户>` |
-| 插件 | `@bot 三角洲帮助`、`@bot 战绩 区号 召唤师#编号`、`@bot steam 黑神话` |
+| 插件 | `@bot 三角洲帮助`、`@bot 战绩 召唤师#编号`、`@bot steam 黑神话` |
 
 完整指令见 [机器人命令](docs/commands.md)。
 

@@ -1,0 +1,166 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>召唤师战绩</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0b0c0e;
+      --surface: #121416;
+      --line: #272a30;
+      --text: #f7f8f8;
+      --muted: #a4a9b3;
+      --subtle: #797f8a;
+      --accent: #a5afff;
+      --win: #70cfb0;
+      --loss: #e2949c;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 18px/1.5 "Segoe UI", "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; -webkit-font-smoothing: antialiased; }
+    #card { width: 100%; max-width: 1280px; padding: 32px 40px 24px; background: var(--bg); }
+    .topline, .identity, .section-heading, footer { display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+    .wordmark { display: flex; align-items: center; gap: 12px; font-size: 15px; letter-spacing: 2px; font-weight: 600; color: var(--muted); }
+    .mark { width: 20px; height: 20px; color: var(--accent); }
+    .region { font-size: 16px; color: var(--muted); padding: 5px 12px; border: 1px solid var(--line); border-radius: 6px; white-space: nowrap; }
+    .identity { align-items: flex-end; margin-top: 22px; }
+    .identity-main { min-width: 0; flex: 1; }
+    h1 { font-size: 40px; line-height: 1.3; letter-spacing: -1px; font-weight: 600; margin: 0; overflow-wrap: anywhere; }
+    .tag { color: var(--subtle); font-size: 24px; font-weight: 400; letter-spacing: 0; margin-left: 8px; display: inline-block; }
+    .profile-meta { color: var(--muted); font-size: 16px; margin-top: 12px; display: flex; flex-wrap: wrap; column-gap: 22px; row-gap: 4px; }
+    .account-stats { flex-shrink: 0; display: grid; grid-template-columns: repeat(3, 128px); gap: 12px; }
+    .account-stat { padding: 12px 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+    .account-stat span { display: block; color: var(--muted); font-size: 16px; }
+    .account-stat strong { display: block; font-size: 36px; line-height: 1.3; font-weight: 600; margin-top: 4px; font-variant-numeric: tabular-nums; }
+    .account-stat:first-child strong { color: var(--accent); }
+    .body-grid { display: grid; grid-template-columns: 420px minmax(0, 1fr); gap: 28px; margin-top: 28px; align-items: start; }
+    .overview { padding: 18px 20px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; }
+    .section-heading { margin-bottom: 14px; }
+    h2 { font-size: 20px; font-weight: 500; margin: 0; }
+    .section-note { font-size: 15px; color: var(--subtle); }
+    .metrics { display: grid; grid-template-columns: repeat(3, 1fr); }
+    .metric + .metric { padding-left: 16px; border-left: 1px solid var(--line); }
+    .label { color: var(--muted); font-size: 16px; }
+    .metric-value { font-size: 38px; font-weight: 600; letter-spacing: -1px; line-height: 1.3; margin-top: 6px; }
+    .metric-value.accent { color: var(--accent); }
+    .metric-note { font-size: 12px; color: var(--subtle); margin-top: 5px; }
+    .record-slash { color: var(--subtle); font-size: 26px; padding: 0 6px; font-weight: 300; }
+    .trend { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; }
+    .trend i { height: 4px; flex: 1 1 12px; max-width: 44px; border-radius: 2px; background: var(--line); }
+    .trend i.win { background: var(--win); }
+    .trend i.loss { background: #98636b; }
+    .ranks { display: grid; grid-template-columns: 1fr; gap: 12px; margin-top: 16px; }
+    .rank-card { display: grid; grid-template-columns: minmax(0, 1fr) 76px; gap: 12px; align-items: center; background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px 18px; }
+    .rank-copy { min-width: 0; }
+    .rank-emblem { display: block; width: 76px; height: 82px; object-fit: contain; }
+    .rank-name { font-size: 24px; font-weight: 600; letter-spacing: -.5px; margin-top: 4px; }
+    .rank-detail { font-size: 15px; color: var(--muted); margin-top: 4px; }
+    .rank-best { color: var(--subtle); font-size: 13px; margin-top: 2px; }
+    section { margin-top: 22px; }
+    .recent-section { margin-top: 0; min-width: 0; }
+    .matches { border-top: 1px solid var(--line); }
+    .match { position: relative; display: grid; grid-template-columns: 44px minmax(0, 1fr) 120px 132px; align-items: center; column-gap: 12px; padding: 15px 0 15px 12px; border-bottom: 1px solid var(--line); }
+    .match::before { content: ""; position: absolute; left: 0; top: 20px; bottom: 20px; width: 3px; border-radius: 3px; background: var(--loss); }
+    .match.win::before { background: var(--win); }
+    .outcome { font-size: 18px; font-weight: 500; color: var(--loss); }
+    .win .outcome { color: var(--win); }
+    .champion { min-width: 0; display: flex; align-items: center; gap: 12px; }
+    .champion-copy { min-width: 0; }
+    .champion-portrait { flex-shrink: 0; width: 52px; height: 52px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); }
+    .champion-name { font-size: 20px; font-weight: 500; overflow-wrap: anywhere; }
+    .match-mode { color: var(--subtle); font-size: 14px; margin-top: 4px; overflow-wrap: anywhere; }
+    .combat { text-align: right; }
+    .kda { font-size: 23px; font-weight: 500; white-space: nowrap; }
+    .kda span { color: var(--subtle); font-size: 17px; padding: 0 4px; }
+    .match-meta { color: var(--subtle); font-size: 12px; margin-top: 4px; }
+    .match-time { text-align: right; color: var(--muted); font-size: 16px; }
+    .mastery-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 12px; padding: 16px 0; }
+    .mastery { position: relative; display: grid; grid-template-columns: 48px minmax(0, 1fr); column-gap: 12px; min-width: 0; padding: 0 16px; }
+    .mastery + .mastery { border-left: 1px solid var(--line); }
+    .mastery-top { grid-row: 1 / 4; display: flex; align-items: center; }
+    .mastery-portrait { width: 48px; height: 48px; border-radius: 8px; object-fit: cover; border: 1px solid var(--line); }
+    .mastery-index { position: absolute; top: 0; right: 12px; color: var(--subtle); font-size: 11px; }
+    .mastery-name { padding-right: 12px; font-size: 18px; font-weight: 500; overflow-wrap: anywhere; }
+    .placeholder { display: inline-flex; align-items: center; justify-content: center; background: #191b1f; color: var(--subtle); font-size: 22px; }
+    .mastery-level { color: var(--muted); font-size: 13px; margin-top: 3px; }
+    .mastery-points { color: var(--subtle); font-size: 13px; margin-top: 1px; }
+    .empty { color: var(--muted); font-size: 18px; padding: 22px 0; overflow-wrap: anywhere; grid-column: 1 / -1; }
+    footer { color: var(--subtle); border-top: 1px solid var(--line); margin-top: 22px; padding-top: 16px; font-size: 14px; }
+    .metric-value, .kda, .match-time, .mastery-points { font-variant-numeric: tabular-nums; }
+    @media (max-width: 1000px) {
+      .body-grid { grid-template-columns: 1fr; }
+      .identity { align-items: flex-start; flex-direction: column; }
+      .account-stats { width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+      .ranks { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .mastery-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); row-gap: 20px; }
+    }
+    @media (max-width: 719px) {
+      #card { padding: 28px 24px; }
+      h1 { font-size: 34px; }
+      .topline, .identity { gap: 12px; }
+      .wordmark { font-size: 12px; letter-spacing: 1px; }
+      .metric-value { font-size: 34px; }
+      .metric + .metric { padding-left: 16px; }
+      .ranks { grid-template-columns: 1fr; }
+      .match { grid-template-columns: 48px minmax(0, 1fr) 124px; column-gap: 10px; }
+      .match-time { grid-column: 2 / -1; display: flex; justify-content: space-between; margin-top: 8px; font-size: 14px; }
+      .match-time .match-meta { margin-top: 0; }
+      .kda { font-size: 20px; }
+      .kda span { padding: 0 3px; }
+      .champion { gap: 10px; }
+      .champion-portrait { width: 48px; height: 48px; }
+      .mastery-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
+      .mastery:nth-child(odd) { border-left: 0; }
+      footer { align-items: flex-start; flex-direction: column; gap: 6px; }
+    }
+  </style>
+</head>
+<body>
+  <main id="card">
+    <header>
+      <div class="topline">
+        <div class="wordmark">
+          <svg class="mark" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 4v16h16M10 4v10h10" stroke="currentColor" stroke-width="2"/><path d="M16 4h4v4" stroke="currentColor" stroke-width="2"/></svg>
+          LEAGUE OF LEGENDS
+        </div>
+        <div class="region">$server_name</div>
+      </div>
+      <div class="identity">
+        <div class="identity-main">
+          <h1>$game_name<span class="tag">#$tag_line</span></h1>
+          <div class="profile-meta"><span>最近游戏 $last_played</span><span>$assets_error</span></div>
+        </div>
+        <div class="account-stats">
+          <div class="account-stat"><span>拥有英雄</span><strong>$heroes</strong></div>
+          <div class="account-stat"><span>拥有皮肤</span><strong>$skins</strong></div>
+          <div class="account-stat"><span>召唤师等级</span><strong>$level</strong></div>
+        </div>
+      </div>
+    </header>
+    <div class="body-grid">
+    <div class="profile-column">
+    <div class="overview">
+      <div class="section-heading"><h2>近期表现</h2><div class="section-note">$sample_label</div></div>
+      <div class="metrics">
+        <div class="metric"><div class="label">胜率</div><div class="metric-value accent">$win_rate</div><div class="metric-note">基于全部近期对局</div></div>
+        <div class="metric"><div class="label">胜 / 负</div><div class="metric-value">$record</div><div class="metric-note">近期对局结果</div></div>
+        <div class="metric"><div class="label">综合 KDA</div><div class="metric-value">$overall_kda</div><div class="metric-note">总击杀与助攻 / 总死亡</div></div>
+      </div>
+      <div class="trend">$trend</div>
+    </div>
+    <div class="ranks">$ranks</div>
+    </div>
+    <section class="recent-section">
+      <div class="section-heading"><h2>最近对局</h2><div class="section-note">最近 $match_count 场</div></div>
+      <div class="matches">$matches</div>
+    </section>
+    </div>
+    <section>
+      <div class="section-heading"><h2>英雄熟练度</h2><div class="section-note">TOP 5</div></div>
+      $mastery
+    </section>
+    <footer><span>FA8 · 召唤师档案</span><span>更新于 $generated_at</span></footer>
+  </main>
+</body>
+</html>

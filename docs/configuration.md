@@ -153,7 +153,13 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 | `enabled` | 是否启用（默认 `false`） |
 | `username` | FA8 登录账号 |
 | `password` | FA8 登录密码 |
-| `default_area` | 默认大区 ID（`1`=艾欧尼亚） |
+| `session_cookie` | 在 `https://fa.3ui.cc` 完成登录验证后取得的 Cookie，例如 `sign=...` |
+
+新版登录需要极验验证，使用浏览器登录后的 `session_cookie` 复用会话。打开浏览器开发者工具的 Network（网络），在该站点请求的请求标头中复制 Cookie 值，写入本地 `config.json` 后重新加载插件。会话失效时重新登录并更新此字段。
+
+战绩查询按“召唤师名#数字编号”自动识别所属大区。命令中的大区名或 `1`～`5` 用于核对结果，原服务器名按所属的联盟大区匹配；`default_area` 不再生效。
+
+命令示例见 [机器人命令](commands.md)。
 
 ### 三角洲插件 (`config/plugins/delta_force/config.json`)
 

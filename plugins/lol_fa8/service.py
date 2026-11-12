@@ -1,10 +1,16 @@
 import asyncio
-import contextlib
 import hashlib
+import hmac
 import json
 import os
 import re
+import secrets
 import time
+from copy import deepcopy
+from datetime import datetime, timedelta, timezone
+from http.cookies import SimpleCookie
+
+from yarl import URL
 
 from core.async_http import ManagedHttpClient
 from core.constants import USER_AGENT, Msg
@@ -13,12 +19,16 @@ from core.logger_config import get_logger
 logger = get_logger("FA8")
 
 BASE_URL = "https://fa.3ui.cc"
+_API_SIGN_KEY = b"4d3627c36a294272ae24b1069bcd992234349f96a9144bc6b4f2620eda8d70e6"
+_CST = timezone(timedelta(hours=8))
+_LOGIN_HELP = "请在 https://fa.3ui.cc 完成登录验证，并更新 FA8 插件的 session_cookie"
+
 
 def _default_config() -> dict:
-    """从插件 config_spec 派生默认配置 —— 默认值的单一来源在 __init__.py。"""
     from plugins.lol_fa8 import LolFa8Plugin
 
     return {field.name: field.default for field in LolFa8Plugin().config_spec.fields}
+
 
 SERVERS = {
     "1": "艾欧尼亚", "2": "比尔吉沃特", "3": "祖安", "4": "诺克萨斯",
@@ -50,30 +60,6 @@ for _g in SERVER_GROUPS:
         GROUP_ALIASES[_NUM_MAP[_g]] = _g
 
 
-def _md5(text: str) -> str:
-    return hashlib.md5(text.encode("utf-8")).hexdigest()
-
-
-def _ts() -> int:
-    return int(time.time() * 1000)
-
-
-_RE_MASTERY = re.compile(
-    r'alt="([^"]+)".*?'
-    r'class="font-medium text-white mr-2">([^<]+)</span>.*?'
-    r'text-gray-400">(\d+级英雄成就)</span>.*?'
-    r'熟练度：(\d+)',
-    re.DOTALL,
-)
-_RE_CARD_SPLIT = re.compile(r'class="match-card\s+')
-_RE_CHAMP = re.compile(r'champion/(\w+)\.png')
-_RE_KDA = re.compile(r'font-bold text-white">(\d+/\d+/\d+)<')
-_RE_SCORE = re.compile(r'评分\s*([\d.]+)')
-_RE_MODE = re.compile(r'text-xs">([^<]+)</span>\s*<span[^>]*>时长([\d:]+)')
-_RE_DATE = re.compile(r'(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})')
-_RE_HERO = re.compile(r"英雄:\s*(\d+)\s*个")
-_RE_SKIN = re.compile(r"皮肤:\s*(\d+)\s*个")
-
 _CHAMPION_NAMES_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "champion_names.json")
 
 with open(_CHAMPION_NAMES_PATH, encoding="utf-8") as _f:
@@ -92,130 +78,105 @@ def _champion_cn(en_key: str) -> str:
     return CHAMPION_EN_TO_CN.get(key_alt, en_key)
 
 
-def _parse_mastery(html: str) -> list[dict]:
-    """从 mastery HTML 中解析英雄熟练度列表"""
-    results = []
-    for m in _RE_MASTERY.finditer(html):
-        results.append({
-            "name": m.group(2),
-            "level": m.group(3),
-            "points": int(m.group(4)),
-        })
-    return results
+def now_cst() -> datetime:
+    """当前东八区时间。"""
+    return datetime.now(_CST)
 
 
-def _parse_match_cards(html: str) -> list[dict]:
-    """从战绩 HTML 中解析对局列表（分段解析避免回溯）"""
-    results = []
-    cards = _RE_CARD_SPLIT.split(html)
-    for card in cards[1:]:
-        try:
-            win_lose = "胜利" if card.startswith("win") else "失败"
-            champ_m = _RE_CHAMP.search(card)
-            kda_m = _RE_KDA.search(card)
-            if not (champ_m and kda_m):
-                continue
-            score_m = _RE_SCORE.search(card)
-            mode_m = _RE_MODE.search(card)
-            date_m = _RE_DATE.search(card)
-            results.append({
-                "result": win_lose,
-                "champion": champ_m.group(1),
-                "kda": kda_m.group(1),
-                "score": score_m.group(1) if score_m else "",
-                "mode": mode_m.group(1) if mode_m else "",
-                "duration": mode_m.group(2) if mode_m else "",
-                "date": date_m.group(1) if date_m else "",
-            })
-        except Exception:
-            continue
-    return results
+def _won(game: dict) -> bool:
+    return bool((game.get("player") or {}).get("win", game.get("win")))
+
+
+def _outcome(win: object) -> str:
+    return "胜利" if win else "失败"
+
+
+def _sign_api(action: str, values: list[str], timestamp: str, nonce: str) -> dict[str, str]:
+    """按 FA8ApiSign.create 的字段顺序签名。"""
+    message = "\n".join([action, *values, timestamp, nonce])
+    return {
+        "api_timestamp": timestamp,
+        "api_nonce": nonce,
+        "api_sign": hmac.new(_API_SIGN_KEY, message.encode("utf-8"), hashlib.sha256).hexdigest(),
+    }
+
+
+def _format_date(value) -> str:
+    if not value:
+        return "未知"
+    stamp = float(value)
+    if stamp <= 0:
+        return "未知"
+    if stamp > 100_000_000_000:
+        stamp /= 1000
+    return datetime.fromtimestamp(stamp, _CST).strftime("%Y-%m-%d %H:%M")
+
+
+def _area_name(area: str) -> str:
+    for group, members in SERVER_GROUPS.items():
+        if area in members:
+            return f"联盟{group}"
+    return SERVERS[area]
 
 
 class FA8Client:
-    """FA8 API 异步客户端，自动管理登录态。"""
+    """FA8 JSON API 客户端，复用登录会话并按服务器时间签名。"""
 
-    _KEEPALIVE_INTERVAL = 5  # 秒
-
-    def __init__(self, username: str = "", password: str = ""):
+    def __init__(self, username: str = "", password: str = "", session_cookie: str = ""):
         self._user = (username or "").strip()
-        self._pwd = (password or "").strip()
-        self._http = ManagedHttpClient(
-            headers={
-                "User-Agent": USER_AGENT,
-                "Origin": BASE_URL,
-                "Referer": f"{BASE_URL}/",
-            }
-        )
+        self._pwd = password or ""
+        self._cookie = (session_cookie or "").strip()
+        self._http = ManagedHttpClient(headers={
+            "User-Agent": USER_AGENT,
+            "Origin": BASE_URL,
+            "Referer": f"{BASE_URL}/",
+            "Accept": "application/json",
+            "X-Requested-With": "XMLHttpRequest",
+            "X-FA8-Client": "desktop",
+        })
         self._logged_in = False
         self._lock = asyncio.Lock()
-        self._keepalive_task: asyncio.Task[None] | None = None
-        self._stop_event = asyncio.Event()
-        self._start_keepalive()
+        self._query_lock = asyncio.Lock()
+        self._time_lock = asyncio.Lock()
+        self._time_offset: float | None = None
+        self._login_error = {"code": -1, "message": _LOGIN_HELP}
 
-    # ------------------------------------------------------------------
-    # 登录保活
-    # ------------------------------------------------------------------
-
-    def _start_keepalive(self) -> None:
-        """启动可取消的异步保活任务。"""
-        if not self._user or not self._pwd:
-            return
-        if self._keepalive_task and not self._keepalive_task.done():
-            return
-        self._stop_event.clear()
-        self._keepalive_task = asyncio.create_task(
-            self._keepalive_loop(),
-            name="fa8-keepalive",
-        )
-        logger.info("FA8 异步保活已启动 (间隔 %ds)", self._KEEPALIVE_INTERVAL)
-
-    async def _keepalive_loop(self) -> None:
-        """后台循环：检查登录状态，失效则自动重新登录"""
-        while not self._stop_event.is_set():
-            try:
-                await self._check_and_login()
-            except asyncio.CancelledError:
-                raise
-            except Exception as e:
-                logger.debug(f"FA8 保活检查异常: {e}")
-            with contextlib.suppress(asyncio.TimeoutError):
-                await asyncio.wait_for(
-                    self._stop_event.wait(),
-                    timeout=self._KEEPALIVE_INTERVAL,
-                )
-
-    async def _check_and_login(self) -> None:
-        """检查 Cookie 是否有效，无效则重新登录"""
-        async with self._lock:
-            session = await self._http.session()
-            cookies = {cookie.key: cookie.value for cookie in session.cookie_jar}
-            if cookies.get("name") and cookies.get("sign"):
-                self._logged_in = True
-                return
-            self._logged_in = False
-            await self._do_login()
-
-    async def _do_login(self) -> bool:
-        """执行登录请求（调用方需持有 _lock）"""
+    async def _request(self, method: str, endpoint: str, data: dict | None = None, cookie: str | None = None) -> dict:
+        headers: dict[str, str] = {}
+        active_cookie = cookie if cookie is not None else self._cookie
+        if active_cookie:
+            headers["Cookie"] = active_cookie
         try:
-            ts = _ts()
-            _status, data = await self._http.request_payload(
-                "POST",
-                f"{BASE_URL}/api/api.php?act=login",
-                data={"user": self._user, "pwd": self._pwd, "time": ts},
-                timeout=15,
+            if active_cookie:
+                session = await self._http.session()
+                session.cookie_jar.update_cookies(SimpleCookie(active_cookie), response_url=URL(BASE_URL))
+            status, result = await self._http.request_payload(
+                method, f"{BASE_URL}/api/{endpoint}", data=data, headers=headers,
+                timeout=15, raise_for_status=False,
             )
-            if isinstance(data, dict) and data.get("code") == 0:
-                self._logged_in = True
-                logger.info("FA8 登录成功")
-                return True
-            message = data.get("msg", "未知错误") if isinstance(data, dict) else "响应格式错误"
-            logger.warning(f"FA8 登录失败: {message}")
-            return False
-        except Exception as e:
-            logger.error(f"FA8 登录异常: {e}")
-            return False
+            if not isinstance(result, dict):
+                return {"code": -1, "message": "FA8 响应格式错误"}
+            if status >= 400 and result.get("code") == 0:
+                return {"code": -1, "message": f"FA8 请求失败 (HTTP {status})"}
+            return result
+        except Exception as exc:
+            logger.warning("FA8 请求失败 [%s]: %s", endpoint, exc)
+            return {"code": -1, "message": f"FA8 请求异常: {exc}"}
+
+    async def _try_cookie(self, cookie: str) -> bool:
+        status = await self._request("GET", "user.php?act=status", cookie=cookie)
+        return status.get("code") == 0 and bool((status.get("data") or {}).get("logged_in"))
+
+    async def _jar_sign_cookie(self) -> str:
+        """读取登录后 aiohttp cookie jar 中写入的 sign 会话。"""
+        try:
+            session = await self._http.session()
+            for cookie in session.cookie_jar:
+                if cookie.key == "sign" and cookie.value:
+                    return f"sign={cookie.value}"
+        except Exception:
+            pass
+        return ""
 
     async def _ensure_login(self) -> bool:
         if self._logged_in:
@@ -223,72 +184,88 @@ class FA8Client:
         async with self._lock:
             if self._logged_in:
                 return True
-            if not self._user or not self._pwd:
-                logger.error("FA8 账号或密码未配置")
-                return False
-            return await self._do_login()
+            # 1) 显式 session_cookie
+            if self._cookie and await self._try_cookie(self._cookie):
+                self._logged_in = True
+                return True
+            # 2) 用户名密码登录（登录要求极验时失败，提示更新 Cookie）
+            if self._user and self._pwd:
+                result = await self._request("POST", "user.php?act=login", {
+                    "account": self._user, "password": self._pwd,
+                })
+                if result.get("code") == 0:
+                    jar_cookie = await self._jar_sign_cookie()
+                    if jar_cookie:
+                        self._cookie = jar_cookie
+                    self._logged_in = True
+                    return True
+                if result.get("data", {}).get("field") == "captcha":
+                    result = {**result, "message": _LOGIN_HELP}
+                self._login_error = result
+            self._login_error = self._login_error or {"code": -1, "message": _LOGIN_HELP}
+            return False
 
-    async def _post_api(self, endpoint: str, data: dict, retry: bool = True) -> dict:
-        """发送 API 请求，自动处理登录"""
+    async def _sync_time(self) -> None:
+        _status, html = await self._http.request_text("GET", f"{BASE_URL}/", timeout=15)
+        match = re.search(r'data-server-time="(\d+)"', html)
+        if not match:
+            raise ValueError("FA8 页面未提供服务器时间")
+        self._time_offset = int(match.group(1)) / 1000 - time.time()
+
+    async def _post_api(self, action: str, fields: dict[str, str], retry: bool = True) -> dict:
+        async with self._query_lock:
+            return await self._signed_query(action, fields, retry)
+
+    async def _signed_query(self, action: str, fields: dict[str, str], retry: bool) -> dict:
         if not await self._ensure_login():
-            return {"code": -1, "msg": "登录失败，请检查 FA8 账号配置"}
+            return self._login_error
         try:
-            _status, result = await self._http.request_payload(
-                "POST",
-                f"{BASE_URL}/api/{endpoint}",
-                data=data,
-                timeout=10,
-            )
-            if not isinstance(result, dict):
-                return {"code": -1, "msg": "响应格式错误"}
-            msg = str(result.get("msg", ""))
-            is_auth_error = result.get("code") != 0 and "登录" in msg
-            if is_auth_error and retry:
-                self._logged_in = False
-                return await self._post_api(endpoint, data, retry=False)
-            return result
-        except Exception as e:
-            logger.error(f"FA8 API 请求失败 [{endpoint}]: {e}")
-            return {"code": -1, "msg": f"请求异常: {e}"}
+            retry_login = retry_time = retry
+            while True:
+                async with self._time_lock:
+                    if self._time_offset is None:
+                        await self._sync_time()
+                timestamp = str(int(time.time() + (self._time_offset or 0)))
+                data = {**fields, **_sign_api(
+                    action, list(fields.values()), timestamp, secrets.token_hex(16),
+                )}
+                result = await self._request("POST", f"api.php?act={action}", data)
+                detail = result.get("data") or {}
+                if detail.get("login_required") or detail.get("expired"):
+                    self._logged_in = False
+                    if retry_login:
+                        retry_login = False
+                        if await self._ensure_login():
+                            continue
+                        return self._login_error
+                    return {**result, "message": _LOGIN_HELP}
+                if detail.get("sign_expired") and retry_time:
+                    retry_time = False
+                    async with self._time_lock:
+                        await self._sync_time()
+                    continue
+                return result
+        except Exception as exc:
+            logger.warning("FA8 签名请求失败 [%s]: %s", action, exc)
+            return {"code": -1, "message": f"FA8 请求异常: {exc}"}
 
-    async def query_summoner(self, name: str, area: str) -> dict:
-        """查询召唤师基本信息"""
-        ts = _ts()
-        sign = _md5(f"{name}{ts}{area}{ts}#6352")
-        return await self._post_api("tyapi.php?act=cxinfo", {
-            "name": name, "area": area, "sign": sign, "time": ts,
-        })
+    async def find_player(self, game_name: str, tag_line: str) -> dict:
+        return await self._post_api("check", {"game_name": game_name, "tag_line": tag_line})
 
-    async def query_games(self, puuid: str, area: str, tag: str = "all", page: str = "0") -> dict:
-        """查询历史战绩"""
-        ts = _ts()
-        sign = _md5(f"{puuid}{ts}{area}{ts}{tag}{page}#6662")
-        return await self._post_api("tyapi.php?act=cxgame", {
-            "puuid": puuid, "area": area, "page": page,
-            "sign": sign, "tag": tag, "time": ts,
-        })
+    async def query_summoner(self, puuid: str, region: str) -> dict:
+        return await self._post_api("summoner", {"puuid": puuid, "re": region})
 
-    async def query_current_game(self, puuid: str, area: str) -> dict:
-        """查询当前对局"""
-        ts = _ts()
-        sign = _md5(f"{puuid}{ts}{area}{ts}#6362")
-        return await self._post_api("tyapi.php?act=nowcx", {
-            "puuid": puuid, "area": area, "sign": sign, "time": ts,
+    async def query_games(self, puuid: str, region: str, tag: str = "", start: int = 0) -> dict:
+        return await self._post_api("matches", {
+            "puuid": puuid, "re": region, "start": str(start), "tag": tag,
         })
 
     async def stop(self) -> None:
-        """停止保活任务并释放网络资源。"""
-        self._stop_event.set()
-        task = self._keepalive_task
-        self._keepalive_task = None
-        if task is not None:
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
         await self._http.close()
 
 
 class FA8Handler:
-    """FA8 战绩查询命令处理器"""
+    """FA8 战绩查询命令处理器。"""
 
     def __init__(self, config: dict | None = None):
         self._config = _default_config()
@@ -297,26 +274,22 @@ class FA8Handler:
         self._client = FA8Client(
             username=self._config.get("username", ""),
             password=self._config.get("password", ""),
+            session_cookie=self._config.get("session_cookie", ""),
         )
+        self._query_cache: dict[tuple, tuple[float, dict]] = {}
+        self._pending_queries: dict[tuple, asyncio.Task] = {}
 
-    async def close(self):
-        """释放内部客户端资源（插件卸载时调用）。"""
-        with contextlib.suppress(Exception):
-            await self._client.stop()
+    async def close(self) -> None:
+        pending = list(self._pending_queries.values())
+        for task in pending:
+            task.cancel()
+        await asyncio.gather(*pending, return_exceptions=True)
+        self._query_cache.clear()
+        await self._client.stop()
 
     def _resolve_area(self, text: str) -> tuple[str, list[str]]:
-        """
-        从输入文本中解析大区和召唤师名。
-        返回 (召唤师名, 大区ID列表)。
-        支持格式:
-          - "召唤师名#编号"              → 使用默认大区
-          - "大区名 召唤师名#编号"       → 指定大区
-          - "一区 召唤师名#编号"         → 搜索整个区组
-          - "联盟一区 召唤师名#编号"     → 搜索整个区组
-        """
+        """解析可选的大区限制，未指定时由站点识别大区。"""
         text = text.strip()
-        default_area = self._config.get("default_area", "1")
-
         parts = text.split(None, 1)
         if len(parts) == 2:
             prefix = parts[0]
@@ -326,202 +299,165 @@ class FA8Handler:
                 return parts[1], [prefix]
             if prefix in SERVER_NAME_TO_ID:
                 return parts[1], [SERVER_NAME_TO_ID[prefix]]
-
         for server_name, server_id in SERVER_NAME_TO_ID.items():
             if text.startswith(server_name):
                 name = text[len(server_name):].strip()
                 if name:
                     return name, [server_id]
+        return text, []
 
-        return text, [default_area]
+    async def query(self, raw_input: str, *, refresh: bool = False) -> dict | str:
+        name, areas = self._resolve_area(raw_input)
+        match = re.fullmatch(r"([^#]+?)\s*#\s*([0-9]+)", name)
+        if not self._config.get("enabled", False) or not match or not match.group(1).strip():
+            return await self._query_uncached(raw_input)
+        key = (match.group(1).strip(), match.group(2), tuple(sorted(areas)))
+        now = time.monotonic()
+        self._query_cache = {key: value for key, value in self._query_cache.items() if value[0] > now}
+        cached = self._query_cache.get(key)
+        if cached is not None and not refresh:
+            return deepcopy(cached[1])
+        task = self._pending_queries.get(key)
+        if task is None:
+            task = asyncio.create_task(self._fetch_query(key, raw_input))
+            self._pending_queries[key] = task
+        return deepcopy(await asyncio.shield(task))
 
-    async def _search_summoner(self, name: str, areas: list[str]) -> tuple[str, dict] | None:
-        """在多个大区中并行搜索召唤师，返回 (area_id, info) 或 None。
-
-        全部大区并发发起，但**按 areas 顺序**逐个等待结果：
-
-        - 结果确定：同名召唤师存在于多个大区时，总是返回配置顺序靠前的那个，
-          不像「谁先响应谁赢」那样随机。
-        - 尽早返回：命中即返回并取消其余请求，不必像 ``gather`` 那样等最慢的大区
-          （单次查询超时 10s，区组搜索会同时查好几个区）。
-
-        既然要保证区序，就不可能在高优先大区出结果之前返回低优先大区的命中，
-        因此「按序等待」已经是确定性前提下最早的返回时机。
-        """
-        if len(areas) == 1:
-            info = await self._client.query_summoner(name, areas[0])
-            if info.get("code") == 0:
-                return areas[0], info
-            return None
-
-        tasks = [
-            asyncio.create_task(self._client.query_summoner(name, area))
-            for area in areas
-        ]
+    async def _fetch_query(self, key: tuple, raw_input: str) -> dict | str:
         try:
-            for area, task in zip(areas, tasks, strict=False):
-                try:
-                    info = await task
-                except Exception as exc:
-                    logger.debug("FA8 大区 %s 查询失败: %s", area, exc)
-                    continue
-                if isinstance(info, dict) and info.get("code") == 0:
-                    return area, info
-            return None
+            result = await self._query_uncached(raw_input)
+            if isinstance(result, dict):
+                result["queried_at"] = now_cst().strftime("%Y-%m-%d %H:%M:%S")
+                info = result["info"]
+                if result["games_response"].get("code") == 0 and not any(
+                    info.get(field) for field in ("rank_error", "player_assets_error", "champion_mastery_error")
+                ):
+                    if len(self._query_cache) >= 128:
+                        self._query_cache.pop(next(iter(self._query_cache)))
+                    self._query_cache[key] = (time.monotonic() + 45, result)
+                else:
+                    self._query_cache.pop(key, None)
+            else:
+                self._query_cache.pop(key, None)
+            return result
         finally:
-            # 命中后剩下的请求不再有意义；不取消会留下悬挂任务。
-            for task in tasks:
-                if not task.done():
-                    task.cancel()
-            await asyncio.gather(*tasks, return_exceptions=True)
+            self._pending_queries.pop(key, None)
 
-    async def query_and_format(self, raw_input: str) -> str:
-        """查询召唤师战绩并格式化为消息文本"""
+    async def _query_uncached(self, raw_input: str) -> dict | str:
         if not self._config.get("enabled", False):
             return "战绩查询功能未启用，请在 config/plugins/lol_fa8/config.json 中配置"
-
         name, areas = self._resolve_area(raw_input)
-        if not name:
-            return (
-                "请输入召唤师名称\n"
-                "格式: @bot 战绩 召唤师名#编号\n"
-                "示例: @bot 战绩 召唤师名#编号\n"
-                "指定大区: @bot 战绩 班德尔城 召唤师名#编号\n"
-                "按区搜索: @bot 战绩 3 召唤师名#编号 (1-5对应联盟一~五区)"
-            )
+        match = re.fullmatch(r"([^#]+?)\s*#\s*([0-9]+)", name)
+        if not match or not match.group(1).strip():
+            return "请输入召唤师名#数字编号，例如: /zj 艺术就是充钱丶#72269"
+        game_name, tag_line = match.group(1).strip(), match.group(2)
+        checked = await self._client.find_player(game_name, tag_line)
+        if checked.get("code") != 0:
+            return f"{Msg.ERR} 查询失败: {checked.get('message', 'FA8 查询失败')}"
+        player = checked.get("data") or {}
+        if not player.get("exists"):
+            return f"{Msg.ERR} 未找到玩家 {game_name}#{tag_line}"
+        puuid, region = player.get("puuid"), player.get("re")
+        if not puuid or not region:
+            return f"{Msg.ERR} FA8 未返回玩家标识或大区"
+        response = await self._client.query_summoner(puuid, region)
+        if response.get("code") != 0:
+            return f"{Msg.ERR} 资料查询失败: {response.get('message', 'FA8 查询失败')}"
+        info = response.get("data") or {}
+        server_name = (info.get("region") or {}).get("name") or region
+        if areas and server_name not in [_area_name(area) for area in areas]:
+            expected = "、".join(dict.fromkeys(_area_name(area) for area in areas))
+            return f"{Msg.ERR} 该玩家位于{server_name}，与指定大区（{expected}）不符"
+        alias = info.get("alias") or {}
+        display_name = alias.get("game_name") or player.get("game_name") or game_name
+        display_tag = alias.get("tag_line") or player.get("tag_line") or tag_line
+        games_response = await self._client.query_games(puuid, region)
+        return {
+            "server_name": server_name,
+            "game_name": display_name,
+            "tag_line": display_tag,
+            "info": info,
+            "games_response": games_response,
+        }
 
-        is_group = len(areas) > 1
-        group_label = ""
-        if is_group:
-            for alias, g in GROUP_ALIASES.items():
-                if SERVER_GROUPS[g] == areas and not alias.startswith("联盟"):
-                    group_label = f"联盟{alias}"
-                    break
+    async def query_and_format(self, raw_input: str) -> str:
+        result = await self.query(raw_input)
+        return result if isinstance(result, str) else self.format_result(result)
 
-        result = await self._search_summoner(name, areas)
-        if result is None:
-            if is_group:
-                return f"{Msg.ERR} 在{group_label}所有服务器中均未找到该玩家"
-            msg_area = SERVERS.get(areas[0], f"大区{areas[0]}")
-            return f"{Msg.ERR} 在{msg_area}未找到该玩家"
-
-        area, info = result
-        msg = info.get("msg", "")
-        if "登录" in str(msg):
-            return f"{Msg.ERR} 查询失败: FA8 登录态异常，请联系管理员检查配置"
-
-        puuid = info.get("puuid", "")
-        server_name = SERVERS.get(area, f"大区{area}")
-
+    @staticmethod
+    def format_result(result: dict) -> str:
+        info = result["info"]
+        server_name = result["server_name"]
+        display_name, display_tag = result["game_name"], result["tag_line"]
+        summoner = info.get("summoner") or {}
         lines = [
-            f"LOL 战绩查询 - {server_name}",
-            "═══════════════════",
-            f"  召唤师: {name}",
-            f"  等级: {info.get('level', '?')}",
-            f"  最近游戏: {info.get('lastGameDate', '未知')}",
+            f"LOL 战绩查询 - {server_name}", "═══════════════════",
+            f"  召唤师: {display_name}#{display_tag}",
+            f"  等级: {summoner.get('level', '?')}",
+            f"  最近游戏: {_format_date(summoner.get('lastGameDate') or summoner.get('revisionDate'))}",
         ]
-
-        hero_count = ""
-        skin_count = ""
-        skin_html = info.get("skin", "")
-        hero_m = _RE_HERO.search(skin_html)
-        skin_m = _RE_SKIN.search(skin_html)
-        if hero_m:
-            hero_count = hero_m.group(1)
-        if skin_m:
-            skin_count = skin_m.group(1)
-        if hero_count or skin_count:
-            lines.append(f"  英雄: {hero_count} 个 | 皮肤: {skin_count} 个")
-
-        lines.append("───────────────────")
-        lines.append("  段位信息:")
-
-        # 将 FA8 返回的段位字段做一次“清洗”，把 "无"、"?"、"未定级" 等情况统一成“未定级 / 无段位”
-        def _normalize_rank_text(text: str) -> str | None:
-            if not text:
-                return None
-            t = str(text).strip()
-            if t in ("无", "?", "-", "未定级", "未排位"):
-                return None
-            return t
-
-        ds_dj_raw = info.get("dsdj", "")
-        ds_dj = _normalize_rank_text(ds_dj_raw)
-        if ds_dj:
-            lines.append(f"    单双排位: {ds_dj} ({info.get('dssf', '')}) 胜点{info.get('dssd', 0)}")
+        assets = info.get("player_assets")
+        if assets:
+            lines.append(f"  英雄: {assets.get('heroes', '?')} 个 | 皮肤: {assets.get('skins', '?')} 个")
+        elif info.get("player_assets_error"):
+            lines.append(f"  玩家资产读取失败: {info['player_assets_error']}")
+        lines.extend(["───────────────────", "  段位信息:"])
+        if info.get("rank_error"):
+            lines.append(f"    段位读取失败: {info['rank_error']}")
         else:
-            lines.append("    单双排位: 未定级 / 无段位")
-
-        lh_dj_raw = info.get("lhdj", "")
-        lh_dj = _normalize_rank_text(lh_dj_raw)
-        if lh_dj:
-            lines.append(f"    灵活排位: {lh_dj} ({info.get('lhsf', '')}) 胜点{info.get('lhsd', 0)}")
-        else:
-            lines.append("    灵活排位: 未定级 / 无段位")
-
-        rank = info.get("rank", {})
-        ds_best_raw = rank.get("dszgdw", "")
-        ds_best = _normalize_rank_text(ds_best_raw)
-        if ds_best:
-            lines.append(f"    单双排位最高: {ds_best}")
-
-        lh_best_raw = rank.get("lhzgdw", "")
-        lh_best = _normalize_rank_text(lh_best_raw)
-        if lh_best:
-            lines.append(f"    灵活排位最高: {lh_best}")
-
-        mastery_html = info.get("mastery", "")
-        champions = _parse_mastery(mastery_html)
+            queues = (info.get("ranked_stats") or {}).get("queues") or []
+            ranks = {rank.get("queueType", "").upper(): rank for rank in queues}
+            for queue, label in (("RANKED_SOLO_5X5", "单双排位"), ("RANKED_FLEX_SR", "灵活排位")):
+                rank = ranks.get(queue)
+                if not rank:
+                    lines.append(f"    {label}: 未定级 / 无段位")
+                    continue
+                tier = " ".join(str(rank[key]) for key in ("tier_label", "rank_label") if rank.get(key))
+                lines.append(
+                    f"    {label}: {tier or '未定级'} "
+                    f"({rank.get('wins', 0)}胜{rank.get('losses', 0)}负) 胜点{rank.get('leaguePoints', 0)}"
+                )
+                best = " ".join(str(rank[key]) for key in (
+                    "highest_tier_label", "highest_rank_label",
+                ) if rank.get(key))
+                if best:
+                    lines.append(f"    {label}最高: {best}")
+        champions = sorted(info.get("champion_mastery") or [], key=lambda c: (
+            c.get("points") or 0, c.get("level") or 0,
+        ), reverse=True)
         if champions:
-            lines.append("───────────────────")
-            lines.append("  英雄熟练度 TOP5:")
-            for i, c in enumerate(champions[:5], 1):
-                lines.append(f"    {i}. {c['name']} - {c['level']} ({c['points']:,})")
-
-        if puuid:
-            games, current = await asyncio.gather(
-                self._client.query_games(puuid, area),
-                self._client.query_current_game(puuid, area),
-            )
-
-            if games.get("code") == 0:
-                win = games.get("win", 0)
-                lose = games.get("lose", 0)
-                sl = games.get("sl", 0)
-                lines.append("───────────────────")
-                lines.append(f"  近期战绩: {win}胜 {lose}负 (胜率{sl}%)")
-
-                zj_html = games.get("zj", "")
-                matches = _parse_match_cards(zj_html)
-                if matches:
-                    lines.append("  最近对局:")
-                    for m in matches[:5]:
-                        icon = "赢" if m["result"] == "胜利" else "输"
-                        champ_cn = _champion_cn(m["champion"])
-
-                        mode = m.get("mode") or ""
-                        if mode:
-                            mode = mode.replace("单排/双排", "单双排位")
-                        score = m.get("score") or ""
-                        duration = m.get("duration") or ""
-                        date = m.get("date") or ""
-
-                        mode_part = f"{mode} " if mode else ""
-                        score_part = f" 评分{score}" if score else ""
-                        duration_part = f" [{duration}]" if duration else ""
-                        date_part = f" {date}" if date else ""
-
-                        lines.append(
-                            f"    {icon} {mode_part}{champ_cn} "
-                            f"{m['kda']}{score_part}"
-                            f"{duration_part}{date_part}"
-                        )
-
-            if current.get("code") == 0:
-                lines.append("───────────────────")
-                lines.append("  ★ 当前正在游戏中!")
-                if current.get("mode"):
-                    lines.append(f"    模式: {current['mode']}")
-
+            lines.extend(["───────────────────", "  英雄熟练度 TOP5:"])
+            for i, champion in enumerate(champions[:5], 1):
+                lines.append(
+                    f"    {i}. {champion.get('name', '未知英雄')} - "
+                    f"{champion.get('level', 0)}级英雄成就 ({champion.get('points', 0):,})"
+                )
+        elif info.get("champion_mastery_error"):
+            lines.append(f"  英雄熟练度读取失败: {info['champion_mastery_error']}")
+        games_response = result["games_response"]
+        lines.append("───────────────────")
+        if games_response.get("code") != 0:
+            lines.append(f"  战绩读取失败: {games_response.get('message', 'FA8 查询失败')}")
+        else:
+            games = (games_response.get("data") or {}).get("games") or []
+            if not games:
+                lines.append("  暂无近期战绩")
+            else:
+                wins = sum(_won(game) for game in games)
+                lines.append(f"  近期战绩: {wins}胜 {len(games) - wins}负 (胜率{wins / len(games):.0%})")
+                lines.append("  最近对局:")
+                for game in games[:5]:
+                    participant = game.get("player") or {}
+                    outcome = game.get("result") or _outcome(_won(game))
+                    champion = participant.get("champion_title") or _champion_cn(
+                        participant.get("champion_name") or "未知英雄"
+                    )
+                    kda = "/".join(str(participant.get(key, 0)) for key in ("kills", "deaths", "assists"))
+                    duration = int(game.get("duration") or 0)
+                    minutes, seconds = divmod(duration, 60)
+                    lines.append(
+                        f"    {outcome} {game.get('mode', '')} {champion} {kda} "
+                        f"[{minutes}:{seconds:02d}] {_format_date(game.get('created_at'))}"
+                    )
         lines.append("═══════════════════")
         return "\n".join(lines)

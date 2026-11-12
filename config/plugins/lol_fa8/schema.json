@@ -23,11 +23,11 @@
       "example": ""
     },
     {
-      "name": "default_area",
+      "name": "session_cookie",
       "type": "string",
       "required": false,
-      "default": "1",
-      "example": "1"
+      "default": "",
+      "example": ""
     }
   ]
 }
