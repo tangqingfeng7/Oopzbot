@@ -1,4 +1,4 @@
-from app.services.runtime import CommandRuntimeView
+from app.services.runtime import CommandRuntimeView, plugins_of
 
 from .command_message_service import MessageContext
 
@@ -46,8 +46,10 @@ class CommandRouter:
         )
 
     async def _route_chat(self, ctx: MessageContext) -> None:
-        await self._services.interaction.chat.handle_plain_chat(
+        await plugins_of(self._runtime).try_dispatch_message(
             ctx.content,
             ctx.channel,
             ctx.area,
+            ctx.user,
+            self._runtime.plugin_host,
         )

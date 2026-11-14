@@ -26,11 +26,6 @@ def admin_config_page():
     return _render_admin_page("config")
 
 
-@router.get("/admin/screen-share", response_class=HTMLResponse)
-def admin_screen_share_page():
-    return _render_admin_page("screen-share")
-
-
 @router.get("/admin/stats", response_class=HTMLResponse)
 def admin_stats_page():
     return _render_admin_page("stats")
@@ -41,16 +36,6 @@ def admin_system_page():
     return _render_admin_page("system")
 
 
-@router.get("/admin/activity", response_class=HTMLResponse)
-def admin_activity_page():
-    return _render_admin_page("activity")
-
-
-@router.get("/admin/scheduler", response_class=HTMLResponse)
-def admin_scheduler_page():
-    return _render_admin_page("scheduler")
-
-
 @router.get("/admin/areas", response_class=HTMLResponse)
 def admin_areas_page():
     return _render_admin_page("areas")
@@ -59,10 +44,5 @@ def admin_areas_page():
 @router.get("/admin/plugins", response_class=HTMLResponse)
 def admin_plugins_page():
     return _render_admin_page("plugins")
-
-
-@router.get("/admin/setup", response_class=HTMLResponse)
-def admin_setup_page():
-    return _render_admin_page("setup")
 
 __all__ = ["router"]

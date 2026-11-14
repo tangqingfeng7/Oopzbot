@@ -1,12 +1,13 @@
-"""屏幕共享会话、角色授权和声网 Token 编排。"""
-
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import json
 import logging
 import secrets
 import time
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any, Protocol, cast
 
@@ -105,9 +106,17 @@ _STOP_LUA = """
 local payload = redis.call('get', KEYS[1])
 if not payload then return '' end
 local data = cjson.decode(payload)
-redis.call('del', KEYS[1], KEYS[2], KEYS[3], KEYS[4], KEYS[5], KEYS[7])
-local legacy_sid = redis.call('get', KEYS[6])
-if legacy_sid and legacy_sid == data['id'] then redis.call('del', KEYS[6]) end
+redis.call('del', KEYS[1], KEYS[2], KEYS[3], KEYS[5])
+local legacy_sid = redis.call('get', KEYS[4])
+if legacy_sid and legacy_sid == data['id'] then redis.call('del', KEYS[4]) end
+local hashes = {
+    presenter = data['presenter_token_hash'],
+    viewer = data['viewer_token_hash'],
+    auth = data['presenter_auth_hash']
+}
+for kind, hash in pairs(hashes) do
+    if hash ~= '' then redis.call('del', ARGV[1] .. ':' .. kind .. ':' .. hash) end
+end
 return payload
 """
 
@@ -185,6 +194,41 @@ class ScreenShareService:
     def __init__(self) -> None:
         # 后台观看令牌只保存在进程内；Redis 仍只保存哈希。
         self._admin_viewer_tokens: dict[str, tuple[str, int]] = {}
+        self._creating = 0
+        self._creation_idle = asyncio.Event()
+        self._creation_idle.set()
+        self.accepting = True
+
+    @asynccontextmanager
+    async def creation(self) -> AsyncIterator[None]:
+        self._require_accepting()
+        self._creating += 1
+        self._creation_idle.clear()
+        try:
+            yield
+        finally:
+            self._creating -= 1
+            if not self._creating:
+                self._creation_idle.set()
+
+    def _require_accepting(self) -> None:
+        if not self.accepting:
+            raise ScreenShareError("屏幕共享插件正在卸载", code="plugin_unloading", status_code=410)
+
+    async def disable(self, announce: Callable[[dict[str, Any]], Awaitable[None]]) -> None:
+        self._require_accepting()
+        self.accepting = False
+        completed = False
+        try:
+            await self._creation_idle.wait()
+            async for session in self._sessions():
+                stopped = await self.stop(session, reason="plugin_unload")
+                if stopped is not None:
+                    await announce(stopped)
+            completed = True
+        finally:
+            if not completed:
+                self.accepting = True
 
     async def _redis(self) -> ScreenShareRedis:
         try:
@@ -605,14 +649,16 @@ class ScreenShareService:
         shares.sort(key=lambda item: item["ready_at"], reverse=True)
         return shares
 
-    async def stop(self, session: dict[str, Any], *, reason: str = "unspecified") -> dict[str, Any]:
+    async def stop(
+        self, session: dict[str, Any], *, reason: str = "unspecified"
+    ) -> dict[str, Any] | None:
         redis = await self._redis()
         session_id = str(session["id"])
         cached_admin_token = self._admin_viewer_tokens.get(session_id)
         admin_viewer_hash = _digest(cached_admin_token[0]) if cached_admin_token else "-"
         result = await redis.eval(
             _STOP_LUA,
-            7,
+            5,
             _session_key(session_id),
             (
                 f"{_PREFIX}:channel:"
@@ -620,14 +666,15 @@ class ScreenShareService:
                 f"{session['id']}"
             ),
             f"{_PREFIX}:user:{_digest(str(session['presenter_uid']))}",
-            f"{_PREFIX}:viewer:{session['viewer_token_hash']}",
-            f"{_PREFIX}:auth:{session.get('presenter_auth_hash') or '-'}",
             f"{_PREFIX}:channel:{_scope_key(str(session['area']), str(session['channel']))}",
             f"{_PREFIX}:viewer:{admin_viewer_hash}",
+            _PREFIX,
         )
         result_text = redis_optional_text(result, field="screen share stop result") or ""
-        stopped = dict(json.loads(result_text)) if result_text else session
         self._admin_viewer_tokens.pop(session_id, None)
+        if not result_text:
+            return None
+        stopped = dict(json.loads(result_text))
         logger.info(
             "屏幕共享会话结束: session_id=%s area=%s channel=%s status=%s reason=%s",
             stopped.get("id", ""),
@@ -638,7 +685,9 @@ class ScreenShareService:
         )
         return stopped
 
-    async def stop_by_auth(self, auth_token: str, *, reason: str = "presenter_request") -> dict[str, Any]:
+    async def stop_by_auth(
+        self, auth_token: str, *, reason: str = "presenter_request"
+    ) -> dict[str, Any] | None:
         return await self.stop(await self._session_from_auth(auth_token), reason=reason)
 
     async def get_by_id(self, session_id: str) -> dict[str, Any] | None:
@@ -714,10 +763,33 @@ class ScreenShareService:
         *,
         heartbeat_timeout: int = _HEARTBEAT_TIMEOUT_SECONDS,
     ) -> list[dict[str, Any]]:
-        redis = await self._redis()
-        cursor = 0
         expired: list[dict[str, Any]] = []
         now = int(time.time())
+        async for session in self._sessions():
+            if session.get("status") != "active":
+                continue
+            expires_at = redis_int(
+                session.get("expires_at") or 0,
+                field="screen share expiration",
+            )
+            last = redis_int(
+                session.get("last_heartbeat") or session.get("ready_at") or 0,
+                field="screen share heartbeat timestamp",
+            )
+            if expires_at and now >= expires_at:
+                reason = "session_expired"
+            elif last and now - last > heartbeat_timeout:
+                reason = "heartbeat_timeout"
+            else:
+                continue
+            stopped = await self.stop(session, reason=reason)
+            if stopped is not None:
+                expired.append(stopped)
+        return expired
+
+    async def _sessions(self) -> AsyncIterator[dict[str, Any]]:
+        redis = await self._redis()
+        cursor = 0
         while True:
             cursor, keys = await redis.scan(cursor=cursor, match=f"{_PREFIX}:session:*", count=100)
             for key in keys:
@@ -729,26 +801,10 @@ class ScreenShareService:
                     field="screen share session",
                     key=key,
                 )
-                if session is None:
-                    continue
-                if session.get("status") != "active":
-                    continue
-                expires_at = redis_int(
-                    session.get("expires_at") or 0,
-                    field="screen share expiration",
-                )
-                if expires_at and now >= expires_at:
-                    expired.append(await self.stop(session, reason="session_expired"))
-                    continue
-                last = redis_int(
-                    session.get("last_heartbeat") or session.get("ready_at") or 0,
-                    field="screen share heartbeat timestamp",
-                )
-                if last and now - last > heartbeat_timeout:
-                    expired.append(await self.stop(session, reason="heartbeat_timeout"))
+                if session is not None:
+                    yield session
             if int(cursor) == 0:
                 break
-        return expired
 
 
 _service: ScreenShareService | None = None

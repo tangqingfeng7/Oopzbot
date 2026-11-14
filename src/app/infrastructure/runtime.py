@@ -1,7 +1,9 @@
 import asyncio
 import json
 import os
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from core.constants import PLUGINS_DIR_NAME
 from core.logger_config import get_logger
@@ -17,6 +19,11 @@ from .plugin_runtime import (
     reload_plugin_config,
     unload_plugin,
 )
+
+if TYPE_CHECKING:
+    from fastapi import APIRouter
+
+    from web.plugin_routes import AdminNavItem
 
 _DEFAULT_PLUGIN_STATE_PATH = os.path.join(DATA_DIR, "plugin_runtime_state.json")
 logger = get_logger("PluginRuntime")
@@ -51,13 +58,7 @@ class MusicGateway:
         """配置热更新时刷新已创建的音乐平台实例。"""
         if self._handler is None:
             return {"available": True, "refreshed": False, "reason": "音乐处理器尚未初始化"}
-        refresh = getattr(self._handler, "refresh_platforms", None)
-        if callable(refresh):
-            result = refresh()
-            if isinstance(result, dict):
-                return result
-            return {"available": False, "refreshed": False, "reason": "刷新结果格式无效"}
-        return {"available": False, "refreshed": False, "reason": "音乐处理器不支持刷新"}
+        return self._handler.refresh_platforms()
 
 
 class PluginRuntime:
@@ -116,32 +117,48 @@ class PluginRuntime:
     ) -> bool:
         return await self._registry.try_dispatch_slash(command, subcommand, arg, channel, area, user, handler)
 
+    async def try_dispatch_message(self, text: str, channel: str, area: str, user: str, handler) -> bool:
+        return await self._registry.try_dispatch_message(text, channel, area, user, handler)
+
     def discover(self) -> list[str]:
         return discover_plugins(self._plugins_dir)
 
     def enabled_plugin_names(self) -> list[str]:
         return [descriptor.name for descriptor in self.list_descriptors()]
 
-    def _read_enabled_plugins_sync(self) -> list[str] | None:
+    def _read_state_sync(self) -> tuple[list[str] | None, set[str]]:
+        """返回 (已启用插件, 曾成功加载过的插件)；状态文件缺失或损坏时启用列表为 None。"""
         if not os.path.isfile(self._state_path):
-            return None
+            return None, set()
         try:
             with open(self._state_path, encoding="utf-8") as file:
                 payload = json.load(file)
         except Exception:
-            return None
+            return None, set()
         enabled = payload.get("enabled_plugins")
-        if isinstance(enabled, list):
-            return [str(name) for name in enabled if str(name).strip()]
-        return None
+        if not isinstance(enabled, list):
+            return None, set()
+        names = [str(name) for name in enabled if str(name).strip()]
+        known = payload.get("known_plugins")
+        # 旧格式只有启用列表，此时把未启用的插件都当作新插件。
+        if not isinstance(known, list):
+            return names, set(names)
+        return names, {str(name) for name in known if str(name).strip()}
 
     def _persist_enabled_plugins_sync(self) -> str | None:
         try:
+            enabled = self.enabled_plugin_names()
+            known = self._read_state_sync()[1] | set(enabled)
             directory = os.path.dirname(self._state_path)
             if directory:
                 os.makedirs(directory, exist_ok=True)
             with open(self._state_path, "w", encoding="utf-8") as file:
-                json.dump({"enabled_plugins": self.enabled_plugin_names()}, file, ensure_ascii=False, indent=2)
+                json.dump(
+                    {"enabled_plugins": enabled, "known_plugins": sorted(known)},
+                    file,
+                    ensure_ascii=False,
+                    indent=2,
+                )
             return None
         except Exception as exc:
             return str(exc)
@@ -186,8 +203,9 @@ class PluginRuntime:
 
     async def load_all(self, handler=None) -> list[str]:
         discovered = await asyncio.to_thread(self.discover)
-        enabled = await asyncio.to_thread(self._read_enabled_plugins_sync)
-        to_load = [name for name in discovered if enabled is None or name in enabled]
+        enabled, known = await asyncio.to_thread(self._read_state_sync)
+        # 从未成功加载过的插件默认加载；手动卸载过的保持卸载。
+        to_load = [name for name in discovered if enabled is None or name in enabled or name not in known]
         loaded: list[str] = []
         for name in to_load:
             result = await load_plugin(self._registry, name, self._plugins_dir, handler=handler)
@@ -215,6 +233,15 @@ class PluginHost:
     @property
     def services(self):
         return self._services_getter()
+
+    def register_web(
+        self, router: "APIRouter", *, admin_nav: "AdminNavItem | None" = None
+    ) -> Callable[[], None]:
+        """在现有 Web 应用注册插件路由，返回注销函数。"""
+        from web.plugin_routes import register_web
+        from web.web_player import app
+
+        return register_web(app, router, admin_nav=admin_nav)
 
 
 @dataclass(frozen=True)

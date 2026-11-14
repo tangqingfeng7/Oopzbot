@@ -98,7 +98,7 @@ class SdkMemberQueriesTest(unittest.IsolatedAsyncioTestCase):
         self.bot.areas.get_area_can_give_list = AsyncMock(return_value=[])
         with (
             patch("web.web_player.get_sender", return_value=self.sender),
-            patch.object(_members.MessageStatsDB, "get_user_ranking", AsyncMock(return_value=[])),
+            patch.object(_members.MessageStatsDB, "get_user_total", AsyncMock(return_value=0)),
             patch.object(_members.time, "time", return_value=1800000000),
         ):
             for value, expected in [("1800000060000", True), ("1799999999000", False), (None, False)]:
@@ -123,9 +123,7 @@ class SdkMemberQueriesTest(unittest.IsolatedAsyncioTestCase):
         ])
         with (
             patch("web.web_player.get_sender", return_value=self.sender),
-            patch.object(_members.MessageStatsDB, "get_user_ranking", AsyncMock(return_value=[
-                {"user_id": "member", "total": 7},
-            ])),
+            patch.object(_members.MessageStatsDB, "get_user_total", AsyncMock(return_value=7)),
         ):
             data = json.loads(bytes((await _members.admin_member_detail("member", "area")).body))
         self.assertEqual(data["person"], {

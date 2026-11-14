@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, sentinel
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -139,8 +139,8 @@ class CommandRouterTest(unittest.IsolatedAsyncioTestCase):
         self.mention.dispatch = AsyncMock(return_value=False)
         self.slash = Mock()
         self.slash.dispatch = AsyncMock(return_value=True)
-        self.chat = Mock()
-        self.chat.handle_plain_chat = AsyncMock(return_value=True)
+        self.plugins = Mock()
+        self.plugins.try_dispatch_message = AsyncMock(return_value=True)
         self.recall_scheduler = Mock()
         self.recall_scheduler.cancel_all = AsyncMock()
         self.recall_scheduler.schedule_recall = AsyncMock()
@@ -148,9 +148,10 @@ class CommandRouterTest(unittest.IsolatedAsyncioTestCase):
         self.recall_scheduler.stop = AsyncMock()
         self.runtime = _runtime(
             bot_mention="(met)bot(met)",
+            plugins=self.plugins,
+            plugin_host=sentinel.plugin_host,
             services=SimpleNamespace(
                 routing=SimpleNamespace(mention=self.mention, slash=self.slash),
-                interaction=SimpleNamespace(chat=self.chat),
                 safety=SimpleNamespace(recall_scheduler=self.recall_scheduler),
             ),
         )
@@ -208,7 +209,7 @@ class CommandRouterTest(unittest.IsolatedAsyncioTestCase):
             "ts-1",
         )
 
-    async def test_route_plain_chat_delegates_to_chat_service(self) -> None:
+    async def test_route_plain_chat_delegates_to_plugins(self) -> None:
         from app.services.routing.command_message_service import MessageContext
 
         router = self._build_router()
@@ -224,7 +225,9 @@ class CommandRouterTest(unittest.IsolatedAsyncioTestCase):
 
         await router.route(ctx)
 
-        self.chat.handle_plain_chat.assert_called_once_with("plain chat", "channel", "area")
+        self.plugins.try_dispatch_message.assert_called_once_with(
+            "plain chat", "channel", "area", "user-1", sentinel.plugin_host,
+        )
         self.recall_scheduler.schedule_user_message_recall.assert_not_called()
 
 
@@ -250,7 +253,6 @@ class MentionCommandRouterTest(unittest.IsolatedAsyncioTestCase):
                 interaction=SimpleNamespace(help=help_service, chat=chat, music=music),
                 community=SimpleNamespace(member=Mock(), role=Mock(), target_resolution=Mock()),
                 safety=SimpleNamespace(moderation=Mock(), recall=Mock()),
-                scheduler=Mock(),
                 plugins=SimpleNamespace(management=Mock()),
             ),
         )

@@ -1,0 +1,6 @@
+{
+  "scheduled_check_interval_seconds": 30,
+  "reminder_check_interval_seconds": 15,
+  "reminder_max_per_user": 5,
+  "reminder_max_delay_hours": 72
+}

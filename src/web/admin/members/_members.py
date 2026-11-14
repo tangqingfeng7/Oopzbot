@@ -37,30 +37,28 @@ _areas_cache = TtlCache(_AREAS_CACHE_TTL, maxsize=1)
 _area_meta_cache = TtlCache(_AREA_META_CACHE_TTL)
 
 
+async def _joined_areas(sender) -> list[dict]:
+    areas = _areas_cache.get("all")
+    if areas is None:
+        areas = [
+            {"id": a.area_id, "name": a.name, "code": a.code, "avatar": a.avatar}
+            for a in await sender.bot.areas.get_joined_areas()
+        ]
+        _areas_cache.set("all", areas)
+    return areas
+
+
 @router.get("/admin/api/areas")
 async def admin_areas_list():
     """返回 Bot 已加入的域列表,供前端域选择器使用。"""
-    cached = _areas_cache.get("all")
-    if cached is not None:
-        return JSONResponse(cached)
     sender = _get_sender()
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
     try:
-        areas = await sender.bot.areas.get_joined_areas()
+        areas = await _joined_areas(sender)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-    items = []
-    for a in areas:
-        items.append({
-            "id": a.area_id,
-            "name": a.name,
-            "code": a.code,
-            "avatar": a.avatar,
-        })
-    resp = {"ok": True, "areas": items}
-    _areas_cache.set("all", resp)
-    return JSONResponse(resp)
+    return JSONResponse({"ok": True, "areas": areas})
 
 
 @router.get("/admin/api/areas/{area_id}/meta")
@@ -109,8 +107,26 @@ async def _area_name_map() -> dict[str, str]:
     sender = _get_sender()
     if not sender:
         return {}
-    areas = await sender.bot.areas.get_joined_areas()
-    return {a.area_id: (a.name or a.area_id) for a in areas if a.area_id}
+    return {a["id"]: (a["name"] or a["id"]) for a in await _joined_areas(sender) if a["id"]}
+
+
+async def _person_map(sender, uids: list[str]) -> dict:
+    if not uids:
+        return {}
+    try:
+        return {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
+    except Exception:
+        logger.debug("批量获取用户信息失败", exc_info=True)
+        return {}
+
+
+async def _area_role_names(sender, area: str) -> dict[int, str]:
+    try:
+        area_info = await sender.bot.areas.get_area_info(area=area)
+    except Exception:
+        logger.debug("获取域信息失败 (area=%s)", area[:8])
+        return {}
+    return {role.role_id: role.name for role in area_info.role_list}
 
 
 @router.get("/admin/api/members")
@@ -153,22 +169,10 @@ async def admin_members_list(
     if not page.role_count:
         online = sum(member.online == 1 for member in page.members)
 
-    uids = [m.uid for m in members if m.uid]
-    person_map: dict = {}
-    if uids:
-        try:
-            person_map = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
-        except Exception:
-            logger.debug("批量获取用户信息失败", exc_info=True)
-
-    area_info = None
-    try:
-        area_info = await sender.bot.areas.get_area_info(area=resolved_area)
-    except Exception:
-        logger.debug("获取域信息失败 (area=%s)", resolved_area[:8] if resolved_area else "")
-    role_name_map: dict[int, str] = {}
-    if area_info:
-        role_name_map = {role.role_id: role.name for role in area_info.role_list}
+    person_map, role_name_map = await asyncio.gather(
+        _person_map(sender, [m.uid for m in members if m.uid]),
+        _area_role_names(sender, resolved_area),
+    )
 
     if keyword:
         kw = keyword.lower()
@@ -251,20 +255,13 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
         # 同一个人可能同时在多个域，按 uid 合并成一行并记录全部所属域。
         # 保持一人一行，既避免列表里重复出现，也让前端能一次展示所有域标签。
         by_uid: dict[str, dict] = {}
-        failed: list[str] = []
-        for area_id, result in results:
-            if result is None:
-                failed.append(names.get(area_id, area_id))
-                continue
-            members = result.members
-            uids = [m.uid for m in members if m.uid]
-            person_map: dict = {}
-            if uids:
-                try:
-                    person_map = {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
-                except Exception:
-                    logger.debug("跨域批量取用户信息失败 area=%s", area_id[:8], exc_info=True)
-            for m in members:
+        failed = [names.get(area_id, area_id) for area_id, result in results if result is None]
+        fetched = [(area_id, result) for area_id, result in results if result is not None]
+        person_map = await _person_map(
+            sender, list(dict.fromkeys(m.uid for _, result in fetched for m in result.members if m.uid)),
+        )
+        for area_id, result in fetched:
+            for m in result.members:
                 uid = m.uid
                 if not uid:
                     continue
@@ -407,22 +404,14 @@ async def admin_member_detail(uid: str, area: str = Query("")):
     if not area:
         return JSONResponse({"ok": False, "error": "未找到域 ID"}, status_code=400)
     try:
-        detail = await sender.bot.areas.get_area_user_detail(area, uid)
-        person = await sender.bot.person.get_person_info(uid)
-        assignable = await sender.bot.areas.get_area_can_give_list(area, uid)
+        detail, person, assignable, user_msg_count = await asyncio.gather(
+            sender.bot.areas.get_area_user_detail(area, uid),
+            sender.bot.person.get_person_info(uid),
+            sender.bot.areas.get_area_can_give_list(area, uid),
+            MessageStatsDB.get_user_total(area, uid, days=7),
+        )
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-    default_area = area
-    stats_data = await MessageStatsDB.get_user_ranking(
-        area_id=default_area,
-        days=7,
-        limit=100,
-    )
-    user_msg_count = 0
-    for s in stats_data:
-        if s.get("user_id") == uid:
-            user_msg_count = s.get("total", 0)
-            break
 
     person_data = {
         "name": person.name or uid[:8],
@@ -460,124 +449,68 @@ async def _extract_area(body: dict) -> str:
     return (body.get("area") or "").strip() or await _resolve_area_async()
 
 
-@router.post("/admin/api/members/{uid}/mute")
-@require_sender
-async def admin_member_mute(uid: str, request: Request):
+async def _moderate(
+    uid: str, request: Request, operation: str, done: str, *, default_duration: int | None = None,
+) -> JSONResponse:
     sender = _require_sender()
     body = await read_json_body(request)
     area = await _extract_area(body)
+    kwargs = {}
+    if default_duration is not None:
+        try:
+            kwargs["duration"] = int(body.get("duration", default_duration))
+        except (TypeError, ValueError):
+            return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
     try:
-        duration = int(body.get("duration", 5))
-    except (TypeError, ValueError):
-        return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
-    try:
-        result = await sender.bot.moderation.mute_user(area, uid, duration=duration)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
+        result = await getattr(sender.bot.moderation, operation)(area, uid, **kwargs)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)})
+    if not result.ok:
+        return JSONResponse({"ok": False, "error": result.message or "操作被拒绝"})
     _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已禁言")})
+    return JSONResponse({"ok": True, "message": result.message or done})
+
+
+@router.post("/admin/api/members/{uid}/mute")
+@require_sender
+async def admin_member_mute(uid: str, request: Request):
+    return await _moderate(uid, request, "mute_user", "已禁言", default_duration=5)
 
 
 @router.post("/admin/api/members/{uid}/unmute")
 @require_sender
 async def admin_member_unmute(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        result = await sender.bot.moderation.unmute_user(area, uid)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已解除禁言")})
+    return await _moderate(uid, request, "unmute_user", "已解除禁言")
 
 
 @router.post("/admin/api/members/{uid}/mute-mic")
 @require_sender
 async def admin_member_mute_mic(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        duration = int(body.get("duration", 10))
-    except (TypeError, ValueError):
-        return JSONResponse({"ok": False, "error": "duration 必须为整数"}, status_code=400)
-    try:
-        result = await sender.bot.moderation.mute_mic(area, uid, duration=duration)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已禁麦")})
+    return await _moderate(uid, request, "mute_mic", "已禁麦", default_duration=10)
 
 
 @router.post("/admin/api/members/{uid}/unmute-mic")
 @require_sender
 async def admin_member_unmute_mic(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        result = await sender.bot.moderation.unmute_mic(area, uid)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已解除禁麦")})
+    return await _moderate(uid, request, "unmute_mic", "已解除禁麦")
 
 
 @router.post("/admin/api/members/{uid}/kick")
 @require_sender
 async def admin_member_kick(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        result = await sender.bot.moderation.remove_from_area(area, uid)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已踢出")})
+    return await _moderate(uid, request, "remove_from_area", "已踢出")
 
 
 @router.post("/admin/api/members/{uid}/block")
 @require_sender
 async def admin_member_block(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        result = await sender.bot.moderation.block_user_in_area(area, uid)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已封禁")})
+    return await _moderate(uid, request, "block_user_in_area", "已封禁")
 
 
 @router.post("/admin/api/members/{uid}/unblock")
 @require_sender
 async def admin_member_unblock(uid: str, request: Request):
-    sender = _require_sender()
-    body = await read_json_body(request)
-    area = await _extract_area(body)
-    try:
-        result = await sender.bot.moderation.unblock_user_in_area(area, uid)
-        if not result.ok:
-            raise RuntimeError(result.message or "操作被拒绝")
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)})
-    _invalidate_members_cache(area)
-    return JSONResponse({"ok": True, "message": (result.message or "已解封")})
+    return await _moderate(uid, request, "unblock_user_in_area", "已解封")
 
 
 @router.post("/admin/api/members/{uid}/role")

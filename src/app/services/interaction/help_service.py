@@ -53,17 +53,6 @@ class HelpService:
             *topic_lines,
         ]
 
-        lines += [
-            "",
-            "**提醒 & 统计**",
-            "@bot 提醒 30分钟后 <内容>  设置提醒  |  /remind <时间> <内容>",
-            "@bot 我的提醒  查看待执行提醒  |  /remind list",
-            "@bot 活跃排行  近7天排行  |  /ranking",
-            "@bot 频道统计  频道消息统计  |  /chatstats",
-            "@bot 点歌排行  播放最多的歌  |  /topsongs",
-            "@bot 最近播放  最近播放的歌  |  /recentsongs",
-        ]
-
         if is_admin:
             lines += [
                 "",

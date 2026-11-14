@@ -4,19 +4,19 @@ import asyncio
 import contextlib
 import copy
 import random
-import threading
 import time
 import uuid
 from typing import Any, Protocol, cast
 from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
 
+from oopz_sdk.exceptions import OopzError
 from oopz_sdk.models import ImageAttachment
 from oopz_sdk.models.segment import Image as ImageSegment
 
 from app.infrastructure.gateways.sender_gateway import SenderGateway
 from app.services.playback import PlaybackAreaResolver
 from config import OOPZ_CONFIG, WEB_PLAYER_CONFIG
-from core.database import ImageCache, SongCache, Statistics
+from core.database import ImageCache
 from core.logger_config import get_logger
 from core.queue_manager import QueueManager, get_redis_client
 from core.redis_keys import (
@@ -155,12 +155,11 @@ class MusicHandler(PlaybackMixin):
         self._init_extra_platforms()
 
         # 登录账号"我喜欢的音乐"本地搜索索引：/bf 时优先在这里命中，
-        # 命中可省一次 cloudsearch 且更贴近用户口味。索引在后台懒加载，
+        # 命中可省一次 cloudsearch 。索引在后台懒加载，
         # 不阻塞启动；30 分钟过期后下一次 /bf 会触发后台刷新。
         self._liked_search_index: list[dict] = []
         self._liked_search_loaded_at: float = 0.0
-        self._liked_search_loading: bool = False
-        self._liked_search_lock = threading.Lock()
+        self._liked_probe_at: float = 0.0
         self._liked_refresh_task: asyncio.Task[None] | None = self._create_task(
             self._refresh_liked_search_index(),
             name="music-liked-index-refresh",
@@ -316,7 +315,7 @@ class MusicHandler(PlaybackMixin):
             if self._playlist_idle_since <= 0:
                 self._playlist_idle_since = time.time()
                 return
-            if getattr(self, "_web_link_released_due_to_idle", False):
+            if self._web_link_released_due_to_idle:
                 return
             idle_for = time.time() - self._playlist_idle_since
             if idle_for >= timeout:
@@ -520,7 +519,7 @@ class MusicHandler(PlaybackMixin):
 
         # 在任何外部停止/退出动作前先使旧推流快照失效，避免回调在
         # leave 期间重新写回上一会话的状态。
-        self._playback_generation = getattr(self, "_playback_generation", 0) + 1
+        self._playback_generation += 1
 
         # 先断开 Agora RTC 连接
         if self.voice and self.voice.available:
@@ -665,7 +664,7 @@ class MusicHandler(PlaybackMixin):
         self._kickoff_cover_prefetch(song_data)
         if not await self._check_and_enter_voice_channel(user, channel, area):
             return
-        user_name = self.names.user(user) if user else "未知用户"
+        user_name = await self._requester_name(user)
         result = await self._commit_song_request(song_data, prefix=f"{user_name} 从搜歌结果中选择了")
         await self.sender.send_message(text=result["message"], attachments=result.get("attachments", []), channel=channel, area=area)
 
@@ -718,23 +717,8 @@ class MusicHandler(PlaybackMixin):
             self._play_start_time = 0
             self._play_duration = 0
 
-            play_uuid = str(uuid.uuid4())
-            next_song["play_uuid"] = play_uuid
-            await self._mark_web_active_area(area, queue=q)
-            await self._start_playing(next_song.get("duration_ms", 0), area=area)
-            await q.set_current(next_song)
-
-            await SongCache.record_play(
-                song_id=str(next_song.get("song_id") or ""),
-                platform=str(next_song.get("platform") or _PLATFORM_NETEASE),
-                data=next_song,
-                channel_id=channel,
-                user_id=user,
-            )
-            await Statistics.update_today(
-                str(next_song.get("platform") or _PLATFORM_NETEASE),
-                cache_hit=False,
-            )
+            await self._set_current_song(next_song, area, q)
+            await self._record_play(next_song, channel, user)
 
             self._start_stream_task(next_song, session)
             await self._preload_next_song_if_any(queue=q)
@@ -817,7 +801,7 @@ class MusicHandler(PlaybackMixin):
             return
         self._kickoff_cover_prefetch(song_data)
 
-        user_name = self.names.user(user) if user else "未知用户"
+        user_name = await self._requester_name(user)
         result = await self._commit_song_request(song_data, prefix=f"{user_name} 从喜欢列表点播了")
         await self.sender.send_message(
             text=result["message"],
@@ -847,7 +831,7 @@ class MusicHandler(PlaybackMixin):
         first_text = None
         first_attachments = []
 
-        user_name = self.names.user(user) if user else "未知用户"
+        user_name = await self._requester_name(user)
         prefix = f"{user_name} 随机播放了喜欢的音乐"
 
         for song_id in selected:
@@ -906,20 +890,17 @@ class MusicHandler(PlaybackMixin):
     async def get_play_mode(self, queue=None) -> str:
         """读取当前播放模式；未配置时默认列表循环。"""
         q = queue or self.queue
-        mode = await q.get_play_mode() if hasattr(q, "get_play_mode") else None
+        mode = await q.get_play_mode()
         if mode not in _VALID_PLAY_MODES:
             mode = PLAY_MODE_LIST
-            if hasattr(q, "set_play_mode"):
-                await q.set_play_mode(mode)
+            await q.set_play_mode(mode)
         return mode
 
     async def set_play_mode(self, mode: str, queue=None) -> None:
         """设置播放模式。"""
         if mode not in _VALID_PLAY_MODES:
             raise ValueError(f"无效播放模式: {mode}")
-        q = queue or self.queue
-        if hasattr(q, "set_play_mode"):
-            await q.set_play_mode(mode)
+        await (queue or self.queue).set_play_mode(mode)
 
     async def _build_autoplay_song(self, current_song: dict | None) -> dict | None:
         uid = await self.netease.get_user_id()
@@ -955,9 +936,6 @@ class MusicHandler(PlaybackMixin):
 
     async def _refresh_liked_search_index(self) -> None:
         """后台刷新喜欢列表索引；失败静默回退到原有全网搜索。"""
-        if self._liked_search_loading:
-            return
-        self._liked_search_loading = True
         try:
             uid = await self.netease.get_user_id()
             if not uid:
@@ -967,14 +945,11 @@ class MusicHandler(PlaybackMixin):
             if not details:
                 logger.debug("喜欢列表为空或拉取失败，跳过索引加载")
                 return
-            with self._liked_search_lock:
-                self._liked_search_index = details
-                self._liked_search_loaded_at = time.time()
+            self._liked_search_index = details
+            self._liked_search_loaded_at = time.time()
             logger.info(f"喜欢列表索引已加载: {len(details)} 首")
         except Exception as e:
             logger.warning(f"加载喜欢列表索引失败: {e}")
-        finally:
-            self._liked_search_loading = False
 
     @staticmethod
     def _match_liked_in(songs: list[dict], keyword: str) -> dict | None:
@@ -1033,12 +1008,12 @@ class MusicHandler(PlaybackMixin):
         if not keyword or not keyword.strip():
             return None
 
-        with self._liked_search_lock:
-            index = list(self._liked_search_index)
-            loaded_at = self._liked_search_loaded_at
+        index = self._liked_search_index
+        loaded_at = self._liked_search_loaded_at
+        now = time.time()
 
         # 索引过期就后台补一次，但同一时刻只允许有一个刷新任务在跑
-        index_is_stale = bool(loaded_at) and time.time() - loaded_at > self._LIKED_SEARCH_TTL
+        index_is_stale = bool(loaded_at) and now - loaded_at > self._LIKED_SEARCH_TTL
         refresh_idle = self._liked_refresh_task is None or self._liked_refresh_task.done()
         if index_is_stale and refresh_idle:
             self._liked_refresh_task = self._create_task(
@@ -1054,10 +1029,14 @@ class MusicHandler(PlaybackMixin):
             logger.debug("/bf 喜欢列表索引尚未就绪，跳过喜欢列表搜索")
             return None
 
-        # 增量补漏：cache miss 时检查是否有新增 ID 可补
+        # 增量补漏：cache miss 时检查是否有新增 ID 可补；多数 /bf 本就不在喜欢列表里，需节流
+        if now - self._liked_probe_at < self._NEW_LIKED_PROBE_INTERVAL:
+            return None
+        self._liked_probe_at = now
         return await self._lookup_in_new_liked(keyword, {s.get("id") for s in index if s.get("id")})
 
     _NEW_LIKED_PROBE_LIMIT = 200
+    _NEW_LIKED_PROBE_INTERVAL = 60
 
     async def _lookup_in_new_liked(self, keyword: str, existing_ids: set) -> dict | None:
         """从 likelist 里找 cache 还没收录的新增 ID，按需拉详情匹配。"""
@@ -1085,10 +1064,9 @@ class MusicHandler(PlaybackMixin):
                 return None
 
             hit = self._match_liked_in(details, keyword)
-            with self._liked_search_lock:
-                self._liked_search_index.extend(details)
-                if not self._liked_search_loaded_at:
-                    self._liked_search_loaded_at = time.time()
+            self._liked_search_index.extend(details)
+            if not self._liked_search_loaded_at:
+                self._liked_search_loaded_at = time.time()
             if hit:
                 logger.info(
                     "/bf 喜欢列表增量补漏命中: 新增 %d 首 → %s - %s",
@@ -1118,7 +1096,7 @@ class MusicHandler(PlaybackMixin):
             return None, PLAY_MODE_STOP
         if natural_end and mode == PLAY_MODE_SINGLE and current_song:
             return copy.deepcopy(current_song), PLAY_MODE_SINGLE
-        if mode == PLAY_MODE_SHUFFLE and hasattr(q, "pop_random"):
+        if mode == PLAY_MODE_SHUFFLE:
             return await q.pop_random(), "queue"
         next_song = await q.play_next()
         if next_song:
@@ -1225,10 +1203,7 @@ class MusicHandler(PlaybackMixin):
             raw = cmd_raw.decode(errors="replace") if isinstance(cmd_raw, bytes) else str(cmd_raw)
             logger.warning("丢弃无效 Web 控制命令 (%s): %s", exc, raw[:80])
             return False
-        lock = getattr(self, "_playback_lock", None)
-        if lock is None:
-            lock = self._playback_lock = asyncio.Lock()
-        async with lock:
+        async with self._playback_lock:
             snapshot = self._playback_snapshot_locked()
             if not self._web_command_applies_here(command, snapshot=snapshot):
                 area = command.area.value if isinstance(command, AreaWebCommand) else ""
@@ -1247,18 +1222,16 @@ class MusicHandler(PlaybackMixin):
 
     def _playback_snapshot_locked(self) -> PlaybackSessionSnapshot:
         """在持有 ``_playback_lock`` 时捕获完整播放会话。"""
-        current = str(getattr(self, "_voice_channel_area", "") or "").strip()
+        current = (self._voice_channel_area or "").strip()
         return PlaybackSessionSnapshot(
             area=AreaId(current) if current else None,
-            channel=getattr(self, "_voice_channel_id", None),
-            generation=int(getattr(self, "_playback_generation", 0)),
+            channel=self._voice_channel_id,
+            generation=self._playback_generation,
         )
 
     def _advance_playback_generation_locked(self) -> PlaybackSessionSnapshot:
         """使旧异步播放任务失效，并返回新播放意图的不可变快照。"""
-        self._playback_generation = (
-            int(getattr(self, "_playback_generation", 0)) + 1
-        )
+        self._playback_generation += 1
         return self._playback_snapshot_locked()
 
     def _playback_snapshot_is_current_locked(
@@ -1285,21 +1258,13 @@ class MusicHandler(PlaybackMixin):
         if not isinstance(command, AreaWebCommand):
             return False
         if snapshot is None:
-            current = str(getattr(self, "_voice_channel_area", "") or "").strip()
-            snapshot = PlaybackSessionSnapshot(
-                area=AreaId(current) if current else None,
-                channel=getattr(self, "_voice_channel_id", None),
-                generation=int(getattr(self, "_playback_generation", 0)),
-            )
+            snapshot = self._playback_snapshot_locked()
         if snapshot.area is None:
             return False
         return command.area == snapshot.area
 
     async def _execute_web_command(self, command, queue=None) -> bool:
         """执行单条 Web 控制命令"""
-        # 兼容测试中 __new__ 构造未执行 __init__ 的场景
-        if not hasattr(self, "_web_control") or self._web_control is None:
-            self._web_control = WebControlExecutor(self)
         return await self._web_control.execute(command, queue=queue)
 
 
@@ -1496,10 +1461,20 @@ class MusicHandler(PlaybackMixin):
             (parsed.scheme, parsed.netloc, parsed.path, urlencode(query), parsed.fragment)
         )
 
+    async def _requester_name(self, user: str) -> str:
+        if not user:
+            return "未知用户"
+        try:
+            name = (await self.names.ensure_users([user])).get(user)
+        except OopzError as exc:
+            logger.debug("查询点歌用户昵称失败: %s", exc)
+            name = None
+        return name or self.names.user(user)
+
     async def _build_song_request_text(self, song_data: dict, prefix: str = "") -> str:
         """统一构建点歌通知文本。prefix 为空时使用默认的 'XXX 点播了' 格式。"""
         if not prefix:
-            user_name = self.names.user(song_data.get("user", "")) if song_data.get("user") else "未知用户"
+            user_name = await self._requester_name(song_data.get("user") or "")
             prefix = f"{user_name} 点播了"
 
         platform_name = {
@@ -1594,17 +1569,12 @@ class MusicHandler(PlaybackMixin):
                             await q.set_current(song_data)
             except Exception:
                 pass
-            await SongCache.record_play(
-                str(song_data.get("song_id") or ""),
-                str(song_data.get("platform") or _PLATFORM_NETEASE),
+            await self._record_play(
                 song_data,
-                image_cache_id,
                 str(song_data.get("channel") or ""),
                 str(song_data.get("user") or ""),
-            )
-            await Statistics.update_today(
-                str(song_data.get("platform") or _PLATFORM_NETEASE),
-                cache_hit,
+                image_cache_id=image_cache_id,
+                cache_hit=cache_hit,
             )
             text = await self._build_song_request_text(song_data, prefix=prefix)
         else:

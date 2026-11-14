@@ -1,0 +1,20 @@
+      <section id="panel" class="hidden table-stack">
+        <article class="surface-card">
+          <div class="action-row">
+            <span id="keywordState" class="micro-status is-warning">等待同步</span>
+            <button class="btn btn-ghost" type="button" data-action="refresh-keywords">刷新</button>
+            <button class="btn btn-primary" type="button" data-action="save-keywords">保存并生效</button>
+          </div>
+        </article>
+
+        <article class="surface-card">
+          <div class="section-head">
+            <h3 class="section-title">关键词回复</h3>
+          </div>
+          <p class="section-copy">普通聊天消息（不是 @bot 也不是 / 命令）先整句匹配关键词，再按包含匹配，不区分大小写。</p>
+          <div class="stack" style="margin-top: 12px; gap: 10px;">
+            <div id="kwList" class="kw-editor"></div>
+            <button type="button" class="kw-add-btn" data-action="kw-add">+ 添加关键词</button>
+          </div>
+        </article>
+      </section>

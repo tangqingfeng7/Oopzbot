@@ -41,10 +41,7 @@ class TaskSupervisor:
         self._tasks.discard(task)
         if task.cancelled():
             return
-        try:
-            error = task.exception()
-        except asyncio.CancelledError:
-            return
+        error = task.exception()
         if error is not None:
             logger.error("后台任务异常退出: %s: %s", task.get_name(), error)
             self._failures.put_nowait(error)

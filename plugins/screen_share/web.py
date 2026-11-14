@@ -1,16 +1,16 @@
-"""屏幕共享页面与浏览器 API。"""
-
 from __future__ import annotations
 
-import asyncio
+import hashlib
 import logging
-import os
 from contextlib import suppress
+from functools import wraps
+from pathlib import Path
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 
-from core.paths import PROJECT_ROOT
+from web.web_player_config import trusted_proxy_cidrs
+from web.web_rate_limit import DEFAULT_LIMITER, RateLimiter, client_ip
 
 from .labels import presenter_label
 from .messages import recall_viewer_link, sent_message_reference
@@ -20,8 +20,7 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter()
 PRESENTER_COOKIE_NAME = "oopz_screen_presenter"
-_PAGE = os.path.join(PROJECT_ROOT, "src", "web", "assets", "screen-share", "index.html")
-_watchdog_task: asyncio.Task | None = None
+_ASSETS = Path(__file__).with_name("assets")
 _PRESENTER_STOP_REASONS = {
     "capture_ended",
     "page_closed",
@@ -61,6 +60,36 @@ def _auth(request: Request) -> str:
     return str(request.cookies.get(PRESENTER_COOKIE_NAME) or "")
 
 
+def _api_handler(handle, *, heartbeat=False, creates_share=False):
+    per_presenter = RateLimiter(max_requests=30, window_seconds=60) if heartbeat else None
+    heartbeat_ip = RateLimiter(max_requests=1200, window_seconds=60) if heartbeat else None
+
+    @wraps(handle)
+    async def dispatch(request: Request):
+        ip = client_ip(request, trusted_proxy_cidrs())
+        if per_presenter is not None and heartbeat_ip is not None:
+            auth = _auth(request)
+            key = f"presenter:{hashlib.sha256(auth.encode('utf-8')).hexdigest()}" if auth else ip
+            allowed = heartbeat_ip.is_allowed(ip) and per_presenter.is_allowed(key)
+        else:
+            allowed = DEFAULT_LIMITER.is_allowed(ip)
+        if not allowed:
+            return JSONResponse(
+                {"ok": False, "error": "请求过于频繁，请稍后再试"},
+                status_code=429,
+                headers={"Retry-After": "60"},
+            )
+        if creates_share:
+            try:
+                async with get_screen_share_service().creation():
+                    return await handle(request)
+            except ScreenShareError as exc:
+                return _error(exc)
+        return await handle(request)
+
+    return dispatch
+
+
 def _secure_cookie(request: Request) -> bool:
     if request.url.scheme == "https":
         return True
@@ -70,7 +99,7 @@ def _secure_cookie(request: Request) -> bool:
 
 def _page_response() -> FileResponse:
     return FileResponse(
-        _PAGE,
+        _ASSETS / "index.html",
         headers={
             "Cache-Control": "no-store",
             "Referrer-Policy": "no-referrer",
@@ -102,7 +131,16 @@ async def viewer_page_without_path_token():
     return _page_response()
 
 
-@router.post("/screen-share/api/presenter/claim")
+@router.api_route("/screen-share/assets/{filename}", methods=["GET", "HEAD"], include_in_schema=False)
+async def share_asset(filename: str):
+    if filename not in {"app.js", "style.css"}:
+        raise HTTPException(status_code=404)
+    return FileResponse(
+        _ASSETS / filename,
+        headers={"Cache-Control": "no-store, max-age=0", "Pragma": "no-cache"},
+    )
+
+
 async def presenter_claim(request: Request):
     body = await _json(request)
     try:
@@ -124,7 +162,6 @@ async def presenter_claim(request: Request):
     return response
 
 
-@router.post("/screen-share/api/presenter/ready")
 async def presenter_ready(request: Request):
     service = get_screen_share_service()
     try:
@@ -194,7 +231,6 @@ async def presenter_ready(request: Request):
         return _unavailable("presenter_ready")
 
 
-@router.post("/screen-share/api/presenter/heartbeat")
 async def presenter_heartbeat(request: Request):
     try:
         await get_screen_share_service().heartbeat(_auth(request))
@@ -205,7 +241,6 @@ async def presenter_heartbeat(request: Request):
         return _unavailable("presenter_heartbeat")
 
 
-@router.post("/screen-share/api/presenter/renew")
 async def presenter_renew(request: Request):
     try:
         payload = await get_screen_share_service().renew_presenter(_auth(request))
@@ -235,14 +270,14 @@ async def announce_ended(session: dict) -> None:
         logger.warning("发送屏幕共享结束通知失败", exc_info=True)
 
 
-@router.post("/screen-share/api/presenter/stop")
 async def presenter_stop(request: Request):
     body = await _json(request)
     requested_reason = str(body.get("reason") or "")
     reason = requested_reason if requested_reason in _PRESENTER_STOP_REASONS else "presenter_request"
     try:
         session = await get_screen_share_service().stop_by_auth(_auth(request), reason=reason)
-        await announce_ended(session)
+        if session is not None:
+            await announce_ended(session)
     except ScreenShareError as exc:
         return _error(exc)
     except Exception:
@@ -252,7 +287,6 @@ async def presenter_stop(request: Request):
     return response
 
 
-@router.post("/screen-share/api/viewer/token")
 async def viewer_token(request: Request):
     body = await _json(request)
     try:
@@ -267,34 +301,9 @@ async def viewer_token(request: Request):
         return _unavailable("viewer_token")
 
 
-async def _watchdog() -> None:
-    while True:
-        await asyncio.sleep(5)
-        try:
-            expired = await get_screen_share_service().expire_stale(heartbeat_timeout=60)
-            for session in expired:
-                await announce_ended(session)
-        except ScreenShareError as exc:
-            if exc.code != "redis_required":
-                logger.debug("屏幕共享看门狗暂不可用: %s", exc)
-        except asyncio.CancelledError:
-            raise
-        except Exception:
-            logger.warning("屏幕共享看门狗异常", exc_info=True)
-
-
-async def start_watchdog() -> None:
-    global _watchdog_task
-    if _watchdog_task is None or _watchdog_task.done():
-        _watchdog_task = asyncio.create_task(_watchdog(), name="screen-share-watchdog")
-
-
-async def stop_watchdog() -> None:
-    global _watchdog_task
-    task = _watchdog_task
-    _watchdog_task = None
-    if task is None:
-        return
-    task.cancel()
-    with suppress(asyncio.CancelledError):
-        await task
+router.post("/screen-share/api/presenter/claim")(_api_handler(presenter_claim, creates_share=True))
+router.post("/screen-share/api/presenter/ready")(_api_handler(presenter_ready, creates_share=True))
+router.post("/screen-share/api/presenter/heartbeat")(_api_handler(presenter_heartbeat, heartbeat=True))
+router.post("/screen-share/api/presenter/renew")(_api_handler(presenter_renew))
+router.post("/screen-share/api/presenter/stop")(_api_handler(presenter_stop))
+router.post("/screen-share/api/viewer/token")(_api_handler(viewer_token))

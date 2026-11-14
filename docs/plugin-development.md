@@ -24,6 +24,10 @@
 - `on_load`
 - `on_unload`
 
+需要在手动卸载前清理业务状态时，可实现 `on_disable`。它在插件仍注册时运行，抛出异常会中止卸载。应用关闭时调用 `on_unload` 释放运行时资源。
+
+Web 插件可在 `on_load` 中调用 `handler.register_web(router, admin_nav=...)`，把 FastAPI 路由和可选的后台导航项注册到宿主。保存返回的注销函数，在 `on_unload` 中调用。页面和 API 路由由插件声明，后台 API 使用 `/admin/api/` 路径以沿用后台认证。
+
 ### 命令入口
 
 命令入口统一走 `plugins/_shared/command_mixin.py` 的 `PluginCommandMixin`：插件类同时继承
@@ -45,6 +49,9 @@ class FooPlugin(PluginCommandMixin, BotModule):
 
 只有需要特殊路由的插件（例如 arc 的 `/arcevent` 走独立截图逻辑）才自行覆盖 `handle_slash`；
 普通插件不要再手写 `handle_mention` / `handle_slash`。
+
+需要响应普通聊天消息（不是 @bot 也不是 / 命令）的插件覆盖 `async def handle_message(text, channel, area, user, handler) -> bool`，
+返回 `True` 表示已处理，后续插件不再收到这条消息，参考 `keyword_reply`。
 
 最核心的几个模型：
 

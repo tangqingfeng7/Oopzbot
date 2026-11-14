@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from typing import Any
+
 from core.logger_config import get_logger
 from plugins._shared.background import IntervalWorker
 
@@ -15,9 +17,8 @@ class DeltaForcePlacePushManager(IntervalWorker):
         self._config = config or {}
         self._api = api_client
         self._store = store
-        super().__init__(int(self._config.get("place_push_interval_sec", 60) or 60))
-        self._interval = max(15, self._interval)
-        self._handler = None
+        super().__init__(int(self._config.get("place_push_interval_sec", 60)))
+        self._handler: Any = None
 
     def ensure_started(self, handler) -> None:
         self._handler = handler
@@ -38,29 +39,27 @@ class DeltaForcePlacePushManager(IntervalWorker):
     async def _tick(self) -> None:
         if not self._handler:
             return
+        # 同一用户可在多个频道订阅，每轮只查一次其特勤处状态。
+        status_by_user: dict[str, dict | None] = {}
         for sub in await self._store.list_place_push_subscriptions():
             if self.stopping:
                 return
             try:
-                await self._process_subscription(sub)
+                await self._process_subscription(sub, status_by_user)
             except Exception:
                 logger.exception("DeltaForcePlacePush: process subscription failed: %s", sub)
 
-    async def _process_subscription(self, sub: dict) -> None:
-        handler = self._handler
-        if handler is None:
-            return
+    async def _process_subscription(self, sub: dict, status_by_user: dict[str, dict | None]) -> None:
         user_id = str(sub.get("user_id") or "")
         channel_id = str(sub.get("channel_id") or "")
         area_id = str(sub.get("area_id") or "")
         if not user_id or not channel_id or not area_id:
             return
-        token = await self._store.get_active_token(user_id)
-        if not token:
-            return
-
-        payload = await self._api.get_place_status(token)
-        if describe_common_failure(payload):
+        if user_id not in status_by_user:
+            token = await self._store.get_active_token(user_id)
+            status_by_user[user_id] = await self._api.get_place_status(token) if token else None
+        payload = status_by_user[user_id]
+        if payload is None or describe_common_failure(payload):
             return
         current_tasks = self.extract_active_tasks(payload)
         raw_previous_tasks = sub.get("last_snapshot")
@@ -71,7 +70,7 @@ class DeltaForcePlacePushManager(IntervalWorker):
         )
         for text in self.find_completed_messages(previous_tasks, current_tasks):
             try:
-                await handler.sender.send_message(text, channel=channel_id, area=area_id)
+                await self._handler.sender.send_message(text, channel=channel_id, area=area_id)
             except Exception as exc:
                 logger.warning("DeltaForcePlacePush: send completion failed: %s", exc)
         await self._store.update_place_push_snapshot(user_id, channel_id, area_id, current_tasks)

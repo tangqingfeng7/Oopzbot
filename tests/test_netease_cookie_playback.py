@@ -68,6 +68,7 @@ class NeteaseCookiePlaybackTest(unittest.IsolatedAsyncioTestCase):
         client.cookie = "MUSIC_U=abc"
         client.audio_quality = "exhigh"
         client._last_song_url_error = ""
+        client._user_id = None
         http = _FakeHttp(responder)
         client._http = http
         return client, http

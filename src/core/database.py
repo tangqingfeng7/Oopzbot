@@ -52,10 +52,10 @@ async def get_connection() -> aiosqlite.Connection:
 
     每个业务事务独占连接，避免共享连接上的事务相互搭车提交；aiosqlite
     自己在受控工作线程中串行执行底层 SQLite 调用，不阻塞应用事件循环。
+    WAL 模式持久化在库文件里，由 ``init_database`` 设置一次即可。
     """
     conn = await aiosqlite.connect(DB_PATH)
     conn.row_factory = aiosqlite.Row
-    await conn.execute("PRAGMA journal_mode=WAL")
     await conn.execute("PRAGMA busy_timeout=5000")
     await conn.execute("PRAGMA synchronous=NORMAL")
     return conn
@@ -99,9 +99,19 @@ async def _fetchall(
         await cursor.close()
 
 
+async def _query_int(sql: str, parameters: Iterable[Any] = ()) -> int:
+    """执行单值聚合查询；不带 GROUP BY 的聚合总会返回一行。"""
+    async with db_connection() as conn:
+        row = await _fetchone(conn, sql, parameters)
+    assert row is not None
+    return int(row[0])
+
+
 async def init_database() -> None:
     """异步创建全部项目数据表和索引。"""
     async with db_connection() as conn:
+        # 该 PRAGMA 会返回结果行，游标不关闭时同一连接上的 DROP INDEX 会报 table is locked。
+        await _fetchone(conn, "PRAGMA journal_mode=WAL")
         await conn.executescript(
             """
             CREATE TABLE IF NOT EXISTS image_cache (
@@ -232,16 +242,14 @@ async def init_database() -> None:
                 processed_at TEXT NOT NULL DEFAULT ''
             );
 
-            CREATE INDEX IF NOT EXISTS idx_message_stats_date
-                ON message_stats (date);
+            DROP INDEX IF EXISTS idx_message_stats_date;
+            DROP INDEX IF EXISTS idx_play_history_played_at;
+            DROP INDEX IF EXISTS idx_play_history_user;
+            DROP INDEX IF EXISTS idx_reminders_fire_at;
             CREATE INDEX IF NOT EXISTS idx_message_stats_area_date
                 ON message_stats (area_id, date);
-            CREATE INDEX IF NOT EXISTS idx_play_history_played_at
-                ON play_history (played_at);
-            CREATE INDEX IF NOT EXISTS idx_play_history_user
-                ON play_history (user_id, played_at);
-            CREATE INDEX IF NOT EXISTS idx_reminders_fire_at
-                ON reminders (fire_at, fired);
+            CREATE INDEX IF NOT EXISTS idx_reminders_fired_fire_at
+                ON reminders (fired, fire_at);
             CREATE INDEX IF NOT EXISTS idx_area_invite_requests_state_received
                 ON area_invite_requests (state, received_at DESC);
             """
@@ -324,30 +332,54 @@ class ImageCache:
             )
 
 
+async def _bump_statistics(conn: aiosqlite.Connection, platform: str, cache_hit: bool) -> None:
+    hit = 1 if cache_hit else 0
+    platform_path = json.dumps(platform, ensure_ascii=False)
+    await conn.execute(
+        """INSERT INTO statistics
+           (date, total_plays, cache_hits, cache_misses, platform_breakdown)
+           VALUES (?, 1, ?, ?, json_object(?, 1))
+           ON CONFLICT(date) DO UPDATE SET
+               total_plays=total_plays+1,
+               cache_hits=cache_hits+excluded.cache_hits,
+               cache_misses=cache_misses+excluded.cache_misses,
+               platform_breakdown=json_set(
+                   platform_breakdown, '$.' || ?,
+                   COALESCE(json_extract(platform_breakdown, '$.' || ?), 0) + 1
+               )""",
+        (cn_today(), hit, 1 - hit, platform, platform_path, platform_path),
+    )
+
+
 class SongCache:
     """歌曲缓存与播放统计。"""
 
     @staticmethod
-    async def get_or_create(
+    async def record_play(
         song_id: str,
         platform: str,
         data: dict,
         image_cache_id: int | None = None,
+        channel_id: str | None = None,
+        user_id: str | None = None,
+        *,
+        cache_hit: bool = False,
     ) -> int:
+        """记录一次播放：歌曲缓存、播放流水和当日统计在同一事务内落库。"""
         now = cn_now()
         async with db_connection() as conn:
-            row = await _fetchone(
-                conn,
-                "SELECT id FROM song_cache WHERE song_id=? AND platform=?",
-                (str(song_id), platform),
-            )
-            if row:
-                return _required_database_id(row["id"], operation="读取歌曲缓存")
-            cursor = await conn.execute(
+            await conn.execute(
                 """INSERT INTO song_cache
                    (song_id, platform, song_name, artist, album, play_count,
                     image_cache_id, created_at, last_played_at)
-                   VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
+                   VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)
+                   ON CONFLICT(song_id, platform) DO UPDATE SET
+                       song_name=excluded.song_name,
+                       artist=excluded.artist,
+                       album=excluded.album,
+                       play_count=play_count+1,
+                       image_cache_id=COALESCE(excluded.image_cache_id, image_cache_id),
+                       last_played_at=excluded.last_played_at""",
                 (
                     str(song_id),
                     platform,
@@ -359,101 +391,19 @@ class SongCache:
                     now,
                 ),
             )
-            row_id = cursor.lastrowid
-            await cursor.close()
-        return _required_database_id(row_id, operation="创建歌曲缓存")
-
-    @staticmethod
-    async def update_play_stats(
-        song_id: str,
-        platform: str,
-        channel_id: str | None = None,
-        user_id: str | None = None,
-    ) -> None:
-        del channel_id, user_id
-        async with db_connection() as conn:
-            await conn.execute(
-                "UPDATE song_cache SET play_count=play_count+1, last_played_at=? "
-                "WHERE song_id=? AND platform=?",
-                (cn_now(), str(song_id), platform),
-            )
-
-    @staticmethod
-    async def add_play_history(
-        song_cache_id: int,
-        platform: str,
-        channel_id: str | None = None,
-        user_id: str | None = None,
-    ) -> None:
-        async with db_connection() as conn:
-            await conn.execute(
-                "INSERT INTO play_history "
-                "(song_cache_id, platform, channel_id, user_id, played_at) "
-                "VALUES (?, ?, ?, ?, ?)",
-                (song_cache_id, platform, channel_id, user_id, cn_now()),
-            )
-
-    @staticmethod
-    async def record_play(
-        song_id: str,
-        platform: str,
-        data: dict,
-        image_cache_id: int | None = None,
-        channel_id: str | None = None,
-        user_id: str | None = None,
-    ) -> int:
-        now = cn_now()
-        async with db_connection() as conn:
             row = await _fetchone(
                 conn,
                 "SELECT id FROM song_cache WHERE song_id=? AND platform=?",
                 (str(song_id), platform),
             )
-            if row:
-                song_cache_id = _required_database_id(
-                    row["id"], operation="读取歌曲缓存"
-                )
-                await conn.execute(
-                    """UPDATE song_cache SET
-                       song_name=?, artist=?, album=?, play_count=play_count+1,
-                       image_cache_id=COALESCE(?, image_cache_id), last_played_at=?
-                       WHERE id=?""",
-                    (
-                        data.get("name", ""),
-                        data.get("artists", ""),
-                        data.get("album", ""),
-                        image_cache_id,
-                        now,
-                        song_cache_id,
-                    ),
-                )
-            else:
-                cursor = await conn.execute(
-                    """INSERT INTO song_cache
-                       (song_id, platform, song_name, artist, album, play_count,
-                        image_cache_id, created_at, last_played_at)
-                       VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)""",
-                    (
-                        str(song_id),
-                        platform,
-                        data.get("name", ""),
-                        data.get("artists", ""),
-                        data.get("album", ""),
-                        image_cache_id,
-                        now,
-                        now,
-                    ),
-                )
-                song_cache_id = _required_database_id(
-                    cursor.lastrowid, operation="创建歌曲缓存"
-                )
-                await cursor.close()
+            song_cache_id = _required_database_id(row["id"] if row else None, operation="记录歌曲缓存")
             await conn.execute(
                 "INSERT INTO play_history "
                 "(song_cache_id, platform, channel_id, user_id, played_at) "
                 "VALUES (?, ?, ?, ?, ?)",
                 (song_cache_id, platform, channel_id, user_id, now),
             )
+            await _bump_statistics(conn, platform, cache_hit)
         return song_cache_id
 
     @staticmethod
@@ -492,34 +442,8 @@ class Statistics:
 
     @staticmethod
     async def update_today(platform: str, cache_hit: bool = False) -> None:
-        today = cn_today()
-        hit = 1 if cache_hit else 0
-        miss = 0 if cache_hit else 1
         async with db_connection() as conn:
-            await conn.execute(
-                """INSERT INTO statistics
-                   (date, total_plays, cache_hits, cache_misses, platform_breakdown)
-                   VALUES (?, 1, ?, ?, '{}')
-                   ON CONFLICT(date) DO UPDATE SET
-                       total_plays=total_plays+1,
-                       cache_hits=cache_hits+?,
-                       cache_misses=cache_misses+?""",
-                (today, hit, miss, hit, miss),
-            )
-            row = await _fetchone(
-                conn,
-                "SELECT platform_breakdown FROM statistics WHERE date=?",
-                (today,),
-            )
-            breakdown = _safe_json_loads(
-                row["platform_breakdown"] if row else None,
-                {},
-            )
-            breakdown[platform] = breakdown.get(platform, 0) + 1
-            await conn.execute(
-                "UPDATE statistics SET platform_breakdown=? WHERE date=?",
-                (json.dumps(breakdown), today),
-            )
+            await _bump_statistics(conn, platform, cache_hit)
 
     @staticmethod
     async def get_today() -> dict | None:
@@ -561,9 +485,8 @@ class Statistics:
                 "COALESCE(SUM(cache_hits),0) AS hits, "
                 "COALESCE(SUM(cache_misses),0) AS misses FROM statistics",
             )
-        total = int(row["total"]) if row else 0
-        hits = int(row["hits"]) if row else 0
-        misses = int(row["misses"]) if row else 0
+        assert row is not None
+        total, hits, misses = int(row["total"]), int(row["hits"]), int(row["misses"])
         return {
             "total_plays": total,
             "cache_hits": hits,
@@ -858,13 +781,9 @@ class ReminderDB:
 
     @staticmethod
     async def count_user_pending(user_id: str) -> int:
-        async with db_connection() as conn:
-            row = await _fetchone(
-                conn,
-                "SELECT COUNT(*) AS cnt FROM reminders WHERE user_id=? AND fired=0",
-                (user_id,),
-            )
-        return int(row["cnt"]) if row else 0
+        return await _query_int(
+            "SELECT COUNT(*) FROM reminders WHERE user_id=? AND fired=0", (user_id,),
+        )
 
     @staticmethod
     async def delete_user_reminder(reminder_id: int, user_id: str) -> bool:
@@ -907,11 +826,10 @@ class _MessageStatsBatcher:
 
     def __init__(self) -> None:
         self._buffer: dict[tuple[str, str, str, str], int] = {}
-        self._lock = asyncio.Lock()
         self._task: asyncio.Task[None] | None = None
         self._stop_event = asyncio.Event()
 
-    def _ensure_started_locked(self) -> None:
+    def _ensure_started(self) -> None:
         if self._task is not None and not self._task.done():
             return
         self._stop_event.clear()
@@ -926,20 +844,17 @@ class _MessageStatsBatcher:
         area_id: str,
         user_id: str,
     ) -> None:
-        async with self._lock:
-            key = (date, channel_id, area_id, user_id)
-            self._buffer[key] = self._buffer.get(key, 0) + 1
-            should_flush = len(self._buffer) >= self._MAX_BUFFER_SIZE
-            self._ensure_started_locked()
-        if should_flush:
+        key = (date, channel_id, area_id, user_id)
+        self._buffer[key] = self._buffer.get(key, 0) + 1
+        self._ensure_started()
+        if len(self._buffer) >= self._MAX_BUFFER_SIZE:
             await self.flush()
 
     async def flush(self) -> None:
-        async with self._lock:
-            if not self._buffer:
-                return
-            snapshot = self._buffer
-            self._buffer = {}
+        if not self._buffer:
+            return
+        snapshot = self._buffer
+        self._buffer = {}
         try:
             async with db_connection() as conn:
                 await conn.executemany(
@@ -954,9 +869,8 @@ class _MessageStatsBatcher:
                     ],
                 )
         except BaseException as exc:
-            async with self._lock:
-                for key, count in snapshot.items():
-                    self._buffer[key] = self._buffer.get(key, 0) + count
+            for key, count in snapshot.items():
+                self._buffer[key] = self._buffer.get(key, 0) + count
             if isinstance(exc, asyncio.CancelledError):
                 raise
             logger.exception("MessageStats 批量刷入失败，数据已回填缓冲区")
@@ -995,6 +909,13 @@ class _MessageStatsBatcher:
 
 
 _msg_stats_batcher = _MessageStatsBatcher()
+
+
+async def _query_message_stats(aggregate: str, date_clause: str, date: str, area_id: str | None) -> int:
+    sql = f"SELECT {aggregate} FROM message_stats WHERE {date_clause}"
+    if area_id:
+        return await _query_int(sql + " AND area_id=?", (date, area_id))
+    return await _query_int(sql, (date,))
 
 
 class MessageStatsDB:
@@ -1083,60 +1004,23 @@ class MessageStatsDB:
         return [dict(row) for row in rows]
 
     @staticmethod
+    async def get_user_total(area_id: str, user_id: str, days: int = 7) -> int:
+        cutoff = (datetime.now(CN_TZ) - timedelta(days=days)).strftime("%Y-%m-%d")
+        return await _query_int(
+            "SELECT COALESCE(SUM(message_count), 0) FROM message_stats "
+            "WHERE area_id=? AND user_id=? AND date >= ?",
+            (area_id, user_id, cutoff),
+        )
+
+    @staticmethod
     async def get_today_total(area_id: str | None = None) -> int:
-        today = cn_today()
-        async with db_connection() as conn:
-            if area_id:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COALESCE(SUM(message_count), 0) AS total "
-                    "FROM message_stats WHERE date=? AND area_id=?",
-                    (today, area_id),
-                )
-            else:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COALESCE(SUM(message_count), 0) AS total "
-                    "FROM message_stats WHERE date=?",
-                    (today,),
-                )
-        return int(row["total"]) if row else 0
+        return await _query_message_stats("COALESCE(SUM(message_count), 0)", "date=?", cn_today(), area_id)
 
     @staticmethod
     async def get_active_users_today(area_id: str | None = None) -> int:
-        today = cn_today()
-        async with db_connection() as conn:
-            if area_id:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COUNT(DISTINCT user_id) AS cnt FROM message_stats "
-                    "WHERE date=? AND area_id=?",
-                    (today, area_id),
-                )
-            else:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COUNT(DISTINCT user_id) AS cnt FROM message_stats WHERE date=?",
-                    (today,),
-                )
-        return int(row["cnt"]) if row else 0
+        return await _query_message_stats("COUNT(DISTINCT user_id)", "date=?", cn_today(), area_id)
 
     @staticmethod
     async def get_week_total(area_id: str | None = None) -> int:
         cutoff = (datetime.now(CN_TZ) - timedelta(days=7)).strftime("%Y-%m-%d")
-        async with db_connection() as conn:
-            if area_id:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COALESCE(SUM(message_count), 0) AS total "
-                    "FROM message_stats WHERE date >= ? AND area_id=?",
-                    (cutoff, area_id),
-                )
-            else:
-                row = await _fetchone(
-                    conn,
-                    "SELECT COALESCE(SUM(message_count), 0) AS total "
-                    "FROM message_stats WHERE date >= ?",
-                    (cutoff,),
-                )
-        return int(row["total"]) if row else 0
+        return await _query_message_stats("COALESCE(SUM(message_count), 0)", "date >= ?", cutoff, area_id)

@@ -7,7 +7,7 @@ import hashlib
 import io
 import os
 import time
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Container
 from pathlib import Path
 from typing import Any
 
@@ -46,6 +46,7 @@ class SenderGateway:
         self.rebuild_credentials = rebuild_credentials
         self._auto_recall_scheduler: Any = None
         self._role_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        self.voice_channels: Container[str] = frozenset()
 
     def bind_auto_recall_scheduler(self, scheduler: Any) -> None:
         self._auto_recall_scheduler = scheduler
@@ -81,6 +82,7 @@ class SenderGateway:
     ) -> MessageSendResult:
         area = self._default_area(area)
         channel = self._default_channel(channel)
+        version = kwargs.get("version") or ("v2" if channel in self.voice_channels else "v1")
         try:
             result = await self.bot.messages.send_message(
                 str(text),
@@ -94,7 +96,7 @@ class SenderGateway:
                 animated=bool(kwargs.get("animated", False)),
                 display_name=str(kwargs.get("displayName") or ""),
                 duration=int(kwargs.get("duration") or 0),
-                version=str(kwargs.get("version") or "v1"),
+                version=str(version),
             )
         except OopzError as exc:
             if is_sensitive_rejection(str(exc)):

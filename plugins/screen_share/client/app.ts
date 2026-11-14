@@ -340,7 +340,7 @@ async function startPresenter() {
           heartbeatFailures = 0;
         })
         .catch((error) => {
-          if (error instanceof ApiError && (error.status === 401 || error.status === 410)) {
+          if (error instanceof ApiError && [401, 404, 410].includes(error.status)) {
             void stopPresenter("server_ended", false);
             return;
           }

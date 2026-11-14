@@ -26,8 +26,8 @@ NETEASE_REPO = "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git
 NETEASE_DOCKER_IMAGE = "moefurina/ncm-api:latest"
 NETEASE_DEFAULT_DIR = "NeteaseCloudMusicApi"
 REDIS_HOST, REDIS_PORT = "127.0.0.1", 6379
-SCREEN_SHARE_CLIENT_DIR = ROOT / "src" / "screen_share" / "client"
-SCREEN_SHARE_ASSET_DIR = ROOT / "src" / "web" / "assets" / "screen-share"
+SCREEN_SHARE_CLIENT_DIR = ROOT / "plugins" / "screen_share" / "client"
+SCREEN_SHARE_ASSET_DIR = ROOT / "plugins" / "screen_share" / "assets"
 SCREEN_SHARE_REQUIRED_ASSETS = ("index.html", "style.css", "app.js")
 
 _STEP = 0
@@ -252,16 +252,23 @@ def ensure_config_files() -> list[str]:
     return created
 
 
-def config_value(key: str, default: str = "") -> str:
-    """从 config.py 里读一个字符串字段。读不到就用默认值。
+def _config_text() -> str:
+    """读出 config.py 源码；文件还没生成时返回空串。
 
     直接文本匹配而不是 import config：此时依赖可能还没装，import 会失败。
     """
     path = ROOT / "config.py"
-    if not path.exists():
-        return default
-    match = re.search(rf'"{key}"\s*:\s*"([^"]*)"', path.read_text(encoding="utf-8"))
+    return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+def _string_field(content: str, key: str, default: str = "") -> str:
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*"([^"]*)"', content)
     return match.group(1) if match else default
+
+
+def config_value(key: str, default: str = "") -> str:
+    """从 config.py 里读一个字符串字段。读不到就用默认值。"""
+    return _string_field(_config_text(), key, default)
 
 
 def netease_dir() -> Path:
@@ -297,11 +304,10 @@ def browser_ready(python: Path) -> bool:
 def read_credentials() -> dict[str, str]:
     """读出 config.py 里与登录有关的字段，判断能不能连上平台。"""
     content = (ROOT / "config.py").read_text(encoding="utf-8")
-    values = {}
-    for key in ("login_phone", "login_password", "device_id", "person_uid", "jwt_token"):
-        match = re.search(rf'"{key}"\s*:\s*"([^"]*)"', content)
-        values[key] = match.group(1) if match else ""
-    return values
+    return {
+        key: _string_field(content, key)
+        for key in ("login_phone", "login_password", "device_id", "person_uid", "jwt_token")
+    }
 
 
 def has_usable_credentials(values: dict[str, str]) -> bool:
@@ -358,31 +364,20 @@ def set_config_field(content: str, section: str, key: str, value: str | bool) ->
     return content[:start] + new_block + content[end:], True
 
 
+def _config_block(section: str) -> str:
+    content = _config_text()
+    span = _section_span(content, section)
+    return content[span[0] : span[1]] if span else ""
+
+
 def config_section_string(section: str, key: str, default: str = "") -> str:
     """只读取指定顶层配置块的字符串字段，避免命中其他块的同名键。"""
-    path = ROOT / "config.py"
-    if not path.exists():
-        return default
-    content = path.read_text(encoding="utf-8")
-    span = _section_span(content, section)
-    if span is None:
-        return default
-    block = content[span[0] : span[1]]
-    match = re.search(rf'"{re.escape(key)}"\s*:\s*"([^"]*)"', block)
-    return match.group(1) if match else default
+    return _string_field(_config_block(section), key, default)
 
 
 def config_section_flag(section: str, key: str, default: bool = False) -> bool:
     """只读取指定配置块的 Python 布尔字面量。"""
-    path = ROOT / "config.py"
-    if not path.exists():
-        return default
-    content = path.read_text(encoding="utf-8")
-    span = _section_span(content, section)
-    if span is None:
-        return default
-    block = content[span[0] : span[1]]
-    match = re.search(rf'"{re.escape(key)}"\s*:\s*(True|False)', block)
+    match = re.search(rf'"{re.escape(key)}"\s*:\s*(True|False)', _config_block(section))
     return match.group(1) == "True" if match else default
 
 
@@ -570,18 +565,24 @@ def linux_package_manager() -> tuple[str, list[str]] | None:
     return None
 
 
+def start_redis_container() -> bool:
+    quiet_ok(["docker", "rm", "-f", "oopzbot-redis"])
+    if not quiet_ok([
+        "docker", "run", "-d", "--name", "oopzbot-redis",
+        "-p", f"{REDIS_PORT}:6379", "redis:7-alpine",
+    ]):
+        return False
+    return wait_for_redis()
+
+
 def try_install_redis() -> bool:
     """尽力装上并拉起 Redis。装不上返回 False，交给调用方降级。"""
     if IS_WINDOWS:
         # Redis 官方不支持 Windows。有 Docker 就用容器顶上，这是最省事的路子。
         if shutil.which("docker"):
             say("用 Docker 启动 Redis 容器")
-            quiet_ok(["docker", "rm", "-f", "oopzbot-redis"])
-            if quiet_ok([
-                "docker", "run", "-d", "--name", "oopzbot-redis",
-                "-p", f"{REDIS_PORT}:6379", "redis:7-alpine",
-            ]):
-                return wait_for_redis()
+            if start_redis_container():
+                return True
         warn("Windows 没有官方 Redis。可选：装 Docker Desktop、用 WSL，或用 Memurai。")
         return False
 
@@ -596,12 +597,7 @@ def try_install_redis() -> bool:
     if found is None:
         if shutil.which("docker"):
             say("没有识别到包管理器，改用 Docker 启动 Redis")
-            quiet_ok(["docker", "rm", "-f", "oopzbot-redis"])
-            if quiet_ok([
-                "docker", "run", "-d", "--name", "oopzbot-redis",
-                "-p", f"{REDIS_PORT}:6379", "redis:7-alpine",
-            ]):
-                return wait_for_redis()
+            return start_redis_container()
         return False
 
     manager, install_cmd = found
@@ -627,14 +623,7 @@ def try_install_redis() -> bool:
 
 
 def wait_for_redis(timeout: float = 15.0) -> bool:
-    import time
-
-    deadline = time.time() + timeout
-    while time.time() < deadline:
-        if redis_alive():
-            return True
-        time.sleep(0.5)
-    return False
+    return wait_for_port(REDIS_HOST, REDIS_PORT, timeout)
 
 
 def setup_redis(install: bool) -> None:

@@ -67,6 +67,27 @@ class DatabaseSchemaTest(AsyncDatabaseTestCase):
         await init_database()
         self.assertIn("statistics", await self._table_names())
 
+    async def test_init_database_drops_indexes_left_by_old_versions(self) -> None:
+        legacy = {
+            "idx_message_stats_date": "message_stats (date)",
+            "idx_play_history_played_at": "play_history (played_at)",
+            "idx_play_history_user": "play_history (user_id, played_at)",
+            "idx_reminders_fire_at": "reminders (fire_at, fired)",
+        }
+        async with db_connection() as conn:
+            for name, target in legacy.items():
+                await conn.execute(f"CREATE INDEX {name} ON {target}")
+
+        await init_database()
+
+        async with (
+            db_connection() as conn,
+            conn.execute("SELECT name FROM sqlite_master WHERE type='index'") as cursor,
+        ):
+            indexes = {row["name"] for row in await cursor.fetchall()}
+        self.assertFalse(indexes & legacy.keys())
+        self.assertIn("idx_reminders_fired_fire_at", indexes)
+
 
 class TransactionBoundaryTest(AsyncDatabaseTestCase):
     async def test_connection_commits_on_success(self) -> None:
@@ -210,6 +231,10 @@ class MusicCacheTest(AsyncDatabaseTestCase):
         self.assertEqual(top[0]["song_name"], "夜曲")
         self.assertEqual(top[0]["play_count"], 2)
         self.assertEqual(len(await SongCache.get_recent_songs(10)), 1)
+        today = await Statistics.get_today()
+        assert today is not None
+        self.assertEqual(today["total_plays"], 2)
+        self.assertEqual(today["platform_breakdown"], {"netease": 2})
 
         # 清理只删播放流水，歌曲缓存本身保留。
         self.assertEqual(await SongCache.clear_play_history(), 2)
@@ -256,7 +281,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
     """曾用 ``asyncio.to_thread`` 包装 async 函数的调用点，回归到真正落库。"""
 
     async def test_scheduler_service_tick_marks_task_fired(self) -> None:
-        from services.scheduler_service import ScheduledMessageService
+        from plugins.scheduler.service import ScheduledMessageService
 
         task_id = await ScheduledMessageDB.create(
             "整点播报", 0, 0, "channel-1", "area-1", "整点了", "0,1,2,3,4,5,6"
@@ -270,7 +295,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(task["last_fired_date"], database.cn_today())
 
     async def test_reminder_service_tick_sends_and_marks_fired(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         await ReminderDB.create("user-1", "channel-1", "area-1", "喝水", "2020-01-01 08:00:00")
         sender = mock.AsyncMock()
@@ -280,7 +305,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(await ReminderDB.get_all_pending(), [])
 
     async def test_reminder_service_create_persists_reminder(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         service = ReminderService(mock.AsyncMock())
         reply = await service.create_reminder("30分钟后 喝水", "channel-1", "area-1", "user-1")
@@ -289,7 +314,7 @@ class MigratedCallSiteTest(AsyncDatabaseTestCase):
         self.assertEqual(await ReminderDB.count_user_pending("user-1"), 1)
 
     async def test_reminder_service_enforces_per_user_quota(self) -> None:
-        from services.scheduler_service import ReminderService
+        from plugins.scheduler.service import ReminderService
 
         service = ReminderService(mock.AsyncMock(), max_per_user=1)
         await service.create_reminder("30分钟后 第一件事", "channel-1", "area-1", "user-1")

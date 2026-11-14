@@ -59,7 +59,7 @@ class CommandMessageService:
 
         self._runtime.recent_messages.append(
             {
-                "messageId": str(ctx.message_id) if ctx.message_id is not None else "",
+                "messageId": str(ctx.message_id),
                 "channel": ctx.channel,
                 "area": ctx.area,
                 # 保留短预览就够用了，也能避免缓存膨胀。

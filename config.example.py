@@ -24,6 +24,7 @@ OOPZ_CONFIG = {
 
     "default_area": "",    # 默认区域 ID
     "default_channel": "", # 默认频道 ID
+    "voice_chat": True,  # 接收所有语音频道的文字消息并响应命令（拉取有人在的频道）
     "use_announcement_style": False,  # 全局默认是否使用公告样式（styleTags=IMPORTANT）；可在 admin 后台 → 域配置 → 公告样式 单独覆盖。bot 不是域主时一般保持 False，否则发公告会被服务端拒
 
     # Agora RTC（语音频道推流；Playwright 优先，Selenium 可回退）
@@ -196,30 +197,6 @@ AREA_JOIN_NOTIFY = {
     "auto_assign_role_id": "",    # 新人自动分配的身份组 ID，留空则不分配
     "auto_assign_role_name": "",  # 或用身份组名称匹配（优先使用 role_id）
     "member_fetch_max": 5000,     # 单次成员快照翻页上限；超过该人数的域会暂停加入/退出检测并告警
-}
-
-# 聊天自动回复配置
-CHAT_CONFIG = {
-    "enabled": True,
-    "keyword_replies": {
-        "你好": "你好呀！我是 Oopz Bot ~",
-        "帮助": "输入 /help 查看可用命令",
-        "ping": "pong!",
-    },
-}
-
-# 定时消息调度配置
-SCHEDULER_CONFIG = {
-    "enabled": True,
-    "check_interval_seconds": 30,  # 检查间隔（秒），最小 10
-}
-
-# 用户提醒配置
-REMINDER_CONFIG = {
-    "enabled": True,
-    "max_per_user": 5,             # 每用户最大待执行提醒数
-    "max_delay_hours": 72,         # 最大提醒延迟（小时）
-    "check_interval_seconds": 15,  # 检查间隔（秒），最小 5
 }
 
 # 消息统计配置

@@ -7,27 +7,12 @@ from __future__ import annotations
 from core.async_http import ManagedHttpClient
 from core.http_constants import HTTP_TIMEOUT_DEFAULT
 from core.logger_config import get_logger
+from web.web_player_config import QQ_MUSIC_CONFIG
 
 logger = get_logger("QQMusic")
 
 # 专辑封面 CDN 模板，{mid} 为专辑 mid。
 _ALBUM_COVER_URL = "https://y.gtimg.cn/music/photo_new/T002R300x300M000{mid}.jpg"
-
-
-_cached_config: dict | None = None
-
-
-def _load_config() -> dict:
-    global _cached_config
-    if _cached_config is not None:
-        return _cached_config
-    try:
-        from config import QQ_MUSIC_CONFIG
-        _cached_config = QQ_MUSIC_CONFIG
-        return _cached_config
-    except (ImportError, AttributeError):
-        _cached_config = {}
-        return _cached_config
 
 
 class QQMusic:
@@ -37,7 +22,7 @@ class QQMusic:
     display_name = "QQ音乐"
 
     def __init__(self):
-        cfg = _load_config()
+        cfg = QQ_MUSIC_CONFIG
         self.enabled = cfg.get("enabled", False)
         self.base_url = str(cfg.get("base_url", "")).rstrip("/")
         self.cookie = cfg.get("cookie", "")
@@ -95,14 +80,9 @@ class QQMusic:
             data = await self._get("/getMusicPlay", params={"songmid": song_id})
         if not data:
             return None
-        url = (data.get("data") or {}).get("url") or ""
-        if not url:
-            play_data = data.get("data") or {}
-            for key in ("sizeflac", "size320", "size128"):
-                if play_data.get(key):
-                    url = play_data.get("url", "")
-                    break
-        return url if url else None
+        play_data = data.get("data") or {}
+        url = play_data.get("url") or ((play_data.get("playUrl") or {}).get(song_id) or {}).get("url")
+        return url or None
 
     async def get_song_detail(self, song_id) -> dict | None:
         data = await self._get("/getSongInfo", params={"songmid": str(song_id)})

@@ -3,7 +3,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import AsyncMock, Mock, patch
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 SRC_ROOT = REPO_ROOT / "src"
@@ -67,14 +67,12 @@ class BilibiliMusicTest(unittest.IsolatedAsyncioTestCase):
         import music.bilibili_music as bilibili_music
 
         self.module = bilibili_music
-        self._old_config = bilibili_music._cached_config
-        bilibili_music._cached_config = {
-            "enabled": True,
-            "cookie": "SESSDATA=sess; bili_jct=csrf",
-        }
-
-    def tearDown(self) -> None:
-        self.module._cached_config = self._old_config
+        config_patch = patch.dict(
+            bilibili_music.BILIBILI_MUSIC_CONFIG,
+            {"enabled": True, "cookie": "SESSDATA=sess; bili_jct=csrf"},
+        )
+        config_patch.start()
+        self.addCleanup(config_patch.stop)
 
     async def test_video_playurl_uses_cid_from_view(self) -> None:
         bili = self.module.BilibiliMusic()

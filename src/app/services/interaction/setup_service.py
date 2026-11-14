@@ -48,8 +48,7 @@ class SetupService:
             "",
             "下一步:",
             "@bot 首启向导  查看分步处理建议",
-            "/setup  查看后台首启步骤",
-            "后台页面: /admin/setup",
+            "/setup  查看首启向导",
         ]
         await self._sender.send_message("\n".join(lines), channel=channel, area=area)
 

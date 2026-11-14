@@ -148,6 +148,17 @@ class BotModule(ABC):
         """处理 slash 命令，返回是否已处理。"""
         return False
 
+    async def handle_message(
+        self,
+        text: str,
+        channel: str,
+        area: str,
+        user: str,
+        handler: Any,
+    ) -> bool:
+        """处理既不是 @bot 也不是 slash 的普通聊天消息，返回是否已处理。"""
+        return False
+
     async def on_load(self, handler: Any, config: PluginConfig | None = None) -> None:
         """插件加载完成后调用。"""
 
@@ -157,3 +168,7 @@ class BotModule(ABC):
 
     async def on_unload(self) -> None:
         """插件卸载前调用。"""
+
+    async def on_disable(self) -> None:
+        """手动卸载前清理业务状态，失败时保留已加载的插件。"""
+        return None

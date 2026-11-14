@@ -1,3 +1,4 @@
+import asyncio
 from typing import Any
 
 from fastapi import APIRouter, Request
@@ -89,7 +90,7 @@ async def admin_update_config(request: Request):
 
     if persist and persist_payload:
         try:
-            cfg.persist_config_updates(persist_payload)
+            await asyncio.to_thread(cfg.persist_config_updates, persist_payload)
             persisted = True
         except Exception as exc:
             logger.exception("保存配置到 config.py 失败")
@@ -119,7 +120,8 @@ async def admin_netease_login_qr(request: Request):
     try:
         base_url = _normalize_netease_base_url(body.get("base_url"))
         logger.debug("网易云扫码登录二维码刷新请求开始: base_url=%s", base_url)
-        key_payload, _ = _netease_api_get(
+        key_payload, _ = await asyncio.to_thread(
+            _netease_api_get,
             base_url,
             "/login/qr/key",
             params=_netease_timestamp_params(),
@@ -135,7 +137,8 @@ async def admin_netease_login_qr(request: Request):
             )
             return JSONResponse({"ok": False, "error": message}, status_code=502)
 
-        qr_payload, _ = _netease_api_get(
+        qr_payload, _ = await asyncio.to_thread(
+            _netease_api_get,
             base_url,
             "/login/qr/create",
             params=_netease_timestamp_params({
@@ -195,7 +198,8 @@ async def admin_netease_login_qr_check(request: Request):
     try:
         base_url = _normalize_netease_base_url(body.get("base_url"))
         logger.debug("网易云扫码登录轮询开始: key=%s base_url=%s", _mask_debug_token(key), base_url)
-        payload, response = _netease_api_get(
+        payload, response = await asyncio.to_thread(
+            _netease_api_get,
             base_url,
             "/login/qr/check",
             params=_netease_timestamp_params({"key": key}),
@@ -232,7 +236,7 @@ async def admin_netease_login_qr_check(request: Request):
                 )
             result["cookie"] = cookie
             try:
-                account_status = _netease_account_status(base_url, cookie)
+                account_status = await asyncio.to_thread(_netease_account_status, base_url, cookie)
                 if account_status.get("logged_in"):
                     result["profile"] = account_status.get("profile")
                     logger.debug(
@@ -290,7 +294,7 @@ async def admin_bilibili_login_qr():
     """创建 B 站扫码登录二维码。"""
     try:
         logger.debug("B 站扫码登录二维码刷新请求开始")
-        payload, _ = _bilibili_api_get(_BILIBILI_QR_GENERATE_PATH)
+        payload, _ = await asyncio.to_thread(_bilibili_api_get, _BILIBILI_QR_GENERATE_PATH)
         if int(payload.get("code", -1)) != 0:
             message = _bilibili_login_message(payload, "二维码生成失败")
             logger.debug("B 站扫码登录二维码刷新失败: code=%s message=%s", payload.get("code"), message)
@@ -317,7 +321,7 @@ async def admin_bilibili_login_qr():
         return JSONResponse({
             "ok": True,
             "key": key,
-            "qrimg": _make_qr_data_uri(qrurl),
+            "qrimg": await asyncio.to_thread(_make_qr_data_uri, qrurl),
             "qrurl": qrurl,
             "message": "二维码已刷新",
         })
@@ -340,7 +344,8 @@ async def admin_bilibili_login_qr_check(request: Request):
 
     try:
         logger.debug("B 站扫码登录轮询开始: key=%s", _mask_debug_token(key))
-        payload, response = _bilibili_api_get(
+        payload, response = await asyncio.to_thread(
+            _bilibili_api_get,
             _BILIBILI_QR_POLL_PATH,
             params={"qrcode_key": key},
         )
@@ -385,7 +390,7 @@ async def admin_bilibili_login_qr_check(request: Request):
                 )
             result["cookie"] = cookie
             try:
-                account_status = _bilibili_account_status(cookie)
+                account_status = await asyncio.to_thread(_bilibili_account_status, cookie)
                 if account_status.get("logged_in"):
                     result["profile"] = account_status.get("profile")
                     logger.debug(
@@ -489,9 +494,10 @@ async def admin_oopz_login(request: Request):
 
     phone, password, timeout = _parse_oopz_login_payload(await read_json_body(request))
 
-    from oopz.credentials import persist_credentials
     from oopz_sdk.auth import login_with_password
     from oopz_sdk.exceptions import OopzPasswordLoginError
+
+    from oopz.credentials import persist_credentials
 
     async with _oopz_login_lock:
         try:

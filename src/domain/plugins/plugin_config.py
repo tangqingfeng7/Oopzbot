@@ -324,6 +324,8 @@ def _infer_field_type(field: PluginConfigField) -> str:
         return "number"
     if isinstance(sample, list):
         return "list"
+    if isinstance(sample, dict):
+        return "object"
     return "string"
 
 

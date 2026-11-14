@@ -76,22 +76,12 @@ class MentionCommandRouter:
             (mention_of("profile"), lambda: self._actions.community.show_profile(channel, area, user)),
             (mention_of("myinfo"), lambda: self._actions.community.show_myinfo(channel, area, user)),
             (mention_of("voice"), lambda: self._actions.interaction.show_voice_channels(channel, area)),
-            (mention_of("daily"), lambda: self._actions.interaction.show_daily_speech(channel, area)),
             (mention_of("health"), lambda: self._actions.interaction.show_health_check(channel, area)),
             (mention_of("setup"), lambda: self._actions.interaction.show_setup_wizard(channel, area, user)),
             (mention_of("clear_history"), lambda: self._actions.recall.clear_history(channel, area)),
             (mention_of("blocklist"), lambda: self._actions.moderation.show_block_list(channel, area)),
             (mention_of("plugin_list"), lambda: self._actions.plugins.show_plugin_list(channel, area)),
             (mention_of("help"), lambda: self._actions.interaction.show_help(channel, area, user)),
-            (mention_of("ranking"), lambda: self._actions.scheduler.show_ranking(channel, area)),
-            (mention_of("chatstats"), lambda: self._actions.scheduler.show_channel_stats(channel, area)),
-            (mention_of("topsongs"), lambda: self._actions.scheduler.show_music_ranking(channel, area)),
-            (mention_of("recentsongs"), lambda: self._actions.scheduler.show_recent_songs(channel, area)),
-            # 定时消息为「1 slash 命令 : 5 mention 动词」形态不对称，mention 子动作别名保留字面量（另见 _raw_rules）
-            (("定时消息列表", "定时消息"), lambda: self._actions.scheduler.list_scheduled(channel, area)),
-            (mention_of("reminders_list"), lambda: self._actions.scheduler.list_reminders(channel, area, user)),
-            (mention_of("screen_share"), lambda: self._services.interaction.screen_share.start(channel, area, user)),
-            (mention_of("screen_share_stop"), lambda: self._services.interaction.screen_share.stop(channel, area, user)),
         )
 
     def _arg_rules(self, channel: str, area: str, user: str):
@@ -147,13 +137,6 @@ class MentionCommandRouter:
             ),
             (mention_of("autorecall"), lambda arg: self._actions.recall.configure_auto_recall(arg, channel, area)),
             (mention_of("recall"), lambda raw: self._actions.recall.recall(raw or None, channel, area)),
-            (mention_of("remind"), lambda raw: self._actions.scheduler.set_reminder(raw, channel, area, user)),
-            (mention_of("delete_reminder"), lambda raw: self._actions.scheduler.delete_reminder(raw, channel, area, user)),
-            # 定时消息子动作：与 slash /schedule 子命令形态不对称，保留字面量（见 _exact_rules 注释）
-            (("添加定时消息", "新增定时消息"), lambda raw: self._actions.scheduler.add_scheduled(raw, channel, area)),
-            (("删除定时消息", "移除定时消息"), lambda raw: self._actions.scheduler.delete_scheduled(raw, channel, area)),
-            (("开启定时消息", "启用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, True)),
-            (("关闭定时消息", "停用定时消息"), lambda raw: self._actions.scheduler.toggle_scheduled(raw, channel, area, False)),
             (mention_of("pick"), lambda raw: self._actions.interaction.handle_pick(raw, channel, area, user, "用法: @bot 选择 <编号>")),
             (mention_of("songsearch"), lambda raw: self._services.interaction.music.search_candidates(raw, channel, area, user)),
         )

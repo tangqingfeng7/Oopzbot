@@ -1,19 +1,11 @@
 from __future__ import annotations
 
-import inspect
-
 from app.lifecycle.context import AppContext
 from core.logger_config import setup_logger
 from web import web_player_config as web_cfg
 from web.web_player import WebPlayerService
 
 logger = setup_logger("BackgroundServices")
-
-
-async def _await_if_needed(value):
-    if inspect.isawaitable(value):
-        return await value
-    return value
 
 
 class BackgroundServiceRunner:
@@ -27,17 +19,15 @@ class BackgroundServiceRunner:
         self._context = context
         await self._start_music_services(context)
         await self._start_web_player(context)
-        self._start_scheduler_services(context)
 
     async def _start_music_services(self, context: AppContext) -> None:
         music = context.handler.infrastructure.music
-        await _await_if_needed(music.start_auto_play_monitor())
-        await _await_if_needed(music.start_web_command_listener())
+        await music.start_auto_play_monitor()
+        await music.start_web_command_listener()
         logger.info("自动播放监控已启动。")
         # 语音浏览器放到后台预热：冷启动时首次进频道的身份绑定会赶不上，
         # 服务端因此不把 bot 显示为频道成员。预热不能阻塞启动，失败也不致命。
-        voice = getattr(context, "voice", None)
-        warmup = getattr(voice, "warmup", None)
+        warmup = getattr(context.voice, "warmup", None)
         if warmup is not None and context.supervisor is not None:
             context.supervisor.create(warmup(), name="voice-browser-warmup")
 
@@ -86,12 +76,6 @@ class BackgroundServiceRunner:
         except Exception:
             logger.debug("成员缓存预热异常", exc_info=True)
 
-    @staticmethod
-    def _start_scheduler_services(context: AppContext) -> None:
-        scheduler = context.handler.services.scheduler
-        scheduler.scheduled.start(context.supervisor)
-        scheduler.reminder.start(context.supervisor)
-
     async def stop_ingress(self, timeout: float = 5.0) -> None:
         web_player = self._web_player
         self._web_player = None
@@ -107,13 +91,11 @@ class BackgroundServiceRunner:
             return
         services = (
             ("音乐后台服务", context.handler.infrastructure.music.stop),
-            ("定时消息", context.handler.services.scheduler.scheduled.stop),
-            ("提醒", context.handler.services.scheduler.reminder.stop),
             ("自动撤回", context.handler.services.safety.recall_scheduler.stop),
         )
         for name, stop in services:
             try:
-                await _await_if_needed(stop(timeout=timeout))
+                await stop(timeout=timeout)
             except Exception as exc:
                 logger.warning("停止 %s 时出现异常: %s", name, exc)
         notifier = context.notifier_callback

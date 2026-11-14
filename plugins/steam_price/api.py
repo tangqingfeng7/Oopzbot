@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import re
+from collections.abc import Awaitable
 from typing import Any
 
 from core.logger_config import get_logger
@@ -368,30 +370,30 @@ class SteamPriceApiClient(JsonHttpClient):
         """批量查询 ITAD 全网历史最低价。"""
         if not self._api_key or not game_ids:
             return {}
-        data = await self._post_json(
-            f"{_ITAD_BASE}/games/historylow/v1",
-            body=game_ids[:200],
-            params={"key": self._api_key, "country": self._country},
-        )
-        if isinstance(data, dict) and data.get("_error"):
-            return {}
-        if not isinstance(data, list):
-            return {}
+        batch_size = 200
         result: dict[str, dict] = {}
-        for entry in data:
-            if not isinstance(entry, dict):
+        for i in range(0, len(game_ids), batch_size):
+            data = await self._post_json(
+                f"{_ITAD_BASE}/games/historylow/v1",
+                body=game_ids[i:i + batch_size],
+                params={"key": self._api_key, "country": self._country},
+            )
+            if not isinstance(data, list):
                 continue
-            gid = str(entry.get("id") or "")
-            low = entry.get("low") if isinstance(entry.get("low"), dict) else {}
-            if not gid or not low:
-                continue
-            price_info = low.get("price") or {}
-            result[gid] = {
-                "price": float(price_info.get("amount") or 0),
-                "cut": int(low.get("cut") or 0),
-                "shop": str((low.get("shop") or {}).get("name") or ""),
-                "timestamp": str(low.get("timestamp") or ""),
-            }
+            for entry in data:
+                if not isinstance(entry, dict):
+                    continue
+                gid = str(entry.get("id") or "")
+                low = entry.get("low") if isinstance(entry.get("low"), dict) else {}
+                if not gid or not low:
+                    continue
+                price_info = low.get("price") or {}
+                result[gid] = {
+                    "price": float(price_info.get("amount") or 0),
+                    "cut": int(low.get("cut") or 0),
+                    "shop": str((low.get("shop") or {}).get("name") or ""),
+                    "timestamp": str(low.get("timestamp") or ""),
+                }
         return result
 
     # ------------------------------------------------------------------
@@ -412,16 +414,17 @@ class SteamPriceApiClient(JsonHttpClient):
         if not itad_id:
             return game_info
 
-        overview = await self.itad_price_overview([itad_id])
-        price_data = overview.get(itad_id, {})
-
-        history = await self.itad_history_low([itad_id])
-        history_data = history.get(itad_id, {})
-
+        lookups: list[Awaitable[dict[str, Any]]] = [
+            self.itad_price_overview([itad_id]),
+            self.itad_history_low([itad_id]),
+        ]
         if not game_info.get("appid"):
-            appids = await self.itad_get_steam_appids([itad_id])
-            if itad_id in appids:
-                game_info["appid"] = appids[itad_id]
+            lookups.append(self.itad_get_steam_appids([itad_id]))
+        overview, history, *appids = await asyncio.gather(*lookups)
+        price_data = overview.get(itad_id, {})
+        history_data = history.get(itad_id, {})
+        if appids and itad_id in appids[0]:
+            game_info["appid"] = appids[0][itad_id]
 
         game_info.update({
             "current_price": price_data.get("current_price"),

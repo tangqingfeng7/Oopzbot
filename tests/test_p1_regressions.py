@@ -1,9 +1,9 @@
 import asyncio
-import json
+import os
 import sys
+import tempfile
 import unittest
 from pathlib import Path
-from types import SimpleNamespace
 from unittest import mock
 from unittest.mock import AsyncMock
 
@@ -53,47 +53,17 @@ class StatisticsPlatformCountTest(unittest.IsolatedAsyncioTestCase):
     async def test_first_write_of_the_day_counts_once(self) -> None:
         import core.database as database
 
-        rows: dict[str, str] = {}
-        captured: list[tuple] = []
-
-        def _cursor(row):
-            return SimpleNamespace(
-                fetchone=AsyncMock(return_value=row),
-                close=AsyncMock(),
-            )
-
-        class _Conn:
-            async def execute(self, sql, params=()):
-                captured.append((sql, params))
-                if sql.strip().startswith("INSERT"):
-                    rows["platform_breakdown"] = params[3]
-                elif sql.strip().startswith("SELECT"):
-                    return _cursor({"platform_breakdown": rows["platform_breakdown"]})
-                elif sql.strip().startswith("UPDATE"):
-                    rows["platform_breakdown"] = params[0]
-                return _cursor(None)
-
-        class _Ctx:
-            async def __aenter__(self):
-                return _Conn()
-
-            async def __aexit__(self, *a):
-                return False
-
-        with mock.patch.object(database, "db_connection", lambda: _Ctx()):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            mock.patch.object(database, "DB_PATH", os.path.join(directory, "stats.db")),
+        ):
+            await database.init_database()
             await database.Statistics.update_today("netease", cache_hit=False)
+            today = await database.Statistics.get_today()
 
-        breakdown = json.loads(rows["platform_breakdown"])
-        self.assertEqual(breakdown, {"netease": 1})
-
-    def test_insert_seeds_empty_breakdown(self) -> None:
-        # 回归点：INSERT 时若写 {platform: 1}，紧接着的读回 +1 会重复计数
-        import inspect
-
-        import core.database as database
-
-        source = inspect.getsource(database.Statistics.update_today)
-        self.assertNotIn('json.dumps({platform: 1})', source)
+        assert today is not None
+        self.assertEqual(today["total_plays"], 1)
+        self.assertEqual(today["platform_breakdown"], {"netease": 1})
 
 
 class EditUserRoleLockTest(unittest.IsolatedAsyncioTestCase):

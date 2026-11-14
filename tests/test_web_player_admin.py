@@ -1,4 +1,5 @@
 import copy
+import importlib
 import json
 import sys
 import tempfile
@@ -141,6 +142,15 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         import web.web_rate_limit as web_rate_limit
 
         web_rate_limit.reset_all()
+        from fastapi import APIRouter
+
+        from web.plugin_routes import register_web
+
+        router = APIRouter()
+        for name in ("screen_share.web", "screen_share.admin", "stats.admin", "scheduler.admin"):
+            router.include_router(importlib.import_module(f"plugins.{name}").router)
+        router.include_router(importlib.import_module("plugins.keyword_reply.admin").build_router(dict))
+        self.addCleanup(register_web(self.module.app, router))
         self.client = TestClient(self.module.app, client=("127.0.0.1", 50000))
 
     def test_plugins_api_requires_login(self) -> None:
@@ -151,7 +161,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
 
     def test_screen_share_heartbeat_rate_limit_is_per_presenter(self) -> None:
         service = SimpleNamespace(heartbeat=AsyncMock(return_value={"ok": True}))
-        with patch("screen_share.web.get_screen_share_service", return_value=service):
+        with patch("plugins.screen_share.web.get_screen_share_service", return_value=service):
             for _ in range(30):
                 response = self.client.post(
                     "/screen-share/api/presenter/heartbeat",
@@ -194,10 +204,10 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             patch.object(self.module, "_admin_enabled", return_value=True),
             patch.object(self.module, "_is_admin_authorized", return_value=True),
             patch(
-                "web.admin.screen_share.get_screen_share_service",
+                "plugins.screen_share.admin.get_screen_share_service",
                 return_value=service,
             ),
-            patch("web.admin.screen_share.announce_ended", announce),
+            patch("plugins.screen_share.admin.announce_ended", announce),
         ):
             response = self.client.post(
                 f"/admin/api/screen-shares/{session_id}/stop",
@@ -868,9 +878,11 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             "/admin/music",
             "/admin/config",
             "/admin/screen-share",
+            "/admin/activity",
+            "/admin/scheduler",
+            "/admin/keyword-reply",
             "/admin/stats",
             "/admin/system",
-            "/admin/setup",
         ]
 
         with patch.object(self.module, "_admin_enabled", return_value=True):
@@ -894,30 +906,14 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn('id="modalBody"', response.text)
         self.assertIn('id="modalFooter"', response.text)
 
-    def test_setup_diagnostics_api_returns_report_when_logged_in(self) -> None:
-        fake_report = {
-            "status": "warn",
-            "summary": {"pass": 3, "warn": 1, "fail": 0, "info": 1},
-            "checks": [{"id": "redis", "level": "pass", "title": "Redis 连接", "summary": "Redis 连接正常"}],
-            "wizard_steps": [{"id": "runtime", "status": "done", "title": "打通基础运行时"}],
-            "first_run_needed": True,
-            "quick_links": [],
-        }
-
+    def test_setup_page_and_diagnostics_api_are_removed(self) -> None:
         with (
             patch.object(self.module, "_admin_enabled", return_value=True),
             patch.object(self.module, "_is_admin_authorized", return_value=True),
-            patch("web.admin.music.SetupDiagnostics") as diagnostics_cls,
         ):
-            diagnostics_cls.return_value.build_report = AsyncMock(return_value=fake_report)
-            response = self.client.get("/admin/api/setup/diagnostics")
-
-        self.assertEqual(response.status_code, 200)
-        data = response.json()
-        self.assertTrue(data["ok"])
-        self.assertEqual(data["status"], "warn")
-        self.assertEqual(data["summary"]["warn"], 1)
-        self.assertEqual(data["checks"][0]["title"], "Redis 连接")
+            for path in ("/admin/setup", "/admin/api/setup/diagnostics"):
+                with self.subTest(path=path):
+                    self.assertEqual(self.client.get(path).status_code, 404)
 
     def test_scheduled_message_templates_api_returns_items_when_logged_in(self) -> None:
         with (
@@ -936,7 +932,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         with (
             patch.object(self.module, "_admin_enabled", return_value=True),
             patch.object(self.module, "_is_admin_authorized", return_value=True),
-            patch("web.admin.scheduler.ScheduledMessageDB.create", return_value=99) as create_task,
+            patch("plugins.scheduler.admin.ScheduledMessageDB.create", return_value=99) as create_task,
         ):
             response = self.client.post(
                 "/admin/api/scheduled-message-templates/morning/apply",

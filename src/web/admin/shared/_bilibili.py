@@ -7,21 +7,14 @@ import io
 from typing import Any, Protocol, cast
 from urllib.parse import parse_qs, urlparse
 
+import qrcode  # type: ignore[reportMissingModuleSource]
+import requests
+
 from core.constants import USER_AGENT
 from core.http_constants import HTTP_TIMEOUT_DEFAULT
 from core.logger_config import get_logger
 
 from ._debug import _cookie_debug_summary, _cookie_pairs_from_response, _debug_profile_text
-
-try:
-    import requests
-except Exception:
-    requests = None
-
-try:
-    import qrcode  # type: ignore[reportMissingModuleSource]
-except Exception:
-    qrcode = None
 
 logger = get_logger("WebPlayerAdmin")
 
@@ -48,8 +41,6 @@ class _PngImage(Protocol):
 
 def _make_qr_data_uri(content: str) -> str:
     """把登录 URL 渲染为前端可直接展示的二维码 PNG。"""
-    if qrcode is None:
-        raise RuntimeError("缺少 qrcode 依赖，请先安装 requirements.txt")
     image = cast(_PngImage, qrcode.make(content))
     buffer = io.BytesIO()
     image.save(buffer, format="PNG")
@@ -59,8 +50,6 @@ def _make_qr_data_uri(content: str) -> str:
 
 def _bilibili_api_get(path: str, params: dict | None = None) -> tuple[dict, Any]:
     """请求 B 站 Web 扫码登录接口并返回 JSON。"""
-    if requests is None:
-        raise RuntimeError("缺少 requests 依赖，请先安装 requirements.txt")
     response = requests.get(
         f"{_BILIBILI_LOGIN_BASE}{path}",
         params=params or {},
@@ -80,8 +69,6 @@ def _bilibili_api_get(path: str, params: dict | None = None) -> tuple[dict, Any]
 
 def _bilibili_account_api_get(path: str, headers: dict | None = None) -> tuple[dict, Any]:
     """请求 B 站 Web API，用于读取已登录账号信息。"""
-    if requests is None:
-        raise RuntimeError("缺少 requests 依赖，请先安装 requirements.txt")
     request_headers = {
         "User-Agent": USER_AGENT,
         "Referer": "https://www.bilibili.com/",

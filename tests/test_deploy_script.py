@@ -330,12 +330,13 @@ class ScreenShareDeployTest(unittest.TestCase):
             ):
                 deploy.setup_screen_share_assets(install=True)
 
+            npm = "npm.cmd" if deploy.IS_WINDOWS else "npm"
             self.assertEqual(
                 [call.args[0] for call in run_ok.call_args_list],
                 [
-                    ["npm", "ci"],
-                    ["npm", "run", "typecheck"],
-                    ["npm", "run", "build"],
+                    [npm, "ci"],
+                    [npm, "run", "typecheck"],
+                    [npm, "run", "build"],
                 ],
             )
 
@@ -373,7 +374,7 @@ class ScreenShareDeployTest(unittest.TestCase):
     def test_docker_release_uses_compiled_assets_without_node_modules(self) -> None:
         dockerfile = (REPO_ROOT / "Dockerfile").read_text(encoding="utf-8")
         dockerignore = (REPO_ROOT / ".dockerignore").read_text(encoding="utf-8")
-        self.assertIn("/app/src/web/assets/screen-share/app.js", dockerfile)
+        self.assertIn("/app/plugins/screen_share/assets/app.js", dockerfile)
         self.assertNotIn("npm install", dockerfile)
         self.assertIn("node_modules/", dockerignore)
 

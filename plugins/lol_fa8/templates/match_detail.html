@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <title>单局详情</title>
+  <style>
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #0b0c0e; color: #f7f8f8; font-family: "Microsoft YaHei", "Noto Sans CJK SC", sans-serif; }
+    #card { width: 1280px; padding: 36px; }
+    header { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #272a30; padding-bottom: 24px; }
+    h1 { margin: 8px 0; font-size: 30px; font-weight: 600; overflow-wrap: anywhere; }
+    h2 { font-size: 19px; margin: 0 0 16px; font-weight: 500; }
+    .muted, small, .stat span { color: #a4a9b3; }
+    .eyebrow { color: #a5afff; font-size: 16px; }
+    .score { text-align: right; flex-shrink: 0; margin-left: 24px; }
+    .score strong { display: block; font-size: 32px; color: #a5afff; }
+    .stats { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; margin: 24px 0; }
+    .stat { background: #121416; border: 1px solid #272a30; border-radius: 10px; padding: 18px; }
+    .stat strong { display: block; font-size: 28px; margin-top: 8px; }
+    section { margin-top: 24px; padding: 20px; background: #121416; border: 1px solid #272a30; border-radius: 12px; }
+    table { width: 100%; border-collapse: collapse; table-layout: fixed; font-size: 14px; font-variant-numeric: tabular-nums; }
+    th { color: #a4a9b3; text-align: left; font-weight: 400; padding: 0 6px 12px; }
+    td { padding: 12px 6px; border-top: 1px solid #272a30; }
+    th:first-child { width: 260px; } th:nth-child(2) { width: 105px; } th:last-child { width: 245px; }
+    .player { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .player div { min-width: 0; } .player b { display: block; overflow-wrap: anywhere; font-weight: 500; }
+    small { display: block; margin-top: 5px; font-size: 12px; }
+    .portrait { width: 40px; height: 40px; border-radius: 7px; flex-shrink: 0; }
+    .equipment { display: flex; flex-wrap: wrap; gap: 4px; }
+    .item { width: 28px; height: 28px; border-radius: 4px; }
+    .placeholder { display: inline-flex; align-items: center; justify-content: center; background: #272a30; color: #a4a9b3; font-size: 12px; }
+    .current { background: #1b2032; } footer { margin-top: 22px; color: #797f8a; font-size: 13px; }
+  </style>
+</head>
+<body><main id="card">
+  <header><div><div class="eyebrow">单局详情 · 第 $index 场 · $server</div><h1>$player</h1><div class="muted">$mode · $duration · $date</div></div><div class="score"><strong>$outcome</strong><div>$champion · $kda</div></div></header>
+  <div class="stats">$metrics</div>
+  $teams
+  <footer>数据查询时间 $queried_at · 装备按接口返回顺序展示</footer>
+</main></body></html>

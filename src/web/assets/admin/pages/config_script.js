@@ -1,39 +1,3 @@
-    /* ---- Keyword editor helpers ---- */
-    window._kwRender = function(obj) {
-      var list = AdminShell.byId("cfg_kw_list");
-      if (!list) return;
-      list.innerHTML = "";
-      Object.entries(obj).forEach(function(pair) { _kwAddRow(list, pair[0], pair[1]); });
-    };
-    function _kwAddRow(list, key, val) {
-      var row = document.createElement("div");
-      row.className = "kw-row";
-      row.innerHTML =
-        '<input class="kw-key" type="text" placeholder="关键词" value="' + AdminShell.escapeHtml(key) + '">' +
-        '<input class="kw-val" type="text" placeholder="回复内容" value="' + AdminShell.escapeHtml(val) + '">' +
-        '<button type="button" class="kw-del" title="删除">&times;</button>';
-      row.querySelector(".kw-del").onclick = function() { row.remove(); };
-      list.appendChild(row);
-    }
-    window._kwAdd = function() {
-      var list = AdminShell.byId("cfg_kw_list");
-      if (!list) return;
-      _kwAddRow(list, "", "");
-      var last = list.querySelector(".kw-row:last-child .kw-key");
-      if (last) last.focus();
-    };
-    window._kwCollect = function() {
-      var obj = {};
-      var list = AdminShell.byId("cfg_kw_list");
-      if (!list) return obj;
-      list.querySelectorAll(".kw-row").forEach(function(row) {
-        var k = row.querySelector(".kw-key").value.trim();
-        var v = row.querySelector(".kw-val").value;
-        if (k) obj[k] = v;
-      });
-      return obj;
-    };
-
     function setVal(id, value) {
       const element = AdminShell.byId(id);
       if (!element) {
@@ -607,7 +571,7 @@
       return (group && group[parts[1]]) || {};
     }
 
-    // 后端类型 → 前端控件类型：str/str_list/json_dict 统一按 text 控件处理，
+    // 后端类型 → 前端控件类型：str/str_list 统一按 text 控件处理，
     // 其余 int/float/bool 原样透传。
     function _fieldType(field) {
       const t = _schemaMeta(field.path).type;
@@ -641,7 +605,6 @@
       { id: "cfg_notify_join_tpl", path: "area_join_notify.message_template" },
       { id: "cfg_notify_leave_tpl", path: "area_join_notify.message_template_leave" },
 
-      { id: "cfg_chat_enabled", path: "chat.enabled" },
 
 
       { id: "cfg_oopz_default_area", path: "oopz.default_area" },
@@ -682,12 +645,6 @@
 
       { id: "cfg_stats_enabled", path: "message_stats.enabled" },
 
-      { id: "cfg_scheduler_enabled", path: "scheduler.enabled" },
-      { id: "cfg_scheduler_interval", path: "scheduler.check_interval_seconds", nullish: true },
-      { id: "cfg_reminder_enabled", path: "reminder.enabled" },
-      { id: "cfg_reminder_max_per_user", path: "reminder.max_per_user", nullish: true },
-      { id: "cfg_reminder_max_delay", path: "reminder.max_delay_hours", nullish: true },
-      { id: "cfg_reminder_interval", path: "reminder.check_interval_seconds", nullish: true },
     ];
 
     function _loadField(config, field) {
@@ -738,8 +695,7 @@
       });
       AdminShell.refreshCustomSelect("cfg_screen_share_quality");
 
-      // 特殊字段：关键词回复用键值编辑器渲染，代理拆成开关组。
-      window._kwRender(config.chat?.keyword_replies || {});
+      // 特殊字段：代理拆成开关组。
       _loadProxy(config);
 
       // 密钥字段：仅展示是否已配置，不回填明文（Cookie 类回填便于复用）。
@@ -765,9 +721,7 @@
         _buildField(updates, field);
       });
 
-      // 特殊字段：关键词回复为键值对，OOPZ 登录密码始终随表单提交
-      // （不走「留空不修改」逻辑）。
-      _cfgSet(updates, "chat.keyword_replies", window._kwCollect());
+      // 特殊字段：OOPZ 登录密码始终随表单提交（不走「留空不修改」逻辑）。
       _cfgSet(updates, "oopz.login_password", val("cfg_oopz_login_password"));
       _cfgSet(updates, "oopz.proxy", _buildProxyValue());
 
@@ -849,7 +803,6 @@
       "reset-overrides": () => resetOverrides(),
       "save-config": () => saveConfig(true),
       "toggle-secret": (el) => toggleSecret(el.dataset.secret, el),
-      "kw-add": () => window._kwAdd(),
       "oopz-login": () => loginOopzAccount(),
       "netease-qr-refresh": () => refreshNeteaseQr(),
       "netease-qr-save": () => saveNeteaseQrCookie(true),

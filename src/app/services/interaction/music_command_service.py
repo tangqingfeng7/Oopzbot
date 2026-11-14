@@ -1,6 +1,4 @@
 import contextlib
-from collections.abc import Awaitable, Callable
-from typing import Any
 
 from app.services.runtime import CommandRuntimeView, music_of, sender_of
 from music.music import parse_platform_prefix
@@ -78,15 +76,9 @@ class MusicCommandService:
         if not self._interactive_enabled():
             await self._play_direct(keyword, channel, area, user)
             return
-        fast_result = None
-        fast_search: Callable[..., Awaitable[Any]] | None = getattr(
-            self._music, "search_best_candidate", None
-        )
-        if callable(fast_search):
-            candidate = await fast_search(clean_kw, resolved_platform)
-            if isinstance(candidate, dict):
-                fast_result = candidate
-        if fast_result and self._is_confident_match(clean_kw, [fast_result]):
+        # 快速路径命中即直接播放；未命中时再给出候选列表。
+        fast_result = await self._music.search_best_candidate(clean_kw, resolved_platform)
+        if fast_result:
             await self._music.play_song_choice(dict(fast_result, platform=resolved_platform), channel, area, user)
             return
         results = await self._music.search_candidates(clean_kw, resolved_platform, limit=5)

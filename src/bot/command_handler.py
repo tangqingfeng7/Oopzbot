@@ -5,9 +5,6 @@ from app.services.runtime import CommandRuntime
 from config import OOPZ_CONFIG
 from core.constants import build_mention
 from core.database import MessageStatsDB, cn_today
-from core.logger_config import get_logger
-
-_stats_logger = get_logger("MessageStats")
 
 _BOT_UID = OOPZ_CONFIG.get("person_uid", "")
 _BOT_MENTION = build_mention(_BOT_UID) if _BOT_UID else ""
@@ -57,10 +54,7 @@ class CommandHandler:
         # 先记录消息，再路由，撤回类命令才能立刻命中。
         self.services.routing.message.remember_message(ctx)
 
-        try:
-            await MessageStatsDB.increment(cn_today(), ctx.channel, ctx.area, ctx.user)
-        except Exception:
-            _stats_logger.debug("消息统计写入失败", exc_info=True)
+        await MessageStatsDB.increment(cn_today(), ctx.channel, ctx.area, ctx.user)
 
         if not ctx.content:
             return

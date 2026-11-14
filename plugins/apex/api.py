@@ -83,15 +83,6 @@ class ApexApiClient(JsonHttpClient):
             "removeMerged": "true",
         })
 
-    async def get_player_by_uid(self, uid: str, platform: str = "PC") -> dict:
-        """通过 UID 查询玩家统计数据。"""
-        return await self._get("bridge", params={
-            "uid": uid,
-            "platform": normalize_platform(platform),
-            "merge": "true",
-            "removeMerged": "true",
-        })
-
     async def get_map_rotation(self) -> dict:
         """获取当前地图轮换信息。"""
         return await self._get("maprotation", params={"version": "2"})
@@ -103,11 +94,3 @@ class ApexApiClient(JsonHttpClient):
     async def get_predator(self) -> dict:
         """获取当前赛季猎杀者门槛。"""
         return await self._get("predator")
-
-    async def get_news(self, lang: str = "en-US") -> list | dict:
-        """获取最新 Apex 新闻。"""
-        return await self._get("news", params={"lang": lang})
-
-    async def get_server_status(self) -> dict:
-        """获取服务器状态。"""
-        return await self._get("servers")

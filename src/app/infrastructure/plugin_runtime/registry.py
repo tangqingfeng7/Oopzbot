@@ -1,3 +1,4 @@
+from collections.abc import Iterator
 from typing import Any
 
 from core.logger_config import get_logger
@@ -111,101 +112,47 @@ class PluginRegistry:
             result.append(descriptor)
         return result
 
+    def _capabilities(self, public: bool | None) -> Iterator[PluginCommandCapabilities]:
+        """按调度顺序产出插件命令声明；``public`` 为 None 时不按公开性过滤。"""
+        for name in self._order:
+            capabilities = self._get_command_capabilities(self._modules[name])
+            if public is None or capabilities.is_public_command == public:
+                yield capabilities
+
+    def _matches_mention(self, text: str, public: bool | None = None) -> bool:
+        return bool(text) and any(
+            text.startswith(prefix)
+            for capabilities in self._capabilities(public)
+            for prefix in capabilities.mention_prefixes
+        )
+
+    def _matches_slash(self, command: str, public: bool | None = None) -> bool:
+        cmd = (command or "").strip().lower()
+        return bool(cmd) and any(cmd in capabilities.slash_commands for capabilities in self._capabilities(public))
+
     def has_mention_prefix(self, text: str) -> bool:
         """判断是否存在插件声明的 mention 前缀匹配。"""
-        if not text:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.mention_prefixes:
-                continue
-            if any(text.startswith(p) for p in capabilities.mention_prefixes):
-                return True
-        return False
+        return self._matches_mention(text)
 
     def has_slash_command(self, command: str) -> bool:
         """判断是否存在插件声明的 slash 命令匹配。"""
-        cmd = (command or "").strip().lower()
-        if not cmd:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.slash_commands:
-                continue
-            if cmd in capabilities.slash_commands:
-                return True
-        return False
+        return self._matches_slash(command)
 
     def has_public_mention_prefix(self, text: str) -> bool:
         """判断是否存在公开插件声明的 mention 前缀匹配。"""
-        if not text:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.mention_prefixes or not capabilities.is_public_command:
-                continue
-            if any(text.startswith(p) for p in capabilities.mention_prefixes):
-                return True
-        return False
+        return self._matches_mention(text, public=True)
 
     def has_public_slash_command(self, command: str) -> bool:
         """判断是否存在公开插件声明的 slash 命令匹配。"""
-        cmd = (command or "").strip().lower()
-        if not cmd:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.slash_commands or not capabilities.is_public_command:
-                continue
-            if cmd in capabilities.slash_commands:
-                return True
-        return False
+        return self._matches_slash(command, public=True)
 
     def has_admin_only_mention_prefix(self, text: str) -> bool:
-        """判断是否存在声明为管理员专属的插件 mention 前缀匹配。
-
-        权限闸门只认内置管理命令名单，命中不了就直接放行；
-        """
-        if not text:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.mention_prefixes or capabilities.is_public_command:
-                continue
-            if any(text.startswith(p) for p in capabilities.mention_prefixes):
-                return True
-        return False
+        """判断是否存在声明为管理员专属的插件 mention 前缀匹配。"""
+        return self._matches_mention(text, public=False)
 
     def has_admin_only_slash_command(self, command: str) -> bool:
         """判断是否存在声明为管理员专属的插件 slash 命令匹配。"""
-        cmd = (command or "").strip().lower()
-        if not cmd:
-            return False
-        for name in self._order:
-            module = self._modules.get(name)
-            if not module:
-                continue
-            capabilities = self._get_command_capabilities(module)
-            if not capabilities.slash_commands or capabilities.is_public_command:
-                continue
-            if cmd in capabilities.slash_commands:
-                return True
-        return False
+        return self._matches_slash(command, public=False)
 
     async def try_dispatch_mention(
         self,
@@ -270,4 +217,26 @@ class PluginRegistry:
                     return True
             except Exception as e:
                 logger.exception("PluginRegistry: 模块 %s handle_slash 异常: %s", name, e)
+        return False
+
+    async def try_dispatch_message(
+        self,
+        text: str,
+        channel: str,
+        area: str,
+        user: str,
+        handler: Any,
+    ) -> bool:
+        """按注册顺序把普通聊天消息交给插件，任一插件返回 `True` 即停止。"""
+        if not text.strip():
+            return False
+        for name in self._order:
+            module = self._modules.get(name)
+            if not module:
+                continue
+            try:
+                if await module.handle_message(text, channel, area, user, handler):
+                    return True
+            except Exception as e:
+                logger.exception("PluginRegistry: 模块 %s handle_message 异常: %s", name, e)
         return False

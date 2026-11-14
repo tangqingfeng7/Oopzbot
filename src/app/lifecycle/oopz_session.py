@@ -5,7 +5,9 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import os
+import time
 from collections.abc import Awaitable, Callable
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -18,7 +20,7 @@ from oopz_sdk.config.settings import (
     RequestConfig,
     RetryConfig,
 )
-from oopz_sdk.exceptions import OopzAuthError
+from oopz_sdk.exceptions import OopzAuthError, OopzError
 from oopz_sdk.models import Message
 
 from app.infrastructure.gateways.sender_gateway import SenderGateway
@@ -31,6 +33,30 @@ from core.proxy_utils import ProxySettings, resolve_proxy_settings_with_env
 from music.music_playback import AudioPlayback
 
 logger = get_logger("OopzSession")
+
+_VOICE_CHAT_POLL_SECONDS = 3
+
+
+def _message_position(message: Message) -> tuple[int, str]:
+    return int(message.timestamp or "0"), message.message_id
+
+
+@dataclass
+class _VoiceChatHistory:
+    area: str
+    cursor: tuple[int, str]
+    dispatched: set[tuple[int, str]] = field(default_factory=set)
+
+    def accept(self, message: Message) -> bool:
+        position = _message_position(message)
+        if position <= self.cursor or position in self.dispatched:
+            return False
+        self.dispatched.add(position)
+        return True
+
+    def advance(self, latest: tuple[int, str]) -> None:
+        self.cursor = max(self.cursor, latest)
+        self.dispatched = {position for position in self.dispatched if position > self.cursor}
 
 
 def _load_private_key() -> Any:
@@ -253,6 +279,12 @@ class OopzSession:
         self._proxy_value: object = None
         self._ready = asyncio.Event()
         self._run_task: asyncio.Task[None] | None = None
+        self._voice_chat_task: asyncio.Task[None] | None = None
+        self._voice_chat_enabled = _as_bool(OOPZ_CONFIG.get("voice_chat"), True)
+        # 已发现的全部语音频道；发送网关据此决定语音频道消息走 v2。
+        self._voice_chat_history: dict[str, _VoiceChatHistory] = {}
+        self._voice_chat_active: set[str] = set()
+        self._voice_chat_since: tuple[int, str] = (time.time_ns() // 1000, "")
         self._task_supervisor: Any = None
         self._rebuild_lock = asyncio.Lock()
 
@@ -276,11 +308,67 @@ class OopzSession:
         gateway.sender = SenderGateway(
             gateway.bot, proxy_value=proxy_value, rebuild_credentials=gateway.rebuild_credentials,
         )
+        gateway.sender.voice_channels = gateway._voice_chat_history
         return gateway
 
     async def _handle_sdk_message(self, message: Message, _ctx) -> None:
         if self._on_chat_message is not None:
+            history = self._voice_chat_history.get(message.channel)
+            if history is not None and not history.accept(message):
+                return
             await self._on_chat_message(message.model_dump(by_alias=True, exclude_none=True))
+
+    def _track_voice_channel(self, area: str, channel: str, persons: list[str]) -> None:
+        self._voice_chat_history.setdefault(channel, _VoiceChatHistory(area, self._voice_chat_since))
+        if any(person != self.bot.config.person_uid for person in persons):
+            self._voice_chat_active.add(channel)
+
+    async def _handle_voice_enter(self, _ctx, event) -> None:
+        if event.area and event.channel:
+            self._track_voice_channel(event.area, event.channel, event.persons)
+
+    async def _handle_voice_leave(self, _ctx, event) -> None:
+        # activeNum 是离开后频道剩余人数。
+        if event.active_num == 0:
+            self._voice_chat_active.discard(event.channel)
+
+    async def _handle_channel_delete(self, _ctx, event) -> None:
+        self._voice_chat_active.discard(event.channel)
+        self._voice_chat_history.pop(event.channel, None)
+
+    async def _load_voice_channels(self) -> None:
+        """启动时取一次各语音频道成员，之后靠进出事件维护有人的频道。"""
+        for area in await self.bot.areas.get_joined_areas():
+            members = await self.bot.channels.get_voice_channel_members(area.area_id)
+            for channel, people in members.channel_members.items():
+                self._track_voice_channel(area.area_id, channel, [person.uid for person in people])
+
+    async def _poll_voice_chat(self, channel: str, history: _VoiceChatHistory) -> None:
+        messages = await self.bot.messages.get_channel_messages(history.area, channel)
+        messages.sort(key=_message_position)
+        for message in messages:
+            if message.sender_id != self.bot.config.person_uid:
+                # 语音频道历史消息的 area 为空，命令路由需要所属域。
+                await self._handle_sdk_message(message.model_copy(update={"area": history.area}), None)
+        if messages:
+            history.advance(_message_position(messages[-1]))
+
+    async def _run_voice_chat_history(self) -> None:
+        try:
+            await self._load_voice_channels()
+        except OopzError as exc:
+            logger.warning("读取语音频道成员失败，仅按进出事件读取: %s", exc)
+        logger.info("已开始读取语音频道文字消息: %d 个语音频道", len(self._voice_chat_history))
+        while True:
+            for channel in list(self._voice_chat_active):
+                history = self._voice_chat_history.get(channel)
+                if history is None:
+                    continue
+                try:
+                    await self._poll_voice_chat(channel, history)
+                except OopzError as exc:
+                    logger.warning("读取语音频道文字消息失败 channel=%s: %s", channel, exc)
+            await asyncio.sleep(_VOICE_CHAT_POLL_SECONDS)
 
     async def _handle_sdk_private_message(self, message: Message, _ctx) -> None:
         if self._on_private_message is not None:
@@ -314,6 +402,9 @@ class OopzSession:
             on_error=self._handle_sdk_error,
         )
         bot.on_private_message(self._handle_sdk_private_message)
+        bot.on("voice.enter")(self._handle_voice_enter)
+        bot.on("voice.leave")(self._handle_voice_leave)
+        bot.on("channel.delete")(self._handle_channel_delete)
         install_project_transports(bot, proxy, proxy_value)
         self.bot = bot
         self._proxy_value = proxy_value
@@ -373,6 +464,12 @@ class OopzSession:
         await asyncio.sleep(0)
         if task.done():
             await task
+        if self._voice_chat_enabled and self._on_chat_message is not None:
+            poll = self._run_voice_chat_history()
+            if self._task_supervisor is None:
+                self._voice_chat_task = asyncio.create_task(poll, name="oopz-voice-chat")
+            else:
+                self._voice_chat_task = self._task_supervisor.create(poll, name="oopz-voice-chat")
 
     async def run(self) -> None:
         await self.start()
@@ -380,6 +477,10 @@ class OopzSession:
         await self._run_task
 
     async def stop(self) -> None:
+        poll, self._voice_chat_task = self._voice_chat_task, None
+        if poll is not None:
+            poll.cancel()
+            await asyncio.gather(poll, return_exceptions=True)
         task = self._run_task
         self._run_task = None
         try:

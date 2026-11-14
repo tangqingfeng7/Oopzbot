@@ -1,9 +1,7 @@
 import time
-import uuid
 from collections.abc import Mapping
 from typing import cast
 
-from core.database import SongCache, Statistics
 from core.logger_config import get_logger
 from core.queue_manager import get_redis_client
 from core.redis_keys import VOLUME as KEY_VOLUME
@@ -111,25 +109,9 @@ class WebControlExecutor:
 
         next_song["channel"] = next_song.get("channel") or channel
         next_song["area"] = area
-        next_song["play_uuid"] = str(uuid.uuid4())
 
-        await h._mark_web_active_area(area, queue=queue)
-        await h._start_playing(next_song.get("duration_ms", 0), area=area)
-        await queue.set_current(next_song)
-
-        try:
-            await SongCache.record_play(
-                song_id=str(next_song.get("song_id") or ""),
-                platform=str(next_song.get("platform") or "netease"),
-                data=next_song,
-                channel_id=next_song["channel"],
-                user_id=next_song.get("user", ""),
-            )
-            await Statistics.update_today(
-                next_song.get("platform", "netease"), cache_hit=False,
-            )
-        except Exception as e:
-            logger.debug(f"记录 Web 切歌播放历史失败: {e}")
+        await h._set_current_song(next_song, area, queue)
+        await h._record_play(next_song, next_song["channel"], next_song.get("user", ""))
 
         h._start_stream_task(next_song, session)
         await h._preload_next_song_if_any(queue=queue)
@@ -197,8 +179,8 @@ class WebControlExecutor:
             ps = await queue.get_play_state()
             if ps:
                 was_paused = bool(ps.get("paused"))
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"seek 时读取 play_state 失败: {e}")
         self.h._play_start_time = time.time() - seek_time
         await self.h._update_play_state_redis(
             queue=queue,
@@ -213,14 +195,8 @@ class WebControlExecutor:
             await redis_client.set(KEY_VOLUME, str(vol))
         except Exception as e:
             logger.debug(f"持久化音量失败: {e}")
-        if not (self.h.voice and self.h.voice.available):
-            return
-        if not await self.h.voice.service.set_volume(vol):
-            return
-        try:
-            await redis_client.set(KEY_VOLUME, str(vol))
-        except Exception as e:
-            logger.debug(f"持久化音量失败: {e}")
+        if self.h.voice and self.h.voice.available:
+            await self.h.voice.service.set_volume(vol)
 
     async def _handle_notify(self, queue, info: Mapping[str, object], area: str):
         ch = self.h._voice_channel_id

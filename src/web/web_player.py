@@ -3,13 +3,12 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
+import functools
 import json
 import math
 import os
 import secrets
 import time
-from collections.abc import Mapping
 from threading import Lock
 from typing import TYPE_CHECKING, cast
 
@@ -47,11 +46,7 @@ from core.redis_protocol import (
 from music.music_platform import MusicPlatform
 from music.netease import NeteaseCloud
 from web.web_link_token import get_active_area, get_token, set_token, touch_access
-from web.web_rate_limit import (
-    SCREEN_SHARE_HEARTBEAT_IP_LIMITER,
-    client_ip,
-    limiter_for,
-)
+from web.web_rate_limit import client_ip, limiter_for
 from web.web_request_context import cookie_secure_for
 
 if TYPE_CHECKING:
@@ -68,40 +63,10 @@ app = FastAPI(title="Oopz Music Player", docs_url=None, redoc_url=None)
 
 _WEB_ASSETS_DIR = os.path.join(cfg.PROJECT_ROOT, "src", "web", "assets")
 _ADMIN_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "admin")
-_SCREEN_SHARE_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "screen-share")
-
-
-class _NoStoreStaticFiles(StaticFiles):
-    """避免屏幕共享页面的新旧 HTML、CSS 和 JS 被浏览器混用。"""
-
-    async def get_response(self, path: str, scope):
-        response = await super().get_response(path, scope)
-        response.headers["Cache-Control"] = "no-store, max-age=0"
-        response.headers["Pragma"] = "no-cache"
-        return response
-
-
-def _mount_static_if_exists(
-    route: str,
-    directory: str,
-    name: str,
-    *,
-    no_store: bool = False,
-) -> None:
-    if os.path.isdir(directory):
-        static_files = _NoStoreStaticFiles if no_store else StaticFiles
-        app.mount(route, static_files(directory=directory), name=name)
-    else:
-        logger.warning("Static assets directory missing, skip mount: %s", directory)
-
-
-_mount_static_if_exists("/admin-assets", _ADMIN_ASSETS_DIR, "admin-assets")
-_mount_static_if_exists(
-    "/screen-share/assets",
-    _SCREEN_SHARE_ASSETS_DIR,
-    "screen-share-assets",
-    no_store=True,
-)
+if os.path.isdir(_ADMIN_ASSETS_DIR):
+    app.mount("/admin-assets", StaticFiles(directory=_ADMIN_ASSETS_DIR), name="admin-assets")
+else:
+    logger.warning("Static assets directory missing, skip mount: %s", _ADMIN_ASSETS_DIR)
 
 # ---------------------------------------------------------------------------
 # 共享状态（admin 模块通过公共函数访问）
@@ -116,6 +81,7 @@ _LYRIC_CACHE_MAX = 200
 
 started_at: float = time.time()
 liked_ids_cache: list = []
+_liked_details_cache: tuple[tuple, list] = ((), [])
 
 # 可选播放模式取值（与 src/music.py 中的 PLAY_MODE_* 常量保持一致）。
 # 注意：autoplay 不是可选模式，仅为队列播完自动续播时的来源标识。
@@ -272,20 +238,7 @@ def refresh_music_platforms() -> dict:
     _platform_cache.clear()
     if _music_dependency is None:
         return {"available": False, "reason": "music 未注册"}
-    refresh = getattr(_music_dependency, "refresh_platforms", None)
-    if callable(refresh):
-        result = refresh()
-        if isinstance(result, Mapping):
-            return dict(result)
-        return {"available": False, "reason": "音乐处理器刷新结果无效"}
-    handler = getattr(_music_dependency, "_handler", None)
-    refresh = getattr(handler, "refresh_platforms", None)
-    if callable(refresh):
-        result = refresh()
-        if isinstance(result, Mapping):
-            return dict(result)
-        return {"available": False, "reason": "音乐处理器刷新结果无效"}
-    return {"available": False, "reason": "音乐处理器尚未初始化"}
+    return _music_dependency.refresh_platforms()
 
 
 def _admin_enabled() -> bool:
@@ -320,17 +273,9 @@ cfg.bootstrap_area_overrides()
 async def _auth_web_api(request: Request, call_next):
     path = request.url.path or ""
 
-    if path.startswith(("/api/", "/admin/api/", "/screen-share/api/")):
+    if path.startswith(("/api/", "/admin/api/")):
         ip = client_ip(request, cfg.trusted_proxy_cidrs())
-        rate_key = ip
-        ip_allowed = True
-        if path == "/screen-share/api/presenter/heartbeat":
-            presenter_auth = request.cookies.get(PRESENTER_COOKIE_NAME, "")
-            if presenter_auth:
-                digest = hashlib.sha256(presenter_auth.encode("utf-8")).hexdigest()
-                rate_key = f"presenter:{digest}"
-            ip_allowed = SCREEN_SHARE_HEARTBEAT_IP_LIMITER.is_allowed(ip)
-        if not ip_allowed or not limiter_for(path).is_allowed(rate_key):
+        if not limiter_for(path).is_allowed(ip):
             return JSONResponse(
                 {"ok": False, "error": "请求过于频繁，请稍后再试"},
                 status_code=429,
@@ -583,10 +528,10 @@ async def api_debug(area: str = Query("", description="域 ID")):
         area = await _resolve_area(r, area)
         current_key = _area_key(KEY_CURRENT, area)
         queue_key = _area_key(KEY_QUEUE, area)
-        current = r.get(current_key)
         ps_key = _area_key(KEY_PLAY_STATE, area)
-        play_state = r.get(ps_key)
-        queue_len = r.llen(queue_key)
+        current, play_state, queue_len = await asyncio.gather(
+            r.get(current_key), r.get(ps_key), r.llen(queue_key)
+        )
         return JSONResponse({
             "redis": "connected",
             "area": area or "(default)",
@@ -607,7 +552,7 @@ async def api_liked(
     keyword: str | None = Query(None, max_length=200),
 ):
     """获取喜欢的音乐列表（分页）。若传 keyword 则在全部喜欢中搜索后分页返回。"""
-    global liked_ids_cache
+    global liked_ids_cache, _liked_details_cache
     try:
         nc = get_netease()
         if not liked_ids_cache:
@@ -619,14 +564,13 @@ async def api_liked(
             return JSONResponse({"songs": [], "total": 0, "page": 1, "pages": 0})
 
         if keyword and keyword.strip():
-            all_ids = list(liked_ids_cache)
-            batch_size = 50
-            all_songs: list = []
-            for i in range(0, len(all_ids), batch_size):
-                chunk = all_ids[i : i + batch_size]
-                details = await nc.get_song_details_batch(chunk)
-                all_songs.extend(details)
-            filtered = _filter_songs_by_keyword(all_songs, keyword)
+            ids_key = tuple(liked_ids_cache)
+            if _liked_details_cache[0] != ids_key:
+                all_songs: list = []
+                for i in range(0, len(ids_key), 50):
+                    all_songs.extend(await nc.get_song_details_batch(list(ids_key[i : i + 50])))
+                _liked_details_cache = (ids_key, all_songs)
+            filtered = _filter_songs_by_keyword(_liked_details_cache[1], keyword)
             total = len(filtered)
             pages = (total + limit - 1) // limit if total else 1
             page = min(page, max(1, pages))
@@ -814,6 +758,12 @@ def index():
     return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
 
 
+@functools.cache
+def _player_html() -> str:
+    with open(os.path.join(_WEB_ASSETS_DIR, "player.html"), encoding="utf-8") as f:
+        return f.read()
+
+
 @app.get("/w/{token}", response_class=HTMLResponse)
 async def index_with_token(token: str, request: Request):
     r = await get_redis()
@@ -822,10 +772,7 @@ async def index_with_token(token: str, request: Request):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
     await set_token(token, redis_client=r, ttl_seconds=cfg.token_ttl_seconds())
     area = (request.query_params.get("area") or "").strip()
-    html_path = os.path.join(_WEB_ASSETS_DIR, "player.html")
-    with open(html_path, encoding="utf-8") as f:
-        html = f.read()
-    html = html.replace(
+    html = _player_html().replace(
         "</head>",
         f"<script>window.__OOPZ_AREA__={json.dumps(area)};</script></head>",
         1,
@@ -850,24 +797,9 @@ async def index_with_token(token: str, request: Request):
 # 注册管理后台路由（放在所有定义之后以避免循环导入）
 # ---------------------------------------------------------------------------
 
-from screen_share.web import (  # noqa: E402
-    PRESENTER_COOKIE_NAME,
-)
-from screen_share.web import (  # noqa: E402
-    router as screen_share_router,
-)
-from screen_share.web import (  # noqa: E402
-    start_watchdog as start_screen_share_watchdog,
-)
-from screen_share.web import (  # noqa: E402
-    stop_watchdog as stop_screen_share_watchdog,
-)
 from web.web_player_admin import admin_router  # noqa: E402
 
 app.include_router(admin_router)
-app.include_router(screen_share_router)
-app.router.add_event_handler("startup", start_screen_share_watchdog)
-app.router.add_event_handler("shutdown", stop_screen_share_watchdog)
 
 
 # ---------------------------------------------------------------------------

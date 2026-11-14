@@ -78,7 +78,10 @@ def discover_plugins(plugins_dir: str) -> list[str]:
 
 def _validate_async_plugin(plugin_class: type) -> str | None:
     """同步插件会阻塞主事件循环，因此在实例化前明确拒绝。"""
-    required = ("handle_mention", "handle_slash", "on_load", "on_config_reload", "on_unload")
+    required = (
+        "handle_mention", "handle_slash", "handle_message",
+        "on_load", "on_config_reload", "on_disable", "on_unload",
+    )
     invalid = [name for name in required if not inspect.iscoroutinefunction(getattr(plugin_class, name, None))]
     if invalid:
         return "插件仅支持 async def，以下方法仍为同步实现: " + ", ".join(invalid)
@@ -281,6 +284,16 @@ async def unload_plugin(
             f"插件未加载: {plugin_name}",
             plugin_name=plugin_name,
             code=PluginOperationCode.NOT_LOADED,
+        )
+
+    try:
+        await module.on_disable()
+    except Exception as exc:
+        logger.warning("PluginLoader: %s on_disable 异常: %s", plugin_name, exc)
+        return PluginOperationResult.failure(
+            f"卸载失败: {exc}",
+            plugin_name=plugin_name,
+            code=PluginOperationCode.UNLOAD_FAILED,
         )
 
     private_modules = tuple(getattr(module, "private_modules", ()) or ())

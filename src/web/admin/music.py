@@ -12,17 +12,15 @@ from core.json_utils import compact_json
 from core.redis_protocol import RedisAdminClient
 from web.admin.shared import (
     DB_PATH,
-    SetupDiagnostics,
     SongCache,
     Statistics,
+    TtlCache,
     _add_song_to_queue,
     _current_song_snapshot,
     _execute_control_action,
     _execute_queue_action,
     _get_netease,
-    _get_plugin_runtime,
     _get_redis,
-    _get_sender,
     _get_started_at,
     _music_area_context,
     _overview_payload,
@@ -41,6 +39,8 @@ from web.admin.shared import (
 )
 
 router = APIRouter()
+# 多个后台标签页各自每秒推送一次，共享同一份快照避免重复查询 Redis/SQLite。
+_overview_stream_cache = TtlCache(0.9, maxsize=1)
 
 
 def _area_unavailable_response() -> JSONResponse:
@@ -69,8 +69,10 @@ async def admin_overview_stream(request: Request):
                     alive = None
                 if not alive:
                     break
-            payload = await _overview_payload()
-            payload_text = compact_json(payload)
+            payload_text = _overview_stream_cache.get("overview")
+            if payload_text is None:
+                payload_text = compact_json(await _overview_payload())
+                _overview_stream_cache.set("overview", payload_text)
             if payload_text != last_payload:
                 yield f"event: overview\ndata: {payload_text}\n\n"
                 last_payload = payload_text
@@ -343,12 +345,5 @@ async def admin_system():
     except Exception as e:
         data["db_tables"] = {"error": str(e)}
     return JSONResponse(data)
-
-
-@router.get("/admin/api/setup/diagnostics")
-async def admin_setup_diagnostics():
-    diagnostics = SetupDiagnostics(sender=_get_sender(), plugins=_get_plugin_runtime())
-    report = await diagnostics.build_report()
-    return JSONResponse({"ok": True, **report}, headers={"Cache-Control": "no-store"})
 
 __all__ = ["router"]

@@ -3,7 +3,7 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "build": "esbuild app.ts --bundle --minify --target=chrome100,edge100 --outfile=../../web/assets/screen-share/app.js",
+    "build": "esbuild app.ts --bundle --minify --target=chrome100,edge100 --outfile=../assets/app.js",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

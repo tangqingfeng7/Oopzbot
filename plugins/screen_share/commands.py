@@ -2,50 +2,50 @@ from __future__ import annotations
 
 from contextlib import suppress
 
-from app.services.runtime import CommandRuntimeView, sender_of
-from screen_share import ScreenShareError, get_screen_share_service
-from screen_share.labels import presenter_label
-from screen_share.messages import recall_viewer_link
+from .labels import presenter_label
+from .messages import recall_viewer_link
+from .service import ScreenShareError, ScreenShareService
 
 
 class ScreenShareCommandService:
     """频道命令入口；媒体与浏览器会话由 screen_share 包负责。"""
 
-    def __init__(self, runtime: CommandRuntimeView):
-        self._runtime = runtime
-        self._sender = sender_of(runtime)
+    def __init__(self, host, service: ScreenShareService):
+        self._host = host
+        self._sender = host.sender
+        self._service = service
 
     def _is_bot_admin(self, user: str) -> bool:
-        return self._runtime.services.routing.access.is_admin(user)
+        return self._host.services.routing.access.is_admin(user)
 
     async def start(self, channel: str, area: str, user: str) -> None:
-        service = get_screen_share_service()
         try:
-            links = await service.create_session(
-                sender=self._sender,
-                user=user,
-                area=area,
-                channel=channel,
-                is_bot_admin=self._is_bot_admin(user),
-            )
+            async with self._service.creation():
+                await self._start(channel, area, user)
         except ScreenShareError as exc:
             await self._sender.send_message(f"屏幕共享创建失败：{exc}", channel=channel, area=area)
-            return
         except Exception:
             await self._sender.send_message(
                 "屏幕共享创建失败：服务暂时不可用",
                 channel=channel,
                 area=area,
             )
-            return
 
+    async def _start(self, channel: str, area: str, user: str) -> None:
+        links = await self._service.create_session(
+            sender=self._sender,
+            user=user,
+            area=area,
+            channel=channel,
+            is_bot_admin=self._is_bot_admin(user),
+        )
         try:
             await self._sender.bot.messages.send_private_message("屏幕共享【发起端专用链接】（不是观看链接，单次使用）：\n"
                 f"{links.presenter_url}\n"
                 "请由你本人打开并选择要共享的窗口；共享成功后 Bot 才会在原频道发送观看链接。", target=user)
         except Exception:
             with suppress(ScreenShareError):
-                await service.stop_by_id(
+                await self._service.stop_by_id(
                     links.session_id,
                     reason="private_message_failed",
                 )
@@ -63,7 +63,7 @@ class ScreenShareCommandService:
         )
 
     async def stop(self, channel: str, area: str, user: str) -> None:
-        service = get_screen_share_service()
+        service = self._service
         try:
             sessions = await service.list_by_channel(area=area, channel=channel)
             if not sessions:
@@ -103,9 +103,12 @@ class ScreenShareCommandService:
                 area=area,
             )
             return
+        stopped = [session for session in stopped if session is not None]
         for stopped_session in stopped:
             await recall_viewer_link(self._sender, stopped_session)
-        if len(stopped) > 1:
+        if not stopped:
+            await self._sender.send_message("当前频道没有屏幕共享", channel=channel, area=area)
+        elif len(stopped) > 1:
             await self._sender.send_message(
                 f"已结束当前频道的 {len(stopped)} 个屏幕共享",
                 channel=channel,
