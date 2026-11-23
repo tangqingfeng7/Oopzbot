@@ -4,10 +4,12 @@ from oopz_sdk import OopzBot
 
 from core.ttl_cache import TtlCache
 
-MEMBERS_RESP_TTL = 10.0
+MEMBERS_RESP_TTL = 30.0
 members_response_cache = TtlCache(MEMBERS_RESP_TTL)
+blocks_response_cache = TtlCache(MEMBERS_RESP_TTL)
 
 
 def invalidate_members_cache(bot: OopzBot, area: str | None = None) -> None:
     bot.areas.cache.invalidate_area_members_pages(area)
     members_response_cache.invalidate()
+    blocks_response_cache.invalidate()

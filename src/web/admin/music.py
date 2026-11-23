@@ -123,14 +123,15 @@ async def admin_clear_play_history():
 def admin_logs(
     tail: int | None = Query(default=None, ge=1, le=2000),
     lines: int | None = Query(default=None, ge=1, le=2000),
+    level: str = Query(default="important"),
 ):
     tail_count = tail if tail is not None else lines
     if tail_count is None:
         tail_count = 200
     log_path = os.path.join(cfg.PROJECT_ROOT, "logs", "oopz_bot.log")
-    line_list = _tail_file(log_path, lines=tail_count)
+    line_list = _tail_file(log_path, lines=tail_count, level=level)
     return JSONResponse(
-        {"ok": True, "path": log_path, "lines": line_list, "logs": line_list, "count": len(line_list)},
+        {"ok": True, "path": log_path, "level": level, "lines": line_list, "logs": line_list, "count": len(line_list)},
         headers={"Cache-Control": "no-store"},
     )
 

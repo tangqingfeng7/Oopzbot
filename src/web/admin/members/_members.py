@@ -7,6 +7,7 @@ from fastapi import APIRouter, Query, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from oopz_sdk.models import AreaMembersPage, UserInfo
 
+from app.infrastructure.member_cache import blocks_response_cache as _blocks_resp_cache
 from web.admin.shared import (
     MessageStatsDB,
     TtlCache,
@@ -35,17 +36,59 @@ _AREA_META_CACHE_TTL = 120.0
 _areas_cache = TtlCache(_AREAS_CACHE_TTL, maxsize=1)
 # 按域分槽：单槽缓存在多域间来回切时会互相挤掉，导致每次切域都要回源。
 _area_meta_cache = TtlCache(_AREA_META_CACHE_TTL)
+_inflight_tasks: dict[str, asyncio.Task] = {}
+
+
+async def _coalesce(key: str, factory):
+    """合并同一缓存键的并发在途请求，避免同时重复打上游接口。"""
+    existing = _inflight_tasks.get(key)
+    if existing is not None and not existing.done():
+        return await asyncio.shield(existing)
+    task = asyncio.create_task(factory())
+    _inflight_tasks[key] = task
+    try:
+        return await asyncio.shield(task)
+    finally:
+        if _inflight_tasks.get(key) is task:
+            _inflight_tasks.pop(key, None)
 
 
 async def _joined_areas(sender) -> list[dict]:
     areas = _areas_cache.get("all")
     if areas is None:
-        areas = [
-            {"id": a.area_id, "name": a.name, "code": a.code, "avatar": a.avatar}
-            for a in await sender.bot.areas.get_joined_areas()
-        ]
-        _areas_cache.set("all", areas)
+        async def _fetch() -> list[dict]:
+            result = [
+                {"id": a.area_id, "name": a.name, "code": a.code, "avatar": a.avatar}
+                for a in await sender.bot.areas.get_joined_areas()
+            ]
+            _areas_cache.set("all", result)
+            return result
+
+        areas = await _coalesce("joined_areas", _fetch)
     return areas
+
+
+async def _get_area_meta_cached(sender, area_id: str) -> dict:
+    cached = _area_meta_cache.get(area_id)
+    if cached is not None:
+        return cached
+
+    async def _fetch() -> dict:
+        area_info = await sender.bot.areas.get_area_info(area_id)
+        roles = [{
+            "id": str(role.role_id), "name": role.name, "sort": role.sort, "type": role.type,
+        } for role in area_info.role_list]
+        roles.sort(key=lambda item: (-item["sort"], item["name"], item["id"]))
+        resp = {
+            "ok": True,
+            "area": area_id,
+            "home_page_channel_id": area_info.home_page_channel_id,
+            "roles": roles,
+        }
+        _area_meta_cache.set(area_id, resp)
+        return resp
+
+    return await _coalesce(f"area_meta:{area_id}", _fetch)
 
 
 @router.get("/admin/api/areas")
@@ -68,31 +111,14 @@ async def admin_area_meta(area_id: str):
     if not resolved_area:
         return JSONResponse({"ok": False, "error": "未找到可用域 ID"})
 
-    cached = _area_meta_cache.get(resolved_area)
-    if cached is not None:
-        return JSONResponse(cached)
-
     sender = _get_sender()
     if not sender:
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
 
     try:
-        area_info = await sender.bot.areas.get_area_info(resolved_area)
+        resp = await _get_area_meta_cached(sender, resolved_area)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-
-    roles = [{
-        "id": str(role.role_id), "name": role.name, "sort": role.sort, "type": role.type,
-    } for role in area_info.role_list]
-    roles.sort(key=lambda item: (-item["sort"], item["name"], item["id"]))
-
-    resp = {
-        "ok": True,
-        "area": resolved_area,
-        "home_page_channel_id": area_info.home_page_channel_id,
-        "roles": roles,
-    }
-    _area_meta_cache.set(resolved_area, resp)
     return JSONResponse(resp)
 
 
@@ -100,6 +126,8 @@ ALL_AREAS = "__all__"
 # 跨域聚合时每个域最多取这么多人。上限由平台决定：实测 offset_end 取到 100 正常，
 # 再往上（149 / 199）服务端直接回「查询数量超过限制」，整域取数会失败。
 _CROSS_AREA_FETCH_LIMIT = 100
+_PERSON_BATCH_SIZE = 30
+_PERSON_BATCH_CONCURRENCY = 4
 
 
 async def _area_name_map() -> dict[str, str]:
@@ -111,22 +139,52 @@ async def _area_name_map() -> dict[str, str]:
 
 
 async def _person_map(sender, uids: list[str]) -> dict:
-    if not uids:
+    unique_uids = list(dict.fromkeys(uid for uid in uids if uid))
+    if not unique_uids:
         return {}
-    try:
-        return {person.uid: person for person in await sender.bot.person.get_person_infos_batch(uids)}
-    except Exception:
-        logger.debug("批量获取用户信息失败", exc_info=True)
-        return {}
+    if len(unique_uids) <= _PERSON_BATCH_SIZE:
+        try:
+            return {person.uid: person for person in await sender.bot.person.get_person_infos_batch(unique_uids)}
+        except Exception:
+            logger.debug("批量获取用户信息失败", exc_info=True)
+            return {}
+
+    sem = asyncio.Semaphore(_PERSON_BATCH_CONCURRENCY)
+    chunks = [
+        unique_uids[i:i + _PERSON_BATCH_SIZE]
+        for i in range(0, len(unique_uids), _PERSON_BATCH_SIZE)
+    ]
+
+    async def _fetch_chunk(chunk: list[str]) -> list:
+        async with sem:
+            try:
+                return await sender.bot.person.get_person_infos_batch(chunk)
+            except Exception:
+                logger.debug("分批获取用户信息失败", exc_info=True)
+                return []
+
+    results = await asyncio.gather(*(_fetch_chunk(c) for c in chunks))
+    merged: dict = {}
+    for batch in results:
+        for person in batch:
+            if person.uid:
+                merged[person.uid] = person
+    return merged
 
 
 async def _area_role_names(sender, area: str) -> dict[int, str]:
     try:
-        area_info = await sender.bot.areas.get_area_info(area=area)
+        meta = await _get_area_meta_cached(sender, area)
     except Exception:
         logger.debug("获取域信息失败 (area=%s)", area[:8])
         return {}
-    return {role.role_id: role.name for role in area_info.role_list}
+    out: dict[int, str] = {}
+    for role in meta.get("roles", []):
+        try:
+            out[int(role["id"])] = role.get("name", "")
+        except (KeyError, TypeError, ValueError):
+            continue
+    return out
 
 
 @router.get("/admin/api/members")
@@ -137,17 +195,33 @@ async def admin_members_list(
     limit: int = Query(50, ge=1, le=500),
     keyword: str = Query(""),
     area: str = Query(""),
+    refresh: bool = Query(False),
 ):
     if area.strip() == ALL_AREAS:
-        return await _members_across_all_areas(offset=offset, limit=limit, keyword=keyword)
+        return await _members_across_all_areas(offset=offset, limit=limit, keyword=keyword, refresh=refresh)
     limit = min(limit, _CROSS_AREA_FETCH_LIMIT)
 
     resolved_area = area.strip() if area.strip() else await _resolve_area_async()
     cache_key = f"{resolved_area}:{offset}:{limit}"
-    if not keyword:
+    if not refresh:
         cached = _members_resp_cache.get(cache_key)
         if cached is not None:
-            return JSONResponse(cached)
+            if not keyword:
+                return JSONResponse(cached)
+            # 若缓存已包含该域全部成员，直接在内存中完成关键词过滤，免去一次回源。
+            if offset == 0 and len(cached.get("members", [])) >= int(cached.get("total", 0) or 0):
+                kw = keyword.lower()
+                matched = [
+                    m for m in cached["members"]
+                    if kw in str(m.get("name", "")).lower()
+                    or kw in str(m.get("uid", "")).lower()
+                    or kw in str(m.get("pid", "")).lower()
+                ]
+                return JSONResponse({
+                    **cached,
+                    "members": matched,
+                    "total": len(matched),
+                })
 
     sender = _get_sender()
     if not sender:
@@ -156,71 +230,79 @@ async def admin_members_list(
     if not resolved_area:
         return JSONResponse({"ok": False, "error": "未找到可用域 ID，请检查配置"})
 
-    try:
-        page = await sender.bot.areas.get_area_members(
-            area=resolved_area, offset_start=offset, offset_end=offset + limit - 1,
+    async def _fetch_single_area() -> dict:
+        page, role_name_map = await asyncio.gather(
+            sender.bot.areas.get_area_members(
+                area=resolved_area,
+                offset_start=offset,
+                offset_end=offset + limit - 1,
+                force=refresh,
+            ),
+            _area_role_names(sender, resolved_area),
         )
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+        members = page.members
+        total = page.total_count or len(members)
+        online = sum(item.count for item in page.role_count if item.role != -1)
+        if not page.role_count:
+            online = sum(member.online == 1 for member in page.members)
 
-    members = page.members
-    total = page.total_count or len(members)
-    online = sum(item.count for item in page.role_count if item.role != -1)
-    if not page.role_count:
-        online = sum(member.online == 1 for member in page.members)
+        person_map = await _person_map(sender, [m.uid for m in members if m.uid])
 
-    person_map, role_name_map = await asyncio.gather(
-        _person_map(sender, [m.uid for m in members if m.uid]),
-        _area_role_names(sender, resolved_area),
-    )
+        from config import ADMIN_UIDS
+        admin_set = set(ADMIN_UIDS)
+        resolver = get_resolver()
 
-    if keyword:
-        kw = keyword.lower()
-        filtered = []
+        items = []
         for m in members:
             uid = m.uid
             pi = person_map.get(uid)
-            name = get_resolver().user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8]
-            if kw in name.lower() or kw in uid.lower() or kw in ((pi.pid if pi else "") or "").lower():
-                filtered.append(m)
-        members = filtered
-        total = len(filtered)
+            role_id = m.role
+            items.append({
+                "uid": uid,
+                "name": resolver.user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8],
+                "avatar": (pi.avatar if pi else ""),
+                "pid": (pi.pid if pi else ""),
+                "online": m.online == 1,
+                "role": role_id,
+                "roleName": role_name_map.get(int(role_id), "") if role_id else "",
+                "roleSort": m.role_sort,
+                "playingState": m.playing_state,
+                "displayType": m.display_type,
+                "is_bot_admin": uid in admin_set,
+            })
+        data = {
+            "ok": True,
+            "members": items,
+            "total": total,
+            "online": online,
+            "offset": offset,
+            "limit": limit,
+        }
+        _members_resp_cache.set(cache_key, data)
+        return data
 
-    from config import ADMIN_UIDS
-    admin_set = set(ADMIN_UIDS)
+    try:
+        resp_data = await _coalesce(f"members:{cache_key}:{'1' if refresh else '0'}", _fetch_single_area)
+    except Exception as exc:
+        return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
 
-    items = []
-    for m in members:
-        uid = m.uid
-        pi = person_map.get(uid)
-        role_id = m.role
-        items.append({
-            "uid": uid,
-            "name": get_resolver().user_cached(uid, fallback=False) or (pi.name if pi else "") or uid[:8],
-            "avatar": (pi.avatar if pi else ""),
-            "pid": (pi.pid if pi else ""),
-            "online": m.online == 1,
-            "role": role_id,
-            "roleName": role_name_map.get(int(role_id), "") if role_id else "",
-            "roleSort": m.role_sort,
-            "playingState": m.playing_state,
-            "displayType": m.display_type,
-            "is_bot_admin": uid in admin_set,
+    if keyword:
+        kw = keyword.lower()
+        filtered = [
+            m for m in resp_data["members"]
+            if kw in str(m.get("name", "")).lower()
+            or kw in str(m.get("uid", "")).lower()
+            or kw in str(m.get("pid", "")).lower()
+        ]
+        return JSONResponse({
+            **resp_data,
+            "members": filtered,
+            "total": len(filtered),
         })
-    resp_data: dict = {
-        "ok": True,
-        "members": items,
-        "total": total,
-        "online": online,
-        "offset": offset,
-        "limit": limit,
-    }
-    if not keyword:
-        _members_resp_cache.set(cache_key, resp_data)
     return JSONResponse(resp_data)
 
 
-async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) -> JSONResponse:
+async def _members_across_all_areas(*, offset: int, limit: int, keyword: str, refresh: bool = False) -> JSONResponse:
     """聚合全部已加入域的成员，用于全域搜索与合并列表。
 
     各域并发拉取，结果按域标注来源，再统一做关键词过滤与分页。没有关键词时也缓存，
@@ -231,83 +313,91 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
         return JSONResponse({"ok": False, "error": "sender 未初始化"}, status_code=503)
 
     cache_key = f"{ALL_AREAS}:pool"
-    pool = _members_resp_cache.get(cache_key)
+    pool = None if refresh else _members_resp_cache.get(cache_key)
     if pool is None:
-        try:
+        async def _build_pool() -> dict:
             names = await _area_name_map()
+            if not names:
+                return {"empty_areas": True}
+
+            async def one(area_id: str) -> tuple[str, AreaMembersPage | None]:
+                try:
+                    return area_id, await sender.bot.areas.get_area_members(
+                        area=area_id,
+                        offset_start=0,
+                        offset_end=_CROSS_AREA_FETCH_LIMIT - 1,
+                        force=refresh,
+                    )
+                except Exception as exc:
+                    logger.debug("跨域取成员失败 area=%s: %s", area_id[:8], exc)
+                    return area_id, None
+
+            results = await asyncio.gather(*(one(aid) for aid in names))
+
+            # 同一个人可能同时在多个域，按 uid 合并成一行并记录全部所属域。
+            by_uid: dict[str, dict] = {}
+            failed = [names.get(area_id, area_id) for area_id, result in results if result is None]
+            fetched = [(area_id, result) for area_id, result in results if result is not None]
+            person_map = await _person_map(
+                sender, list(dict.fromkeys(m.uid for _, result in fetched for m in result.members if m.uid)),
+            )
+            resolver = get_resolver()
+            for area_id, result in fetched:
+                for m in result.members:
+                    uid = m.uid
+                    if not uid:
+                        continue
+                    membership = {
+                        "areaId": area_id,
+                        "areaName": names.get(area_id, area_id),
+                        "role": m.role,
+                        "roleSort": m.role_sort,
+                    }
+                    entry = by_uid.get(uid)
+                    if entry is None:
+                        info = person_map.get(uid)
+                        by_uid[uid] = {
+                            "uid": uid,
+                            "name": resolver.user_cached(uid, fallback=False) or (info.name if info else "") or uid[:8],
+                            "avatar": (info.avatar if info else ""),
+                            "pid": (info.pid if info else ""),
+                            "online": m.online == 1,
+                            "role": m.role,
+                            "roleName": "",
+                            "roleSort": m.role_sort,
+                            "playingState": m.playing_state,
+                            "displayType": m.display_type,
+                            "areas": [membership],
+                        }
+                        continue
+                    entry["areas"].append(membership)
+                    # 在任一域在线就算在线；权限取各域中最高的，避免合并后被低权限域盖掉
+                    if m.online == 1:
+                        entry["online"] = True
+                        if m.playing_state:
+                            entry["playingState"] = m.playing_state
+                            entry["displayType"] = m.display_type
+                    if m.role_sort > entry["roleSort"]:
+                        entry["roleSort"] = m.role_sort
+                        entry["role"] = m.role
+
+            merged = list(by_uid.values())
+            for entry in merged:
+                entry["areas"].sort(key=lambda a: -a["roleSort"])
+                entry["areaId"] = entry["areas"][0]["areaId"]
+                entry["areaName"] = entry["areas"][0]["areaName"]
+            built = {"members": merged, "failed": failed}
+            if not failed:
+                _members_resp_cache.set(cache_key, built)
+            return built
+
+        try:
+            pool = await _coalesce(f"members_pool:{'1' if refresh else '0'}", _build_pool)
         except Exception as exc:
             return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-        if not names:
+
+        if pool.get("empty_areas"):
             return JSONResponse({"ok": False, "error": "未找到任何已加入的域"})
-
-        async def one(area_id: str) -> tuple[str, AreaMembersPage | None]:
-            try:
-                return area_id, await sender.bot.areas.get_area_members(
-                    area=area_id, offset_start=0,
-                    offset_end=_CROSS_AREA_FETCH_LIMIT - 1,
-                )
-            except Exception as exc:
-                logger.debug("跨域取成员失败 area=%s: %s", area_id[:8], exc)
-                return area_id, None
-
-        results = await asyncio.gather(*(one(aid) for aid in names))
-
-        # 同一个人可能同时在多个域，按 uid 合并成一行并记录全部所属域。
-        # 保持一人一行，既避免列表里重复出现，也让前端能一次展示所有域标签。
-        by_uid: dict[str, dict] = {}
-        failed = [names.get(area_id, area_id) for area_id, result in results if result is None]
-        fetched = [(area_id, result) for area_id, result in results if result is not None]
-        person_map = await _person_map(
-            sender, list(dict.fromkeys(m.uid for _, result in fetched for m in result.members if m.uid)),
-        )
-        for area_id, result in fetched:
-            for m in result.members:
-                uid = m.uid
-                if not uid:
-                    continue
-                membership = {
-                    "areaId": area_id,
-                    "areaName": names.get(area_id, area_id),
-                    "role": m.role,
-                    "roleSort": m.role_sort,
-                }
-                entry = by_uid.get(uid)
-                if entry is None:
-                    info = person_map.get(uid)
-                    by_uid[uid] = {
-                        "uid": uid,
-                        "name": get_resolver().user_cached(uid, fallback=False) or (info.name if info else "") or uid[:8],
-                        "avatar": (info.avatar if info else ""),
-                        "pid": (info.pid if info else ""),
-                        "online": m.online == 1,
-                        "role": m.role,
-                        "roleName": "",
-                        "roleSort": m.role_sort,
-                        "playingState": m.playing_state,
-                        "displayType": m.display_type,
-                        "areas": [membership],
-                    }
-                    continue
-                entry["areas"].append(membership)
-                # 在任一域在线就算在线；权限取各域中最高的，避免合并后被低权限域盖掉
-                if m.online == 1:
-                    entry["online"] = True
-                    if m.playing_state:
-                        entry["playingState"] = m.playing_state
-                        entry["displayType"] = m.display_type
-                if m.role_sort > entry["roleSort"]:
-                    entry["roleSort"] = m.role_sort
-                    entry["role"] = m.role
-
-        merged = list(by_uid.values())
-        for entry in merged:
-            entry["areas"].sort(key=lambda a: -a["roleSort"])
-            # 兼容单域视图的字段：主域取权限最高的那个
-            entry["areaId"] = entry["areas"][0]["areaId"]
-            entry["areaName"] = entry["areas"][0]["areaName"]
-        pool = {"members": merged, "failed": failed}
-        if not failed:
-            _members_resp_cache.set(cache_key, pool)
 
     from config import ADMIN_UIDS
 
@@ -341,9 +431,16 @@ async def _members_across_all_areas(*, offset: int, limit: int, keyword: str) ->
 
 @router.get("/admin/api/members/blocks")
 @require_sender
-async def admin_members_blocks(area: str = Query("")):
+async def admin_members_blocks(area: str = Query(""), refresh: bool = Query(False)):
     sender = _require_sender()
     area = area.strip() or await _resolve_area_async()
+    if not area:
+        return JSONResponse({"ok": False, "error": "未找到可用域 ID"}, status_code=400)
+
+    if not refresh:
+        cached = _blocks_resp_cache.get(area)
+        if cached is not None:
+            return JSONResponse(cached)
 
     def _parse(data: list[UserInfo], area_id: str, area_name: str) -> list[dict]:
         resolver = get_resolver()
@@ -359,8 +456,6 @@ async def admin_members_blocks(area: str = Query("")):
             })
         return parsed
 
-    # 「全部域」不是真实域 ID，必须逐域查询后合并；封禁是按域生效的，
-    # 每条都要带上来源域，否则解封会打到错误的域。
     if area == ALL_AREAS:
         try:
             names = await _area_name_map()
@@ -384,16 +479,21 @@ async def admin_members_blocks(area: str = Query("")):
                 blocks.extend(_parse(data, area_id, names[area_id]))
         if len(failed) == len(names):
             return JSONResponse({"ok": False, "error": "所有域的封禁列表查询失败", "partial": failed}, status_code=502)
-        return JSONResponse({"ok": True, "blocks": blocks, "crossArea": True, "partial": failed})
+        resp = {"ok": True, "blocks": blocks, "crossArea": True, "partial": failed}
+        if not failed:
+            _blocks_resp_cache.set(area, resp)
+        return JSONResponse(resp)
 
-    if not area:
-        return JSONResponse({"ok": False, "error": "未找到可用域 ID"}, status_code=400)
     try:
-        data = await sender.bot.moderation.get_area_blocks(area)
-        names = await _area_name_map()
+        data, names = await asyncio.gather(
+            sender.bot.moderation.get_area_blocks(area),
+            _area_name_map(),
+        )
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
-    return JSONResponse({"ok": True, "blocks": _parse(data, area, names.get(area, ""))})
+    resp = {"ok": True, "blocks": _parse(data, area, names.get(area, ""))}
+    _blocks_resp_cache.set(area, resp)
+    return JSONResponse(resp)
 
 
 @router.get("/admin/api/members/{uid}")
@@ -532,4 +632,5 @@ async def admin_member_role(uid: str, request: Request):
             return JSONResponse({"ok": False, "error": result.message or "修改身份组被拒绝"}, status_code=502)
     except Exception as exc:
         return JSONResponse({"ok": False, "error": str(exc)}, status_code=502)
+    _invalidate_members_cache(area)
     return JSONResponse({"ok": True, "message": result.message or "角色已更新"})
