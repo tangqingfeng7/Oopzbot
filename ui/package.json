@@ -1,0 +1,27 @@
+{
+  "name": "oopz-ui",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev:admin": "vite --config vite.admin.config.ts",
+    "dev:player": "vite --config vite.player.config.ts",
+    "typecheck": "tsc --noEmit",
+    "build:admin": "vite build --config vite.admin.config.ts",
+    "build:player": "vite build --config vite.player.config.ts",
+    "build": "npm run build:admin && npm run build:player"
+  },
+  "dependencies": {
+    "framer-motion": "^12.4.7",
+    "lucide-react": "^0.475.0",
+    "react": "^19.0.0",
+    "react-dom": "^19.0.0"
+  },
+  "devDependencies": {
+    "@types/react": "^19.0.10",
+    "@types/react-dom": "^19.0.4",
+    "@vitejs/plugin-react": "^4.3.4",
+    "typescript": "^5.7.3",
+    "vite": "^6.1.1"
+  }
+}

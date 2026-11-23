@@ -46,6 +46,10 @@ venv/
 .idea/
 .cursor/
 
+# Frontend source (only compiled ui/public/ is needed in container)
+ui/*
+!ui/public/
+
 # External dependencies
 NeteaseAPI_tmp/
 NeteaseAPI_tmp.zip

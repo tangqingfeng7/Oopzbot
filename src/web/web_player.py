@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import math
 import os
@@ -24,6 +23,7 @@ from app.services.playback import (
     PlaybackControlService,
 )
 from core.logger_config import get_logger
+from core.paths import WEB_ASSETS_DIR as _WEB_ASSETS_DIR
 from core.queue_manager import (
     KEY_CURRENT,
     KEY_PLAY_MODE,
@@ -61,12 +61,15 @@ logger = get_logger("WebPlayer")
 
 app = FastAPI(title="Oopz Music Player", docs_url=None, redoc_url=None)
 
-_WEB_ASSETS_DIR = os.path.join(cfg.PROJECT_ROOT, "src", "web", "assets")
 _ADMIN_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "admin")
+_PLAYER_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "player")
+os.makedirs(os.path.join(_PLAYER_ASSETS_DIR, "bundle"), exist_ok=True)
 if os.path.isdir(_ADMIN_ASSETS_DIR):
     app.mount("/admin-assets", StaticFiles(directory=_ADMIN_ASSETS_DIR), name="admin-assets")
 else:
     logger.warning("Static assets directory missing, skip mount: %s", _ADMIN_ASSETS_DIR)
+if os.path.isdir(_PLAYER_ASSETS_DIR):
+    app.mount("/player-assets", StaticFiles(directory=_PLAYER_ASSETS_DIR), name="player-assets")
 
 # ---------------------------------------------------------------------------
 # 共享状态（admin 模块通过公共函数访问）
@@ -788,10 +791,25 @@ def index():
     return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
 
 
-@functools.cache
+_PLAYER_HTML_CACHE: tuple[float, str] | None = None
+
+
+def _player_bundle_version() -> str:
+    js_path = os.path.join(_PLAYER_ASSETS_DIR, "bundle", "player-app.js")
+    try:
+        return str(int(os.path.getmtime(js_path)))
+    except OSError:
+        return "1"
+
+
 def _player_html() -> str:
-    with open(os.path.join(_WEB_ASSETS_DIR, "player.html"), encoding="utf-8") as f:
-        return f.read()
+    global _PLAYER_HTML_CACHE
+    html_path = os.path.join(_WEB_ASSETS_DIR, "player.html")
+    mtime = os.path.getmtime(html_path)
+    if _PLAYER_HTML_CACHE is None or _PLAYER_HTML_CACHE[0] != mtime:
+        with open(html_path, encoding="utf-8") as f:
+            _PLAYER_HTML_CACHE = (mtime, f.read())
+    return _PLAYER_HTML_CACHE[1].replace("__PLAYER_ASSET_VERSION__", _player_bundle_version())
 
 
 @app.get("/w/{token}", response_class=HTMLResponse)

@@ -1,5 +1,4 @@
 from collections.abc import Callable
-from pathlib import Path
 
 from fastapi import APIRouter
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -27,7 +26,7 @@ def build_router(current_replies: Callable[[], dict[str, str]]) -> APIRouter:
 
     @router.get("/admin/keyword-reply", response_class=HTMLResponse)
     def admin_keyword_reply_page():
-        return render_admin_page(_PAGE, Path(__file__).with_name("admin_assets"))
+        return render_admin_page(_PAGE)
 
     @router.get("/admin/api/keyword-replies")
     def admin_keyword_replies():

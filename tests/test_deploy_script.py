@@ -494,5 +494,57 @@ class DeadUpstreamTest(unittest.TestCase):
         self.assertIn("api-enhanced", docs)
 
 
+class UiAssetsTest(unittest.TestCase):
+    """Web 前端产物就绪时不依赖 Node.js，缺失时可自动从 ui/ 源码恢复。"""
+
+    def test_repo_ui_public_assets_are_ready(self) -> None:
+        self.assertTrue(deploy.ui_assets_ready())
+
+    def test_setup_ui_assets_skips_npm_when_ready(self) -> None:
+        with (
+            patch.object(deploy, "ui_assets_ready", return_value=True),
+            patch.object(deploy, "run_ok") as run_ok,
+        ):
+            deploy.setup_ui_assets(install=True)
+        run_ok.assert_not_called()
+
+    def test_setup_ui_assets_rebuilds_when_missing(self) -> None:
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as tmp:
+            ui_dir = Path(tmp) / "ui"
+            public_dir = ui_dir / "public"
+            ui_dir.mkdir(parents=True)
+            (ui_dir / "package-lock.json").write_text("{}", encoding="utf-8")
+
+            def fake_run_ok(cmd: list[str], **kwargs: Any) -> bool:
+                if cmd[-1] == "build":
+                    for rel in deploy.UI_REQUIRED_ASSETS:
+                        target = public_dir / rel
+                        target.parent.mkdir(parents=True, exist_ok=True)
+                        target.write_text("ok", encoding="utf-8")
+                return True
+
+            with (
+                patch.object(deploy, "IS_WINDOWS", False),
+                patch.object(deploy, "UI_DIR", ui_dir),
+                patch.object(deploy, "UI_PUBLIC_DIR", public_dir),
+                patch.object(deploy.shutil, "which", return_value="/usr/bin/npm"),
+                patch.object(deploy, "run_ok", side_effect=fake_run_ok) as run_ok,
+            ):
+                deploy.setup_ui_assets(install=True)
+                self.assertTrue(deploy.ui_assets_ready())
+
+            cmds = [c.args[0] for c in run_ok.call_args_list]
+            self.assertEqual(
+                cmds,
+                [
+                    ["npm", "ci"],
+                    ["npm", "run", "typecheck"],
+                    ["npm", "run", "build"],
+                ],
+            )
+
+
 if __name__ == "__main__":
     unittest.main()

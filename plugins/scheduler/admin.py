@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -34,7 +32,7 @@ def _cron_range_error(hour: int, minute: int):
 
 @router.get("/admin/scheduler", response_class=HTMLResponse)
 def admin_scheduler_page():
-    return render_admin_page(_PAGE, Path(__file__).with_name("admin_assets"))
+    return render_admin_page(_PAGE)
 
 
 @router.get("/admin/api/scheduled-messages")

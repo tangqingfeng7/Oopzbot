@@ -26,6 +26,16 @@ NETEASE_REPO = "https://github.com/NeteaseCloudMusicApiEnhanced/api-enhanced.git
 NETEASE_DOCKER_IMAGE = "moefurina/ncm-api:latest"
 NETEASE_DEFAULT_DIR = "NeteaseCloudMusicApi"
 REDIS_HOST, REDIS_PORT = "127.0.0.1", 6379
+UI_DIR = ROOT / "ui"
+UI_PUBLIC_DIR = UI_DIR / "public"
+UI_REQUIRED_ASSETS = (
+    "player.html",
+    "admin/admin-shell-template.html",
+    "admin/bundle/admin-app.js",
+    "admin/bundle/admin-app.css",
+    "player/bundle/player-app.js",
+    "player/bundle/player-app.css",
+)
 SCREEN_SHARE_CLIENT_DIR = ROOT / "plugins" / "screen_share" / "client"
 SCREEN_SHARE_ASSET_DIR = ROOT / "plugins" / "screen_share" / "assets"
 SCREEN_SHARE_REQUIRED_ASSETS = ("index.html", "style.css", "app.js")
@@ -180,6 +190,50 @@ def install_browser(python: Path) -> None:
 # --------------------------------------------------------------------------
 # 屏幕共享网页资源
 # --------------------------------------------------------------------------
+
+
+def ui_assets_ready() -> bool:
+    """正式部署直接复用 ui/public 下已提交的编译产物，不要求 Node.js。"""
+    return all(
+        (UI_PUBLIC_DIR / rel).is_file()
+        and (UI_PUBLIC_DIR / rel).stat().st_size > 0
+        for rel in UI_REQUIRED_ASSETS
+    )
+
+
+def setup_ui_assets(install: bool) -> None:
+    """校验管理后台与 Web 播放器静态产物；仅当缺失时尝试用本机 Node 恢复构建。"""
+    if ui_assets_ready():
+        say("Web 前端资源已就绪（无需 Node.js）")
+        return
+    missing = [
+        rel
+        for rel in UI_REQUIRED_ASSETS
+        if not (UI_PUBLIC_DIR / rel).is_file()
+        or (UI_PUBLIC_DIR / rel).stat().st_size <= 0
+    ]
+    warn(f"Web 前端资源不完整：{'、'.join(missing)}")
+    if not install:
+        warn("已跳过安装，Web 播放器或管理后台可能无法正常展示")
+        return
+    npm = "npm.cmd" if IS_WINDOWS else "npm"
+    if not UI_DIR.is_dir() or not shutil.which(npm):
+        warn("发行包应自带 ui/public 编译产物；当前又找不到 npm，无法自动恢复")
+        return
+    say("尝试从 ui/ 源码恢复管理后台与 Web 播放器产物")
+    install_cmd = [npm, "ci"] if (UI_DIR / "package-lock.json").is_file() else [npm, "install"]
+    commands = (
+        install_cmd,
+        [npm, "run", "typecheck"],
+        [npm, "run", "build"],
+    )
+    if (
+        all(run_ok(command, cwd=UI_DIR) for command in commands)
+        and ui_assets_ready()
+    ):
+        say("Web 前端资源已恢复")
+        return
+    warn("Web 前端构建失败，Bot 其他功能仍可继续部署")
 
 
 def screen_share_assets_ready() -> bool:
@@ -873,6 +927,7 @@ def report(python: Path) -> dict[str, bool]:
     checks = {
         "Python 依赖": python.exists(),
         "浏览器（语音）": browser_ready(python),
+        "Web 前端（后台 / 播放器）": ui_assets_ready(),
         "Redis（队列持久化 / 屏幕共享）": redis_alive(),
         "网易云 API（点歌）": (netease_dir() / "app.js").exists(),
     }
@@ -951,6 +1006,9 @@ def main() -> int:
     step("准备配置文件与目录")
     ensure_dirs()
     created = ensure_config_files()
+
+    step("检查 Web 前端资源")
+    setup_ui_assets(install=not skip_install)
 
     step("检查屏幕共享网页资源")
     setup_screen_share_assets(install=not skip_install)

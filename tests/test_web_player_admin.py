@@ -499,12 +499,23 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('<meta name="referrer" content="no-referrer">', response.text)
-        self.assertNotIn('id="btnStop"', response.text)
-        self.assertIn("id:'stop'", response.text)
-        self.assertIn("label:'停止播放'", response.text)
-        self.assertIn("body:JSON.stringify({action:'mode',value:next.id})", response.text)
-        self.assertIn("fetchLyric(d.id,platform);", response.text)
-        self.assertIn("platform:normalizePlatform(platform)", response.text)
+        self.assertIn('id="player-root"', response.text)
+        self.assertIn("/player-assets/bundle/player-app.css", response.text)
+        self.assertIn("/player-assets/bundle/player-app.js", response.text)
+        self.assertNotIn("__PLAYER_ASSET_VERSION__", response.text)
+
+        js_resp = self.client.get("/player-assets/bundle/player-app.js")
+        css_resp = self.client.get("/player-assets/bundle/player-app.css")
+        self.assertEqual(js_resp.status_code, 200)
+        self.assertEqual(css_resp.status_code, 200)
+
+        api_src = (REPO_ROOT / "ui" / "src" / "player" / "lib" / "playerApi.ts").read_text(encoding="utf-8")
+        app_src = (REPO_ROOT / "ui" / "src" / "player" / "PlayerApp.tsx").read_text(encoding="utf-8")
+        self.assertIn('id: "stop"', api_src)
+        self.assertIn('label: "停止播放"', api_src)
+        self.assertIn("platform: normalizePlatform(platform)", api_src)
+        self.assertIn('sendControl({ action: "mode", value: next.id })', app_src)
+        self.assertIn("fetchPlayerLyric(d.id", app_src)
 
     async def test_public_playback_endpoints_return_exact_409_without_area(self) -> None:
         from core.queue_manager import _InMemoryRedis
@@ -890,21 +901,18 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(path=path):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
-                    self.assertIn('/admin-assets/admin-shell.css', response.text)
-                    self.assertIn('/admin-assets/admin-shell.js', response.text)
-                    self.assertIn('class="shell-topbar"', response.text)
-                    self.assertIn('id="topNav"', response.text)
-                    self.assertIn('id="mobileNav"', response.text)
-                    self.assertIn('id="topStatus"', response.text)
+                    self.assertIn('/admin-assets/bundle/admin-app.css', response.text)
+                    self.assertIn('/admin-assets/bundle/admin-app.js', response.text)
+                    self.assertIn('id="admin-root"', response.text)
+                    self.assertIn('id="pluginNavigation"', response.text)
 
     def test_screen_share_page_includes_confirmation_modal(self) -> None:
         with patch.object(self.module, "_admin_enabled", return_value=True):
             response = self.client.get("/admin/screen-share")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('id="modalDialog"', response.text)
-        self.assertIn('id="modalBody"', response.text)
-        self.assertIn('id="modalFooter"', response.text)
+        self.assertIn('data-admin-page="screen-share"', response.text)
+        self.assertIn('/admin-assets/bundle/admin-app.js', response.text)
 
     def test_setup_page_and_diagnostics_api_are_removed(self) -> None:
         with (
@@ -942,6 +950,103 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["id"], 99)
         create_task.assert_called_once()
+
+    def test_admin_logs_filters_noise_by_default(self) -> None:
+        from web.admin.shared._snapshots import _tail_file
+
+        sample = "\n".join([
+            "2026-11-24 05:18:59 [aiosqlite] DEBUG: executing functools.partial(...)",
+            "2026-11-24 05:18:59 [urllib3.connectionpool] DEBUG: Starting new HTTP connection",
+            "2026-11-24 05:18:59 [httpx] INFO: HTTP Request: GET http://testserver/admin",
+            "2026-11-24 05:19:00 [Music] INFO: 开始播放 晴天",
+            "2026-11-24 05:19:01 [WebPlayerAdmin] WARNING: 后台登录密码错误",
+            "2026-11-24 05:19:02 [Bot] ERROR: 推送失败",
+            "Traceback (most recent call last):",
+            "  RuntimeError: boom",
+        ])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "oopz_bot.log"
+            log_path.write_text(sample, encoding="utf-8")
+
+            important = _tail_file(str(log_path), lines=50, level="important")
+            self.assertEqual(
+                important,
+                [
+                    "2026-11-24 05:19:00 [Music] INFO: 开始播放 晴天",
+                    "2026-11-24 05:19:01 [WebPlayerAdmin] WARNING: 后台登录密码错误",
+                    "2026-11-24 05:19:02 [Bot] ERROR: 推送失败",
+                    "Traceback (most recent call last):",
+                    "  RuntimeError: boom",
+                ],
+            )
+
+            warn_only = _tail_file(str(log_path), lines=50, level="warn")
+            self.assertEqual(len(warn_only), 4)
+            self.assertTrue(warn_only[0].startswith("2026-11-24 05:19:01 [WebPlayerAdmin] WARNING:"))
+
+            raw_all = _tail_file(str(log_path), lines=50, level="all")
+            self.assertEqual(len(raw_all), 8)
+
+    def test_members_endpoint_caches_area_meta_and_local_keyword_search(self) -> None:
+        from web.admin.members import _members as members_mod
+
+        fake_page = SimpleNamespace(
+            members=[
+                SimpleNamespace(
+                    uid="u1", online=1, role=10, role_sort=1, playing_state="", display_type=0,
+                ),
+                SimpleNamespace(
+                    uid="u2", online=0, role=10, role_sort=1, playing_state="", display_type=0,
+                ),
+            ],
+            total_count=2,
+            role_count=[SimpleNamespace(role=10, count=1)],
+        )
+        fake_area_info = SimpleNamespace(
+            home_page_channel_id="ch-1",
+            role_list=[SimpleNamespace(role_id=10, name="域主", sort=100, type=1)],
+        )
+        fake_persons = [
+            SimpleNamespace(uid="u1", name="Nami", avatar="", pid="1001"),
+            SimpleNamespace(uid="u2", name="Bot", avatar="", pid="1002"),
+        ]
+        get_area_members = AsyncMock(return_value=fake_page)
+        get_area_info = AsyncMock(return_value=fake_area_info)
+        get_person_infos_batch = AsyncMock(return_value=fake_persons)
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                areas=SimpleNamespace(get_area_members=get_area_members, get_area_info=get_area_info),
+                person=SimpleNamespace(get_person_infos_batch=get_person_infos_batch),
+            ),
+        )
+
+        members_mod._area_meta_cache.invalidate()
+        members_mod._members_resp_cache.invalidate()
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(members_mod, "_get_sender", return_value=fake_sender),
+            patch.object(members_mod, "get_resolver", return_value=SimpleNamespace(user_cached=lambda *_a, **_kw: "")),
+        ):
+            r1 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20")
+            self.assertEqual(r1.status_code, 200)
+            self.assertEqual(r1.json()["members"][0]["roleName"], "域主")
+            self.assertEqual(get_area_members.await_count, 1)
+            self.assertEqual(get_area_info.await_count, 1)
+
+            # 关键词搜索直接命中完整单域缓存，不再回源
+            r2 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20&keyword=nami")
+            self.assertEqual(r2.status_code, 200)
+            self.assertEqual(len(r2.json()["members"]), 1)
+            self.assertEqual(r2.json()["members"][0]["uid"], "u1")
+            self.assertEqual(get_area_members.await_count, 1)
+            self.assertEqual(get_area_info.await_count, 1)
+
+            # 强制刷新时角色元数据仍命中 _area_meta_cache，无需重复拉 /area/v3/info
+            r3 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20&refresh=1")
+            self.assertEqual(r3.status_code, 200)
+            self.assertEqual(get_area_members.await_count, 2)
+            self.assertEqual(get_area_info.await_count, 1)
 
 
 if __name__ == "__main__":
