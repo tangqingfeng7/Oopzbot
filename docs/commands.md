@@ -83,12 +83,14 @@
 
 ### 屏幕共享
 
+> 由 `screen_share` 插件提供。
+
 | 指令 | 说明 |
 |------|------|
 | `@bot 屏幕共享` | 私信获取单次发起链接；发布成功后 Bot 在原频道发送观看链接 |
 | `@bot 停止屏幕共享` | 发起者只停止自己的共享；本人未共享时，有权成员可停止当前频道的全部共享 |
 
-发起权限在“域管理 → 域配置”中按 `roleID` 选择。域主和 Bot 管理员始终允许；同一文字频道允许多人同时共享，每人同时最多一个会话。后台管理员可在独立的“屏幕共享”菜单中结束指定会话。详见[屏幕共享](screen-share.md)。
+发起权限在“域管理 → 域配置”中按 `roleID` 选择。域主和 Bot 管理员始终允许；同一文字频道允许多人同时共享，每人同时最多一个会话。后台管理员可在独立的“屏幕共享”菜单中结束指定会话。
 
 ### 提醒 & 统计
 
@@ -322,8 +324,8 @@
 | 接口 | 方法 | 说明 |
 |------|------|------|
 | `/admin/api/areas` | GET | 获取 Bot 已加入的域列表（2 分钟缓存） |
-| `/admin/api/members?area=&offset=&limit=&keyword=` | GET | 获取指定域的成员列表，支持分页和搜索 |
-| `/admin/api/members/blocks?area=` | GET | 获取指定域的封禁列表 |
+| `/admin/api/members?area=&offset=&limit=&keyword=&refresh=0` | GET | 获取指定域（或 `__all__` 全部域）成员列表，支持分页、搜索与 30s 缓存（`refresh=1` 强制刷新） |
+| `/admin/api/members/blocks?area=&refresh=0` | GET | 获取指定域封禁列表（支持 30s 缓存，`refresh=1` 强制刷新） |
 | `/admin/api/members/{uid}?area=` | GET | 获取成员详情（含角色、可分配角色等） |
 | `/admin/api/members/{uid}/mute` | POST | 禁言，body: `{duration, area}` |
 | `/admin/api/members/{uid}/unmute` | POST | 解除禁言，body: `{area}` |

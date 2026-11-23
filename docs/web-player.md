@@ -8,19 +8,19 @@ Web 播放器是一个独立的歌词与播放控制页面，与 Bot 播放状�
 
 | 功能 | 说明 |
 |------|------|
-| **播放状态** | 当前歌曲、封面、进度条、暂停/播放、与 Bot 实时同步 |
-| **歌词** | 自动加载歌词与翻译，高亮当前行；支持**歌词同步**（本地插值 + 手动偏移） |
-| **播放队列** | 展示当前 + 待播列表，支持置顶、删除；**防闪烁**（仅数据变化时重绘） |
-| **喜欢列表** | 分页浏览网易云喜欢列表；支持**全量搜索**（在全部喜欢中按歌名/歌手/专辑搜索后分页） |
-| **搜索点歌** | 关键词搜索歌曲，一键加入队列 |
-| **音量** | 滑块调节音量并下发到 Bot；**记忆上次音量**（localStorage 持久化，下次打开恢复） |
+| **沉浸舞台** | 基于封面提取动态流动氛围背景、黑胶唱盘与 3D 视差封套，进度与状态与 Bot 实时同步 |
+| **歌词** | 无边框大字滚动歌词与翻译，支持**点击歌词跳转进度**、手动滚动暂缓跟随与时间偏移微调 |
+| **播放队列** | 侧滑毛玻璃队列抽屉（快捷键 `Q`），支持置顶、删除与清空；有待播曲目时右下角展示「即将播放」提示 |
+| **喜欢列表** | 分页浏览网易云喜欢列表（快捷键 `L`）；支持**全量搜索**与手动刷新缓存 |
+| **搜索点歌** | 关键词搜索歌曲（快捷键 `/` 或 `Ctrl+K`），一键加入队列 |
+| **控制与音量** | 支持桌面与触屏拖拽进度条/音量条，支持循环模式切换与快捷键（`Space` 暂停/继续、`→` 切歌），音量自动记忆 |
 
 ---
 
 ## 歌词同步
 
-- **本地插值**：进度与歌词高亮按约 150ms 间隔用本地时间插值，避免仅靠 1 秒轮询导致的卡顿与不同步。
-- **手动偏移**：点击「同步」可设置歌词整体提前/延后（-1s、-0.5s、+0.5s、+1s、重置），偏移写入 `localStorage`（键 `lyricOffset`），刷新后保留。
+- **本地插值**：进度与歌词高亮按约 120ms 间隔用本地时间插值，避免仅靠 1 秒轮询导致的卡顿与不同步；页面切到后台时自动暂停轮询，切回后立即同步。
+- **点击跳转与手动偏移**：点击任意歌词行可直接跳转到对应时间点；点击右上角「同步」可设置歌词整体提前/延后（`-1s`、`-0.5s`、`+0.5s`、`+1s`、重置），偏移写入 `localStorage`（键 `lyricOffset`），刷新后保留。
 
 ---
 
@@ -120,7 +120,7 @@ nginx/ssl/key.pem    # 私钥
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| GET | `/api/lyric?id=<song_id>` | 获取指定歌曲的歌词与翻译歌词（LRC），返回 `lyric`、`tlyric` |
+| GET | `/api/lyric?id=<song_id>&platform=<platform>` | 获取指定平台歌曲的歌词与翻译歌词（LRC），返回 `lyric`、`tlyric` |
 
 ---
 
@@ -155,7 +155,7 @@ nginx/ssl/key.pem    # 私钥
 
 | 方法 | 路径 | 说明 |
 |------|------|------|
-| POST | `/api/control` | 控制播放。Body: `{"action":"next"|"stop"|"pause"|"resume"}` 或 `{"action":"seek","time":<秒>}` 或 `{"action":"volume","value":<0-100>}` |
+| POST | `/api/control` | 控制播放。Body: `{"action":"next"|"clear"|"stop"|"pause"|"resume"}`、`{"action":"seek","time":<秒>}`、`{"action":"volume","value":<0-100>}` 或 `{"action":"mode","value":"list"|"single"|"shuffle"|"stop"}` |
 
 ---
 
@@ -190,7 +190,7 @@ nginx/ssl/key.pem    # 私钥
 | GET | `/admin/api/me` | 当前登录状态 |
 | GET | `/admin/api/overview` | 运行概览（Redis、队列、播放状态、统计摘要） |
 | GET | `/admin/api/statistics?days=7&top_page=1&top_page_size=10` | 统计详情（近 N 天、Top 歌曲〔基于 play_history 聚合〕、最近歌曲） |
-| GET | `/admin/api/logs?tail=200` | 读取日志尾部 |
+| GET | `/admin/api/logs?tail=200&level=important` | 读取日志尾部；`level` 支持 `important`（默认，过滤 DEBUG 与底层库噪声）、`warn`（仅警告与错误）、`all`（全部原始日志） |
 | GET | `/admin/api/config` | 获取后台可编辑配置快照 |
 | POST | `/admin/api/config` | 写入 `config.py` 并立即更新当前进程。Body: `{"updates": {...}, "persist": true}` |
 | POST | `/admin/api/config/reset` | 从 `config.py` 重新加载配置并立即生效 |
@@ -257,6 +257,9 @@ nginx/ssl/key.pem    # 私钥
 | GET | `/admin/api/area-configs/{area_id}` | 获取某域配置 |
 | POST | `/admin/api/area-configs/{area_id}` | 写入某域配置 |
 | DELETE | `/admin/api/area-configs/{area_id}` | 删除某域配置 |
+| GET | `/admin/api/area-invites` | 获取私信收到的待审批域邀请列表（常驻展示于「域管理」页） |
+| POST | `/admin/api/area-invites/accept` | 接受指定域邀请并让 Bot 加入该域。Body: `{"code":"..."}` |
+| POST | `/admin/api/area-invites/reject` | 拒绝指定域邀请。Body: `{"code":"..."}` |
 | GET | `/admin/api/bot-admins` | Bot 管理员（`ADMIN_UIDS`）列表 |
 | POST | `/admin/api/bot-admins` | 新增 Bot 管理员 |
 | DELETE | `/admin/api/bot-admins/{uid}` | 移除 Bot 管理员 |
@@ -282,23 +285,35 @@ nginx/ssl/key.pem    # 私钥
 
 > 成员管理相关接口（`/admin/api/areas`、`/admin/api/members/*`、`/admin/api/send-message`、`/admin/api/send-announcement` 等）见 [命令文档 - 管理后台 API](commands.md#管理后台-api)。
 
-`/admin/api/config` 当前支持分组：`web_player`、`screen_share`、`auto_recall`、`area_join_notify`、`oopz`、`netease`、`redis`、`music`、`command_cooldown`、`qq_music`、`bilibili_music`、`message_stats`。关键词回复、定时任务的配置改由对应插件的 `config/plugins/<插件名>/config.json` 管理。
+`/admin/api/config` 当前支持分组：`web_player`、`screen_share`、`auto_recall`、`area_join_notify`、`oopz`、`netease`、`redis`、`music`、`command_cooldown`、`qq_music`、`bilibili_music`、`message_stats`。管理后台会按已加载插件动态联动导航与配置项（例如未加载 `screen_share` 插件时，配置页与域管理会自动隐藏屏幕共享相关项且保存时不覆盖原有配置）；关键词回复、定时任务的配置改由对应插件的 `config/plugins/<插件名>/config.json` 管理。
 
 ---
 
-## 模块说明
+## 模块说明与前端构建
 
-| 文件 | 职责 |
+| 路径 | 职责 |
 |------|------|
-| `src/web/web_player.py` | FastAPI 主应用实例、播放器 API 路由（`/api/*`）、共享状态（Redis / Netease 客户端） |
+| `src/web/web_player.py` | FastAPI 主应用实例、播放器 API 路由（`/api/*`）、静态产物挂载（`/admin-assets`、`/player-assets`） |
 | `src/web/web_player_admin.py` | Admin 路由入口：聚合 `web.admin` 包路由为 `admin_router`，对 `web_player` 与旧调用方保持稳定 facade |
-| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`plugins`（插件管理）/`members`（成员、频道、域配置、Bot 管理员、消息）/`shared`（共享工具） |
+| `src/web/admin/` | Admin 后台路由包：`pages`（页面）/`auth`（登录）/`config`（配置+第三方登录）/`music`（播放、统计、系统）/`plugins`（插件管理）/`members`（成员、频道、域配置、域邀请、Bot 管理员、消息）/`shared`（共享工具） |
 | `plugins/screen_share/` | 屏幕共享插件，动态注册页面、后台管理 API 和导航，包含 TypeScript 源码和编译产物 |
 | `src/web/web_player_config.py` | 配置常量引用、分组定义、基线值、config.py 写回与热更新 |
-| `src/web/assets/` | Web 播放器和 Admin 页面 |
+| `ui/src/admin/` | 管理后台 React + TypeScript + Framer Motion SPA 源码 |
+| `ui/src/player/` | Web 播放器 React + TypeScript + Framer Motion SPA 源码 |
+| `ui/public/` | 前端入口 HTML 与 Vite 编译产物（运行与 Docker 镜像直接使用，不依赖 Node.js） |
+
+修改前端源码后，在 `ui/` 目录重新构建产物：
+
+```bash
+cd ui
+npm install
+npm run typecheck
+npm run build
+```
+
+也可按需单独构建管理后台或 Web 播放器：`npm run build:admin` / `npm run build:player`。
 
 ## 相关文档
 
 - [系统架构](architecture.md) — Web 播放器与 Redis、music 模块的协作及 Redis 键、Web 命令格式
 - [配置说明](configuration.md) — `WEB_PLAYER_CONFIG` 等配置项
-- [屏幕共享](screen-share.md) — 声网配置、权限、会话生命周期和前端构建

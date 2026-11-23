@@ -21,7 +21,6 @@
   <a href="docs/commands.md">命令列表</a> ·
   <a href="docs/configuration.md">配置说明</a> ·
   <a href="docs/web-player.md">Web 播放器</a> ·
-  <a href="docs/screen-share.md">屏幕共享</a> ·
   <a href="docs/onebot-v11.md">OneBot v11</a> ·
   <a href="docs/plugin-development.md">插件开发</a>
 </p>
@@ -95,7 +94,7 @@ chmod +x deploy.sh
 ./deploy.sh
 ```
 
-脚本会依次建好虚拟环境、装 Python 依赖和浏览器、生成配置文件、校验屏幕共享网页产物、检查并安装 Redis
+脚本会依次建好虚拟环境、装 Python 依赖和浏览器、生成配置文件、校验前端与屏幕共享网页产物、检查并安装 Redis
 与网易云音乐 API，然后问一次 Oopz 账号密码。首次运行会过一遍可选配置（后台密码、声网屏幕共享、
 网易云 Cookie、代理、管理员 UID），每项都能直接回车跳过。Oopz 密码、后台管理密码、网易云 Cookie 与
 App Certificate 均使用不回显输入，不会打印到部署日志；Docker 兜底启动的 Redis 与网易云 API 容器默认仅绑定 `127.0.0.1`。
@@ -117,7 +116,7 @@ Oopz 凭据会拦住启动。
 
 - Python 3.10+
 - Redis（可选：连不上会自动退到内存队列，但屏幕共享会停用）
-- Node.js 18+（非 Docker 部署时仅用于网易云音乐 API；屏幕共享使用已编译产物）
+- Node.js 18+（非 Docker 部署时仅用于网易云音乐 API；管理后台、Web 播放器与屏幕共享均使用仓库内已编译产物，仅修改前端源码时需要构建）
 - Chrome / Edge 或 Playwright Chromium（语音频道播放会用到）
 
 ### 复制配置文件
@@ -289,7 +288,7 @@ python tools/create_plugin_scaffold.py demo_plugin
 - [插件目录说明](plugins/README.md)：开发新插件的最短路径
 - [插件开发工作流](docs/plugin-development.md)：完整契约、脚手架和提交前检查
 - [插件配置目录](config/plugins/README.md)：运行配置与 `example.json` / `schema.json` 资产规则
-- [源码目录说明](src/README.md)：`src/` 各子目录的职责边界
+- [源码目录说明](src/README.md)：`src/` 各子目录的职责边界（前端源码与产物统一位于根目录 `ui/`）
 
 ## 注意事项
 

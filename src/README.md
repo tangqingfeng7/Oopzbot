@@ -9,6 +9,6 @@
 - `music/`：音乐搜索、播放控制、平台适配和语音推流。
 - `oopz/`：OOPZ WebSocket、HTTP API、消息发送、上传、登录和名称解析。
 - `services/`：聊天、定时任务、入退通知等独立服务。
-- `web/`：Web 播放器、Admin 后台和前端资源。
+- `web/`：Web 播放器与 Admin 后台的 FastAPI 路由与服务（前端源码与编译产物位于根目录 `ui/`）。
 
 新增插件源码放在仓库根目录的 `plugins/`，插件配置放在 `config/plugins/`。
