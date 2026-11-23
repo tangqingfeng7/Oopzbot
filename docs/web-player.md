@@ -76,8 +76,9 @@ HTTP (80) 自动 301 重定向到 HTTPS。Compose 会固定 Nginx 网络地址�
 | 路径 | 转发目标 |
 |------|----------|
 | `/` | Bot Web 播放器 + 管理后台 (`bot:8080`) |
-| `/netease-api/` | 网易云音乐 API (`netease-api:3000`) |
 | `/admin/api/overview/stream` | SSE 端点，禁用缓冲以保证实时推送 |
+
+> 网易云音乐 API (`netease-api:3000`) 仅供 Bot 在内部网络访问，不通过 Nginx 暴露到公网。管理后台会话 Cookie 作用域限定为 `Path=/admin`。
 
 ### SSL 证书
 
@@ -226,7 +227,7 @@ nginx/ssl/key.pem    # 私钥
 | POST | `/admin/api/plugins/{name}/unload` | 动态卸载插件 |
 | POST | `/admin/api/plugins/{name}/reload-config` | 热重载插件配置 |
 | GET | `/admin/api/plugins/{name}/config` | 获取插件配置 |
-| POST | `/admin/api/plugins/{name}/config` | 写入插件配置 |
+| POST | `/admin/api/plugins/{name}/config` | 校验并原子写入插件配置（已加载插件会先按配置规范校验再热重载） |
 
 ### 频道管理
 

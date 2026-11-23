@@ -10,7 +10,7 @@ chmod +x deploy.sh
 ```
 
 脚本会建虚拟环境、装依赖和浏览器、生成配置、检查屏幕共享网页产物，并检查安装 Redis 与网易云音乐 API，
-再问一次 Oopz 账号密码就启动。首次部署可选填写声网 App ID、不回显的 App Certificate 和对外 HTTPS 地址；留空则不启用屏幕共享。装不上的组件会降级而不是中断（详见
+再问一次 Oopz 账号密码就启动。首次部署可选填写后台管理密码、网易云 Cookie、声网 App ID、App Certificate 和对外 HTTPS 地址（密码、Cookie 与 App Certificate 均使用不回显输入，Docker 兜底容器仅绑定 `127.0.0.1`）；留空则不启用对应功能。装不上的组件会降级而不是中断（详见
 [README 的一键部署说明](../README.md#一键部署推荐)）。
 
 想自己控制每一步，或者只想装其中一部分，就按下面的手动流程来。

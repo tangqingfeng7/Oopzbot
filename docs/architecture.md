@@ -332,7 +332,7 @@ Web 播放器通过 FastAPI 提供 HTTP API，前端 `player.html` 通过轮询�
   │
   ▼
 Nginx / OpenResty (:80 HTTP, :443 HTTPS)
-  │  / → bot:8080,  /netease-api/ → netease-api:3000
+  │  / → bot:8080,  /admin/api/overview/stream → bot:8080 (SSE)
   ▼
 src/web/web_player.py ──► src/web/web_player_admin.py (facade)
 (FastAPI :8080)        │     └── src/web/admin/ (实际 APIRouter)
