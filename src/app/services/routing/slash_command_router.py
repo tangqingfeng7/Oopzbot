@@ -134,7 +134,7 @@ class SlashCommandRouter:
         """插件未处理后，在进入任何内置路由前再次校验管理员身份。"""
         if is_public_slash_command(command):
             return False
-        if self._services.routing.access.is_admin(user):
+        if self._services.routing.access.is_admin(user, area):
             return False
         await self._sender.send_message(
             f"{Msg.ERR} 无权限，仅管理员可使用该指令",
@@ -169,7 +169,7 @@ class SlashCommandRouter:
         if await self._reject_admin_only(command, channel, area, user):
             return
 
-        if self._services.routing.access.is_admin(user):
+        if self._services.routing.access.is_admin(user, area):
             for aliases, callback, usage in self._admin_rules(channel, area):
                 if usage is None and await self._dispatch_exact(command, aliases, callback):
                     return

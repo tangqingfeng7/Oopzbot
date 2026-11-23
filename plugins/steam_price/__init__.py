@@ -230,8 +230,11 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
     # ------------------------------------------------------------------
 
     async def on_load(self, handler, config=None) -> None:
+        await self.on_unload()
         self._handler = handler
         self._config = (config or {}).copy()
+        if not self._config.get("enabled", False):
+            return
         self._api = SteamPriceApiClient(self._config)
         self._store = SteamPriceStore()
         self._monitor = SteamPriceMonitor(self._config, self._api, self._store)
@@ -243,10 +246,12 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
                 logger.warning("SteamPricePlugin: monitor preload skipped: %s", exc)
 
     async def on_unload(self) -> None:
-        if self._monitor:
-            await self._monitor.stop()
-        if self._api:
-            await self._api.close()
+        monitor, self._monitor = self._monitor, None
+        api, self._api = self._api, None
+        if monitor:
+            await monitor.stop()
+        if api:
+            await api.close()
 
     # ------------------------------------------------------------------
     # 命令入口
@@ -257,6 +262,14 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
     # ------------------------------------------------------------------
 
     async def dispatch_command(self, command_text: str, channel: str, area: str, user: str, handler) -> None:
+        if not self._config.get("enabled", False):
+            await self._send(
+                handler,
+                "steam_price 插件当前未启用，请在 config/plugins/steam_price/config.json 中设置 enabled=true 后重载插件配置。",
+                channel,
+                area,
+            )
+            return
         text = command_text.strip()
         lower = text.lower()
 
@@ -296,11 +309,11 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
             return
 
         if lower in {"push on", "开启推送"}:
-            await self._toggle_channel_push(True, handler, channel, area)
+            await self._toggle_channel_push(True, user, handler, channel, area)
             return
 
         if lower in {"push off", "关闭推送"}:
-            await self._toggle_channel_push(False, handler, channel, area)
+            await self._toggle_channel_push(False, user, handler, channel, area)
             return
 
         await self._query_price(text, handler, channel, area)
@@ -435,7 +448,17 @@ class SteamPricePlugin(PluginCommandMixin, BotModule):
     # 频道推送
     # ------------------------------------------------------------------
 
-    async def _toggle_channel_push(self, enable: bool, handler, channel: str, area: str) -> None:
+    async def _toggle_channel_push(
+        self,
+        enable: bool,
+        user: str,
+        handler,
+        channel: str,
+        area: str,
+    ) -> None:
+        if not handler.services.routing.access.is_admin(user, area):
+            await self._send(handler, "无权限，仅管理员可开关频道推送。", channel, area)
+            return
         if not self._store:
             await self._send(handler, "插件未正确初始化。", channel, area)
             return

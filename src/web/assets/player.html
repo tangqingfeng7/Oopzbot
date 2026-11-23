@@ -932,7 +932,19 @@ body::after{
     activeLine=-1;
   }
 
-  function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+  function esc(s){
+    return String(s==null?'':s)
+      .replace(/&/g,'&amp;')
+      .replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;')
+      .replace(/'/g,'&#39;');
+  }
+
+  function safeUrl(u){
+    const s=String(u==null?'':u).trim();
+    return /^https?:\/\//i.test(s)?s:'';
+  }
 
   /** 用当前进度更新进度条、当前时间、歌词高亮（progress 为秒，已含偏移在外部加） */
   function updateProgressUI(progress){
@@ -1040,8 +1052,8 @@ body::after{
         $('songName').title=d.name||'';
         $('songArtist').textContent=d.artists||'';
         $('songAlbum').textContent=d.album||'';
-        $('cover').src=d.cover||'';
-        $('ambientImg').src=d.cover||'';
+        $('cover').src=safeUrl(d.cover);
+        $('ambientImg').src=safeUrl(d.cover);
         $('timeTotal').textContent=d.durationText||fmtTime(d.duration);
         renderPlatform(platform);
         $('lyricsControls').style.display='flex';
@@ -1141,26 +1153,73 @@ body::after{
       const hasCurrent=fullQueue.length>0&&fullQueue[0]._current;
       /* 仅当从空变为有列表时播放一次入场动画 */
       const animateEnter = wasEmpty;
-      el.innerHTML=fullQueue.map((s,i)=>{
+      const frag=document.createDocumentFragment();
+      fullQueue.forEach((s,i)=>{
         const isCurrent=!!s._current;
         const redisIdx=hasCurrent?i-1:i;
-        const enterClass = animateEnter ? ' q-enter' : '';
-        const enterStyle = animateEnter ? ` style="animation-delay:${i*40}ms"` : '';
-        return `<div class="queue-item${enterClass}${isCurrent?' now-playing':''}" data-idx="${i}"${enterStyle}>
-          <div class="q-drag"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg></div>
-          <span class="q-idx">${i+1}</span>
-          <img class="q-cover" src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-          <div class="q-info">
-            <div class="q-name">${esc(s.name||'')}</div>
-            <div class="q-artist">${esc(s.artists||'')}</div>
-          </div>
-          <span class="q-dur">${s.durationText||''}</span>
-          ${!isCurrent?`<div class="q-actions">
-            <button title="置顶" onclick="doQueueAction('top',${redisIdx})"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg></button>
-            <button class="del" title="删除" onclick="doQueueAction('remove',${redisIdx})"><svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg></button>
-          </div>`:''}
-        </div>`;
-      }).join('');
+        const item=document.createElement('div');
+        item.className='queue-item'+(animateEnter?' q-enter':'')+(isCurrent?' now-playing':'');
+        item.dataset.idx=String(i);
+        if(animateEnter) item.style.animationDelay=(i*40)+'ms';
+
+        const drag=document.createElement('div');
+        drag.className='q-drag';
+        drag.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="9" cy="12" r="1"/><circle cx="9" cy="5" r="1"/><circle cx="9" cy="19" r="1"/><circle cx="15" cy="12" r="1"/><circle cx="15" cy="5" r="1"/><circle cx="15" cy="19" r="1"/></svg>';
+        item.appendChild(drag);
+
+        const idxEl=document.createElement('span');
+        idxEl.className='q-idx';
+        idxEl.textContent=String(i+1);
+        item.appendChild(idxEl);
+
+        const img=document.createElement('img');
+        img.className='q-cover';
+        img.alt='';
+        img.loading='lazy';
+        img.addEventListener('error',()=>{img.style.visibility='hidden';});
+        const coverUrl=safeUrl(s.cover);
+        if(coverUrl) img.src=coverUrl;
+        else img.style.visibility='hidden';
+        item.appendChild(img);
+
+        const info=document.createElement('div');
+        info.className='q-info';
+        const nameEl=document.createElement('div');
+        nameEl.className='q-name';
+        nameEl.textContent=s.name||'';
+        const artistEl=document.createElement('div');
+        artistEl.className='q-artist';
+        artistEl.textContent=s.artists||'';
+        info.appendChild(nameEl);
+        info.appendChild(artistEl);
+        item.appendChild(info);
+
+        const durEl=document.createElement('span');
+        durEl.className='q-dur';
+        durEl.textContent=s.durationText||'';
+        item.appendChild(durEl);
+
+        if(!isCurrent){
+          const actions=document.createElement('div');
+          actions.className='q-actions';
+          const topBtn=document.createElement('button');
+          topBtn.type='button';
+          topBtn.title='置顶';
+          topBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 3h14"/><path d="m18 13-6-6-6 6"/><path d="M12 7v14"/></svg>';
+          topBtn.addEventListener('click',()=>doQueueAction('top',redisIdx));
+          const delBtn=document.createElement('button');
+          delBtn.type='button';
+          delBtn.className='del';
+          delBtn.title='删除';
+          delBtn.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>';
+          delBtn.addEventListener('click',()=>doQueueAction('remove',redisIdx));
+          actions.appendChild(topBtn);
+          actions.appendChild(delBtn);
+          item.appendChild(actions);
+        }
+        frag.appendChild(item);
+      });
+      el.replaceChildren(frag);
     }catch(e){}
   }
 
@@ -1372,24 +1431,65 @@ body::after{
   let _likedPages=1;
   let _likedSearchKeyword = '';
 
+  function createSongResultElement(s, delayMs){
+    const item=document.createElement('div');
+    item.className='search-item';
+    item.dataset.id=String(s.id);
+    if(delayMs!==undefined) item.style.animationDelay=delayMs+'ms';
+
+    const img=document.createElement('img');
+    img.alt='';
+    img.loading='lazy';
+    img.addEventListener('error',()=>{img.style.visibility='hidden';});
+    const coverUrl=safeUrl(s.cover);
+    if(coverUrl) img.src=coverUrl;
+    else img.style.visibility='hidden';
+    item.appendChild(img);
+
+    const info=document.createElement('div');
+    info.className='s-info';
+    const nameEl=document.createElement('div');
+    nameEl.className='s-name';
+    nameEl.textContent=s.name||'未知歌曲';
+    const metaEl=document.createElement('div');
+    metaEl.className='s-meta';
+    metaEl.textContent=(s.artists||'未知')+' · '+(s.album||'');
+    info.appendChild(nameEl);
+    info.appendChild(metaEl);
+    item.appendChild(info);
+
+    const durEl=document.createElement('span');
+    durEl.className='s-dur';
+    durEl.textContent=s.durationText||'';
+    item.appendChild(durEl);
+
+    const added=_addedIds.has(s.id);
+    const btn=document.createElement('button');
+    btn.type='button';
+    btn.className='s-add'+(added?' added':'');
+    btn.title='加入播放队列';
+    btn.textContent=added?'已在队列':'加入队列';
+    btn.addEventListener('click',()=>addSong(btn,s));
+    item.appendChild(btn);
+
+    return item;
+  }
+
   function renderLikedList(songsToShow){
     const body=$('likedBody');
-    if(!songsToShow.length){
-      body.innerHTML='<div class="search-empty">'+(_likedSearchKeyword?'未找到匹配的歌曲':'喜欢列表为空')+'</div>';
+    const valid=songsToShow.filter(s=>s&&s.id);
+    if(!valid.length){
+      const empty=document.createElement('div');
+      empty.className='search-empty';
+      empty.textContent=_likedSearchKeyword?'未找到匹配的歌曲':'喜欢列表为空';
+      body.replaceChildren(empty);
       body.style.opacity='1';body.style.transform='';
       return;
     }
-    body.innerHTML='<div class="search-results">'+songsToShow.filter(s=>s&&s.id).map((s,i)=>`
-      <div class="search-item" data-id="${s.id}" style="animation-delay:${i*25}ms">
-        <img src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-        <div class="s-info">
-          <div class="s-name">${esc(s.name||'未知歌曲')}</div>
-          <div class="s-meta">${esc(s.artists||'未知')} · ${esc(s.album||'')}</div>
-        </div>
-        <span class="s-dur">${s.durationText||''}</span>
-        <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})" title="加入播放队列">${_addedIds.has(s.id)?'已在队列':'加入队列'}</button>
-      </div>
-    `).join('')+'</div>';
+    const list=document.createElement('div');
+    list.className='search-results';
+    valid.forEach((s,i)=>{list.appendChild(createSongResultElement(s, i*25));});
+    body.replaceChildren(list);
     body.scrollTop=0;
   }
 
@@ -1453,7 +1553,10 @@ body::after{
       $('likedPageInfo').textContent=_likedPage+' / '+_likedPages;
     }catch(e){
       console.error('liked load error:',e);
-      body.innerHTML='<div class="search-empty">加载失败: '+(e.message||'请重试')+'</div>';
+      const empty=document.createElement('div');
+      empty.className='search-empty';
+      empty.textContent='加载失败: '+((e&&e.message)||'请重试');
+      body.replaceChildren(empty);
       body.style.opacity='1';body.style.transform='';
     }
   };
@@ -1511,21 +1614,15 @@ body::after{
       const r=await fetch(_api('/api/search?keyword='+encodeURIComponent(kw)));
       const d=await r.json();
       const results=d.results||[];
-      if(!results.length){
+      const valid=results.filter(s=>s&&s.id);
+      if(!valid.length){
         $('searchBody').innerHTML='<div class="search-empty">未找到相关歌曲</div>';
         return;
       }
-      $('searchBody').innerHTML='<div class="search-results">'+results.filter(s=>s&&s.id).map(s=>`
-        <div class="search-item" data-id="${s.id}">
-          <img src="${esc(s.cover||'')}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">
-          <div class="s-info">
-            <div class="s-name">${esc(s.name||'未知歌曲')}</div>
-            <div class="s-meta">${esc(s.artists||'未知')} · ${esc(s.album||'')}</div>
-          </div>
-          <span class="s-dur">${s.durationText||''}</span>
-          <button class="s-add${_addedIds.has(s.id)?' added':''}" onclick="addSong(this,${JSON.stringify(s).replace(/"/g,'&quot;')})" title="加入播放队列">${_addedIds.has(s.id)?'已在队列':'加入队列'}</button>
-        </div>
-      `).join('')+'</div>';
+      const list=document.createElement('div');
+      list.className='search-results';
+      valid.forEach(s=>{list.appendChild(createSongResultElement(s));});
+      $('searchBody').replaceChildren(list);
     }catch(e){
       $('searchBody').innerHTML='<div class="search-empty">搜索失败，请重试</div>';
     }

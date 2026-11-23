@@ -39,6 +39,7 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
         self.handler._playback_lock = asyncio.Lock()
         self.handler._voice_lock = asyncio.Lock()
         self.handler._playback_generation = 0
+        self.handler._stream_tasks = set()
         self.handler._active_area_cache = ""
         self.handler._background_area_cache = ("", 0.0)
 
@@ -636,12 +637,12 @@ class MusicModeTest(unittest.IsolatedAsyncioTestCase):
             self.handler._voice_channel_id = None
             self.handler._voice_channel_area = None
 
-        self.handler._leave_current_voice_channel = AsyncMock(side_effect=leave_current)
+        self.handler._leave_current_voice_channel_locked = AsyncMock(side_effect=leave_current)
 
         result = await self.handler._do_enter_voice("voice-1", "area-2")
 
         self.assertEqual(result, {"status": True, "sign": "sign-1"})
-        self.handler._leave_current_voice_channel.assert_awaited_once_with()
+        self.handler._leave_current_voice_channel_locked.assert_awaited_once_with()
         self.handler.voice.service.join.assert_awaited_once_with(
             area="area-2",
             channel="voice-1",

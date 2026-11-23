@@ -109,14 +109,11 @@ class DeltaForceLoginManager:
 
             if not delivered:
                 mode_label = "临时频道" if self._delivery_mode == "temp_channel" else "私信"
-                try:
-                    await handler.sender.upload_and_send_image(qr_path, text=notice, channel=channel, area=area)
-                    suffix = f"（{delivery_error}）" if delivery_error else ""
-                    delivery_message = f"{mode_label}发送失败{suffix}，已在当前频道发送二维码。"
-                except Exception:
-                    await handler.sender.send_message(notice, channel=channel, area=area)
-                    suffix = f"（原因：{delivery_error}）" if delivery_error else ""
-                    delivery_message = f"{mode_label}和图片发送都失败了{suffix}，已改为文字提示。"
+                suffix = f"（{delivery_error}）" if delivery_error else ""
+                return (
+                    f"{mode_label}发送登录二维码失败{suffix}，已取消本次登录（不会在公屏发送二维码）。"
+                    "请检查私信或临时频道投递能力后重试。"
+                )
 
             stop_event = asyncio.Event()
             task = asyncio.create_task(

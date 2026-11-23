@@ -155,6 +155,11 @@ def install_requirements(python: Path) -> None:
     say("Python 依赖就绪")
 
 
+def is_posix_root() -> bool:
+    geteuid = getattr(os, "geteuid", None)
+    return not IS_WINDOWS and callable(geteuid) and geteuid() == 0
+
+
 def install_browser(python: Path) -> None:
     """装 Playwright Chromium，语音推流要用。装不上不致命，只是没有语音。"""
     if browser_ready(python):
@@ -162,7 +167,7 @@ def install_browser(python: Path) -> None:
         return
     # --with-deps 需要管理员权限装系统库，非 root 时退回不带依赖的安装
     cmd = [str(python), "-m", "playwright", "install", "chromium"]
-    if not IS_WINDOWS and os.geteuid() == 0:
+    if is_posix_root():
         cmd.insert(4, "--with-deps")
     if run_ok(cmd):
         say("浏览器就绪")
@@ -354,11 +359,11 @@ def set_config_field(content: str, section: str, key: str, value: str | bool) ->
     block = content[start:end]
     if isinstance(value, bool):
         pattern = re.compile(rf'("{re.escape(key)}"\s*:\s*)(?:True|False)')
-        replacement = f"\\g<1>{'True' if value else 'False'}"
+        rendered = "True" if value else "False"
     else:
-        pattern = re.compile(rf'("{re.escape(key)}"\s*:\s*)"[^"]*"')
-        replacement = f"\\g<1>{json.dumps(value, ensure_ascii=False)}"
-    new_block, count = pattern.subn(replacement, block, count=1)
+        pattern = re.compile(rf'("{re.escape(key)}"\s*:\s*)"(?:[^"\\]|\\.)*"')
+        rendered = json.dumps(value, ensure_ascii=False)
+    new_block, count = pattern.subn(lambda match: f"{match.group(1)}{rendered}", block, count=1)
     if not count:
         return content, False
     return content[:start] + new_block + content[end:], True
@@ -404,7 +409,7 @@ def set_admin_uids(content: str, uids: list[str]) -> tuple[str, bool]:
     match = re.search(r"^ADMIN_UIDS\s*=\s*\[[^\]]*\]", content, re.MULTILINE)
     if not match:
         return content, False
-    body = "".join(f'\n    "{uid}",' for uid in uids)
+    body = "".join(f"\n    {json.dumps(uid, ensure_ascii=False)}," for uid in uids)
     return content[: match.start()] + f"ADMIN_UIDS = [{body}\n]" + content[match.end() :], True
 
 
@@ -480,7 +485,7 @@ def prompt_optional_settings() -> None:
     print()
     print("  下面几项都是可选的，直接回车跳过，之后也能在 config.py 里改。")
 
-    admin_password = ask("后台管理密码", secret_hint="设了才能打开 /admin 管理页")
+    admin_password = ask_secret("后台管理密码", secret_hint="设了才能打开 /admin 管理页，输入不回显")
     if admin_password:
         content, ok = set_config_field(content, "WEB_PLAYER_CONFIG", "admin_password", admin_password)
         if ok:
@@ -491,7 +496,7 @@ def prompt_optional_settings() -> None:
     if screen_share_enabled:
         changed.append("网页屏幕共享")
 
-    netease_cookie = ask("网易云 Cookie", secret_hint="填了才能听 VIP 音质，可留空")
+    netease_cookie = ask_secret("网易云 Cookie", secret_hint="填了才能听 VIP 音质，输入不回显，可留空")
     if netease_cookie:
         content, ok = set_config_field(content, "NETEASE_CLOUD", "cookie", netease_cookie)
         if ok:
@@ -525,7 +530,7 @@ def prompt_credentials() -> bool:
         phone = input("  Oopz 手机号/账号: ").strip()
         if not phone:
             return False
-        password = input("  Oopz 密码: ").strip()
+        password = ask_secret("Oopz 密码", secret_hint="输入不回显")
         if not password:
             return False
     except (EOFError, KeyboardInterrupt):
@@ -565,12 +570,34 @@ def linux_package_manager() -> tuple[str, list[str]] | None:
     return None
 
 
+def configured_redis_password() -> str:
+    env_password = os.environ.get("BOT_REDIS_PASSWORD")
+    if env_password is not None:
+        return env_password.strip()
+    content = _config_text()
+    span = _section_span(content, "REDIS_CONFIG")
+    if span is None:
+        return ""
+    return _string_field(content[span[0] : span[1]], "password", "").strip()
+
+
 def start_redis_container() -> bool:
     quiet_ok(["docker", "rm", "-f", "oopzbot-redis"])
-    if not quiet_ok([
+    password = configured_redis_password()
+    cmd = [
         "docker", "run", "-d", "--name", "oopzbot-redis",
-        "-p", f"{REDIS_PORT}:6379", "redis:7-alpine",
-    ]):
+        "--restart", "unless-stopped",
+        "-p", f"127.0.0.1:{REDIS_PORT}:6379",
+    ]
+    if password:
+        cmd.extend([
+            "-e", f"REDIS_PASSWORD={password}",
+            "redis:7-alpine",
+            "sh", "-c", 'exec redis-server --appendonly yes --requirepass "$REDIS_PASSWORD"',
+        ])
+    else:
+        cmd.extend(["redis:7-alpine", "redis-server", "--appendonly", "yes"])
+    if not quiet_ok(cmd):
         return False
     return wait_for_redis()
 
@@ -601,7 +628,8 @@ def try_install_redis() -> bool:
         return False
 
     manager, install_cmd = found
-    if os.geteuid() != 0:
+    root = is_posix_root()
+    if not root:
         if not shutil.which("sudo"):
             warn(f"需要管理员权限安装 Redis，请手动执行：sudo {' '.join(install_cmd)}")
             return False
@@ -616,8 +644,8 @@ def try_install_redis() -> bool:
         return False
 
     for service in ("redis-server", "redis"):
-        if quiet_ok(["sudo", "systemctl", "start", service] if os.geteuid() else
-                    ["systemctl", "start", service]):
+        if quiet_ok(["systemctl", "start", service] if root else
+                    ["sudo", "systemctl", "start", service]):
             break
     return wait_for_redis()
 
@@ -696,7 +724,7 @@ def start_netease_container() -> bool:
     quiet_ok(["docker", "rm", "-f", "oopzbot-netease"])
     if not run_ok([
         "docker", "run", "-d", "--name", "oopzbot-netease",
-        "--restart", "unless-stopped", "-p", "3000:3000", NETEASE_DOCKER_IMAGE,
+        "--restart", "unless-stopped", "-p", "127.0.0.1:3000:3000", NETEASE_DOCKER_IMAGE,
     ]):
         return False
     if wait_for_port("127.0.0.1", 3000, 20):

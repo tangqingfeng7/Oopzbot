@@ -136,19 +136,41 @@ class FA8Client:
         })
         self._logged_in = False
         self._lock = asyncio.Lock()
+        self._cookie_jar_lock = asyncio.Lock()
         self._query_lock = asyncio.Lock()
         self._time_lock = asyncio.Lock()
         self._time_offset: float | None = None
         self._login_error = {"code": -1, "message": _LOGIN_HELP}
 
-    async def _request(self, method: str, endpoint: str, data: dict | None = None, cookie: str | None = None) -> dict:
+    async def _request(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict | None = None,
+        cookie: str | None = None,
+        *,
+        _acquire_jar_lock: bool = True,
+    ) -> dict:
+        if _acquire_jar_lock:
+            async with self._cookie_jar_lock:
+                return await self._request_unlocked(method, endpoint, data=data, cookie=cookie)
+        return await self._request_unlocked(method, endpoint, data=data, cookie=cookie)
+
+    async def _request_unlocked(
+        self,
+        method: str,
+        endpoint: str,
+        data: dict | None = None,
+        cookie: str | None = None,
+    ) -> dict:
         headers: dict[str, str] = {}
         active_cookie = cookie if cookie is not None else self._cookie
         if active_cookie:
             headers["Cookie"] = active_cookie
         try:
+            session = await self._http.session()
             if active_cookie:
-                session = await self._http.session()
+                session.cookie_jar.clear()
                 session.cookie_jar.update_cookies(SimpleCookie(active_cookie), response_url=URL(BASE_URL))
             status, result = await self._http.request_payload(
                 method, f"{BASE_URL}/api/{endpoint}", data=data, headers=headers,
@@ -190,15 +212,22 @@ class FA8Client:
                 return True
             # 2) 用户名密码登录（登录要求极验时失败，提示更新 Cookie）
             if self._user and self._pwd:
-                result = await self._request("POST", "user.php?act=login", {
-                    "account": self._user, "password": self._pwd,
-                })
-                if result.get("code") == 0:
-                    jar_cookie = await self._jar_sign_cookie()
-                    if jar_cookie:
-                        self._cookie = jar_cookie
-                    self._logged_in = True
-                    return True
+                async with self._cookie_jar_lock:
+                    session = await self._http.session()
+                    session.cookie_jar.clear()
+                    result = await self._request(
+                        "POST",
+                        "user.php?act=login",
+                        {"account": self._user, "password": self._pwd},
+                        cookie="",
+                        _acquire_jar_lock=False,
+                    )
+                    if result.get("code") == 0:
+                        jar_cookie = await self._jar_sign_cookie()
+                        if jar_cookie:
+                            self._cookie = jar_cookie
+                        self._logged_in = True
+                        return True
                 if result.get("data", {}).get("field") == "captcha":
                     result = {**result, "message": _LOGIN_HELP}
                 self._login_error = result

@@ -7,11 +7,11 @@ class CommandRouter:
     def __init__(self, runtime: CommandRuntimeView):
         self._runtime = runtime
         self._services = runtime.services
-        self._bot_mention = runtime.bot_mention
 
     async def route(self, ctx: MessageContext) -> None:
-        if ctx.is_mention_command(self._bot_mention):
-            await self._route_mention(ctx)
+        bot_mention = self._runtime.bot_mention
+        if ctx.is_mention_command(bot_mention):
+            await self._route_mention(ctx, bot_mention)
             return
 
         if ctx.is_slash_command():
@@ -20,8 +20,8 @@ class CommandRouter:
 
         await self._route_chat(ctx)
 
-    async def _route_mention(self, ctx: MessageContext) -> None:
-        text = ctx.mention_text(self._bot_mention)
+    async def _route_mention(self, ctx: MessageContext, bot_mention: str) -> None:
+        text = ctx.mention_text(bot_mention)
         if text:
             await self._services.routing.mention.dispatch(
                 text,

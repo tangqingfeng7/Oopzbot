@@ -94,15 +94,27 @@ class ApexPlugin(PluginCommandMixin, BotModule):
         )
 
     async def on_load(self, handler, config=None) -> None:
+        await self.on_unload()
         self._handler = handler
         self._config = (config or {}).copy()
+        if not self._config.get("enabled", False):
+            return
         self._api = ApexApiClient(self._config)
 
     async def on_unload(self) -> None:
-        if self._api is not None:
-            await self._api.close()
+        api, self._api = self._api, None
+        if api is not None:
+            await api.close()
 
     async def dispatch_command(self, command_text: str, channel: str, area: str, user: str, handler) -> None:
+        if not self._config.get("enabled", False):
+            await self._send(
+                handler,
+                "apex 插件当前未启用，请在 config/plugins/apex/config.json 中设置 enabled=true 后重载插件配置。",
+                channel,
+                area,
+            )
+            return
         text = command_text.strip()
         lower = text.lower()
 

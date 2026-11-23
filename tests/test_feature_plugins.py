@@ -31,7 +31,7 @@ def _host(*, is_admin: bool = True):
     sender = SimpleNamespace(send_message=AsyncMock(), bot=SimpleNamespace(general=SimpleNamespace()))
     return SimpleNamespace(
         sender=sender,
-        services=SimpleNamespace(routing=SimpleNamespace(access=SimpleNamespace(is_admin=lambda _uid: is_admin))),
+        services=SimpleNamespace(routing=SimpleNamespace(access=SimpleNamespace(is_admin=lambda _uid, _area="": is_admin))),
         register_web=Mock(return_value=Mock()),
     )
 

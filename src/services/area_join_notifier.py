@@ -373,6 +373,15 @@ async def _wait_or_stop(stop_event: asyncio.Event, delay: float) -> bool:
     return True
 
 
+def _resolve_live_bot_uid(sender: SenderGateway | None, fallback: str = "") -> str:
+    bot = getattr(sender, "bot", None)
+    bot_config = getattr(bot, "config", None)
+    uid = getattr(bot_config, "person_uid", None)
+    if isinstance(uid, str):
+        return uid.strip()
+    return fallback.strip() or str(OOPZ_CONFIG.get("person_uid") or "").strip()
+
+
 async def _run_join_poll_loop(
     sender: SenderGateway,
     message_template_join: str,
@@ -493,8 +502,9 @@ async def _run_join_poll_loop(
             logger.warning("域管理日志轮询失败，跳过本轮 area=%s: %s", area_id[:8], error)
             return rate_limited
         operate_log_auth_failures.pop(area_id, None)
+        current_bot_uid = _resolve_live_bot_uid(sender, bot_uid)
         for change in operate_log_cursor.consume(area_id, changes):
-            if not change.uid or change.uid == bot_uid:
+            if not change.uid or change.uid == current_bot_uid:
                 continue
             if change.action == "join":
                 await handle_join(area_id, channel, change.uid, area_cfg)
@@ -526,11 +536,12 @@ async def _run_join_poll_loop(
             return False
         previous = last_uids_map.get(area_id, set())
         last_uids_map[area_id] = current_uids
+        current_bot_uid = _resolve_live_bot_uid(sender, bot_uid)
         for uid in current_uids - previous:
-            if uid and uid != bot_uid:
+            if uid and uid != current_bot_uid:
                 await handle_join(area_id, channel, uid, area_cfg)
         for uid in previous - current_uids:
-            if uid and uid != bot_uid:
+            if uid and uid != current_bot_uid:
                 await handle_leave(area_id, channel, uid, area_cfg)
         return False
 
@@ -628,7 +639,6 @@ def make_ws_handler(
 ):
     from core.area_config import get_area_registry
 
-    bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
     channel_cache: dict[str, str] = {}
 
     async def resolve_channel(area: str) -> str:
@@ -647,7 +657,7 @@ def make_ws_handler(
         if not parsed:
             return
         action, area, uid = parsed
-        if uid == bot_uid:
+        if uid == _resolve_live_bot_uid(sender):
             return
         registry = get_area_registry()
         configured = registry.get_all_area_ids()

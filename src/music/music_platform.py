@@ -57,6 +57,9 @@ class PlatformRegistry:
     def register(self, platform: MusicPlatform) -> None:
         self._platforms[platform.name] = platform
 
+    def unregister(self, name: str) -> MusicPlatform | None:
+        return self._platforms.pop(name, None)
+
     def get(self, name: str) -> MusicPlatform | None:
         return self._platforms.get(name)
 

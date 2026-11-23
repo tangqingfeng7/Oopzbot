@@ -232,13 +232,43 @@ def register_runtime_dependencies(*, music=None, plugins=None, plugin_host=None)
         set_plugin_runtime(plugins, plugin_host)
 
 
-def refresh_music_platforms() -> dict:
-    """在配置热更新后刷新已创建的音乐平台实例。"""
-    reset_netease()
-    _platform_cache.clear()
+async def refresh_music_platforms(changed_groups=None) -> dict:
+    """在配置热更新后仅刷新实际变化的音乐平台实例，并关闭旧客户端。"""
+    group_to_platform = {
+        "netease": "netease",
+        "qq_music": "qq",
+        "bilibili_music": "bilibili",
+    }
+    groups = (
+        set(group_to_platform)
+        if changed_groups is None
+        else (set(changed_groups) & set(group_to_platform))
+    )
+    if not groups:
+        return {"available": _music_dependency is not None, "refreshed": False}
+
+    old_cached = []
+    if "netease" in groups:
+        if _netease is not None:
+            old_cached.append(_netease)
+        reset_netease()
+    for group in groups:
+        cached = _platform_cache.pop(group_to_platform[group], None)
+        if cached is not None:
+            old_cached.append(cached)
+
+    seen_ids: set[int] = set()
+    for client in old_cached:
+        if id(client) in seen_ids:
+            continue
+        seen_ids.add(id(client))
+        closer = getattr(client, "close", None)
+        if closer is not None:
+            await closer()
+
     if _music_dependency is None:
         return {"available": False, "reason": "music 未注册"}
-    return _music_dependency.refresh_platforms()
+    return await _music_dependency.refresh_platforms(groups)
 
 
 def _admin_enabled() -> bool:
@@ -772,9 +802,15 @@ async def index_with_token(token: str, request: Request):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
     await set_token(token, redis_client=r, ttl_seconds=cfg.token_ttl_seconds())
     area = (request.query_params.get("area") or "").strip()
+    area_json = (
+        json.dumps(area)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
     html = _player_html().replace(
         "</head>",
-        f"<script>window.__OOPZ_AREA__={json.dumps(area)};</script></head>",
+        f"<script>window.__OOPZ_AREA__={area_json};</script></head>",
         1,
     )
     resp = HTMLResponse(html)

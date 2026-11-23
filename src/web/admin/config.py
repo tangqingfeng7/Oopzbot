@@ -66,11 +66,11 @@ async def admin_update_config(request: Request):
     if "redis" in applied:
         await web_player.reset_redis(force=True)
     if "netease" in applied:
-        web_player.reset_netease()
         _set_liked_ids_cache([])
-    if {"netease", "qq_music", "bilibili_music"} & set(applied):
+    changed_music = {"netease", "qq_music", "bilibili_music"} & set(applied)
+    if changed_music:
         try:
-            music_runtime = web_player.refresh_music_platforms()
+            music_runtime = await web_player.refresh_music_platforms(changed_music)
         except Exception as exc:
             logger.exception("刷新音乐平台运行时失败")
             errors.append(f"音乐平台刷新失败: {exc}")
@@ -447,10 +447,9 @@ async def admin_reset_config_overrides():
 
     import web.web_player as web_player
     await web_player.reset_redis(force=True)
-    web_player.reset_netease()
     _set_liked_ids_cache([])
     try:
-        music_runtime = web_player.refresh_music_platforms()
+        music_runtime = await web_player.refresh_music_platforms()
     except Exception as exc:
         logger.debug("重置配置后刷新音乐平台失败: %s", exc)
         music_runtime = {"available": False, "error": str(exc)}

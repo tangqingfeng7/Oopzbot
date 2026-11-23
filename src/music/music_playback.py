@@ -8,7 +8,7 @@ import json
 import time
 import uuid
 from collections import OrderedDict
-from collections.abc import Awaitable, Mapping
+from collections.abc import Awaitable, Callable, Mapping
 from typing import TYPE_CHECKING, Any, cast
 from urllib.parse import urlparse, urlsplit
 
@@ -44,6 +44,10 @@ _ACTIVE_PLAYBACK_STATES = frozenset({"playing", "paused"})
 # 但不能无限等，超时后照常进，至少还能听到声音。
 _WARMUP_WAIT_TIMEOUT = 60.0
 _NETEASE_REMOTE_AUDIO_SUFFIXES = ("music.126.net", "music.163.com")
+
+
+class PlaybackAbortedError(RuntimeError):
+    """音频准备或推流前语音服务已关闭或播放会话已失效。"""
 
 
 class AudioPlayback:
@@ -114,7 +118,7 @@ class AudioPlayback:
 
     def preload_audio(self, url: str, *, headers: Mapping[str, str] | None = None) -> None:
         url = str(url or "").strip()
-        if not url or url in self._preloaded or url in self._preload_tasks:
+        if self._closed or not url or url in self._preloaded or url in self._preload_tasks:
             return
         coroutine = self._preload(url, headers=headers)
         task = (
@@ -137,10 +141,18 @@ class AudioPlayback:
         except Exception as exc:
             logger.debug("语音预加载失败: %s", exc)
             return
+        if self._closed:
+            return
         self._preloaded[url] = payload
         self._preloaded.move_to_end(url)
         while len(self._preloaded) > 3:
             self._preloaded.popitem(last=False)
+
+    def _ensure_can_publish(self, should_play: Callable[[], bool] | None) -> None:
+        if self._closed:
+            raise PlaybackAbortedError("语音播放服务已关闭")
+        if should_play is not None and not should_play():
+            raise PlaybackAbortedError("播放会话已失效")
 
     async def play_audio(
         self,
@@ -149,27 +161,34 @@ class AudioPlayback:
         *,
         headers: Mapping[str, str] | None = None,
         prefer_remote: bool = False,
+        should_play: Callable[[], bool] | None = None,
     ) -> dict[str, Any]:
         url = str(url or "").strip()
         if not url:
             raise ValueError("音频 URL 不能为空")
+        self._ensure_can_publish(should_play)
         pending = self._preload_tasks.get(url)
         if pending is not None:
             await asyncio.gather(pending, return_exceptions=True)
+        self._ensure_can_publish(should_play)
         cached = self._preloaded.pop(url, None)
         if cached is None and prefer_remote and self._is_netease_remote_audio(url):
             play_url = getattr(self.service, "play_url", None)
             if callable(play_url):
                 started = time.monotonic()
                 try:
+                    self._ensure_can_publish(should_play)
                     pending_result = play_url(url)
                     if not inspect.isawaitable(pending_result):
                         raise TypeError("voice play_url() must return an awaitable")
                     result = await cast(Awaitable[dict[str, Any]], pending_result)
+                except PlaybackAbortedError:
+                    raise
                 except Exception as exc:
                     logger.debug("浏览器直载网易云音频失败，回退安全下载: %s", exc)
                 else:
                     if result and result.get("ok", False):
+                        self._ensure_can_publish(should_play)
                         logger.info(
                             "网易云音频由语音浏览器直接加载，耗时 %.1fs",
                             time.monotonic() - started,
@@ -197,11 +216,14 @@ class AudioPlayback:
                 headers=headers,
             )
             logger.debug("音频未命中预加载，现下载耗时 %.1fs", time.monotonic() - started)
+        # 下载期间可能已经停播、切歌或关闭语音服务，提交推流前必须再次校验。
+        self._ensure_can_publish(should_play)
         data, mime_type = cached
         publish_started = time.monotonic()
         result = await self.service.play_bytes(data, mime_type=mime_type or "audio/mpeg")
         if not result or not result.get("ok", False):
             raise RuntimeError(str((result or {}).get("error") or "SDK 语音播放失败"))
+        self._ensure_can_publish(should_play)
         logger.debug("推流到语音频道耗时 %.1fs", time.monotonic() - publish_started)
         self._playing = True
         self.playback_ended.clear()
@@ -419,6 +441,7 @@ class PlaybackMixin:
         _voice_enter_time: float
         _play_start_time: float
         _play_duration: float
+        _stream_tasks: set[asyncio.Task[Any]]
 
         def _create_task(self, awaitable: Any, *, name: str) -> asyncio.Task[Any]: ...
 
@@ -638,7 +661,7 @@ class PlaybackMixin:
         session: PlaybackSessionSnapshot,
     ) -> None:
         """只用不可变会话快照启动受监管的异步推流任务。"""
-        self._create_task(
+        task = self._create_task(
             self._stream_to_voice_channel(
                 str(song["url"]),
                 str(song.get("name") or "music"),
@@ -648,6 +671,8 @@ class PlaybackMixin:
             ),
             name=f"music-stream-{session.generation}",
         )
+        self._stream_tasks.add(task)
+        task.add_done_callback(self._stream_tasks.discard)
 
     async def _stream_to_voice_channel(
         self,
@@ -697,6 +722,9 @@ class PlaybackMixin:
                 except Exception as e:
                     logger.debug(f"校准 start_time 写入 Redis 失败: {e}")
 
+        def _session_is_current() -> bool:
+            return self._playback_snapshot_is_current_locked(session)
+
         stream_headers = self._stream_request_headers(platform_name, song_id)
         try:
             async with self._playback_lock:
@@ -707,8 +735,12 @@ class PlaybackMixin:
                 on_started=_on_audio_started,
                 headers=stream_headers,
                 prefer_remote=platform_name == "netease",
+                should_play=_session_is_current,
             )
             logger.info(f"已提交 Agora 推流任务: {name}")
+            return
+        except PlaybackAbortedError as exc:
+            logger.info("已中止过期或已关闭的推流任务: %s (%s)", name, exc)
             return
         except Exception as e:
             if song_id:
@@ -730,9 +762,13 @@ class PlaybackMixin:
                             on_started=_on_audio_started,
                             headers=stream_headers,
                             prefer_remote=platform_name == "netease",
+                            should_play=_session_is_current,
                         )
                         logger.info(f"重新获取URL后推流成功: {name}")
                         return
+                except PlaybackAbortedError as exc:
+                    logger.info("重试阶段推流任务已中止: %s (%s)", name, exc)
+                    return
                 except Exception as inner_e:
                     logger.debug(f"重新获取音频 URL 失败: {inner_e}")
             logger.warning(f"Agora 推流失败: {e}")

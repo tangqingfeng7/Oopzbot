@@ -149,32 +149,78 @@ async def admin_plugin_config_save(name: str, request: Request):
     plugin_name = _validate_plugin_name(name)
     if isinstance(plugin_name, JSONResponse):
         return plugin_name
+    import asyncio
+
     from app.infrastructure.plugin_runtime.loader import (
         DEFAULT_PLUGIN_CONFIG_DIR,
         plugin_config_path,
     )
+    from core.config_file_store import replace_text_files_atomically
+    from domain.plugins import PluginConfig, PluginConfigValidationError
+
     config_path = plugin_config_path(plugin_name, DEFAULT_PLUGIN_CONFIG_DIR)
 
     try:
         body = await request.json()
-        config_data = body.get("config", body)
+        config_data = body.get("config", body) if isinstance(body, dict) else body
     except Exception as exc:
         return JSONResponse({"ok": False, "error": f"解析请求体失败: {exc}"}, status_code=400)
 
-    os.makedirs(os.path.dirname(config_path), exist_ok=True)
-    try:
-        with open(config_path, "w", encoding="utf-8") as f:
-            json.dump(config_data, f, ensure_ascii=False, indent=2)
-    except Exception as exc:
-        return JSONResponse({"ok": False, "error": f"写入配置失败: {exc}"})
+    if not isinstance(config_data, dict):
+        return JSONResponse({"ok": False, "error": "配置内容必须是 JSON 对象"}, status_code=400)
 
     runtime = _get_plugin_runtime()
     host = _get_plugin_host()
+    loaded_module = runtime.registry.get(plugin_name) if runtime else None
+    if loaded_module is not None:
+        candidate = PluginConfig.from_mapping(
+            plugin_name,
+            config_data,
+            config_path,
+            exists=True,
+        )
+        try:
+            loaded_module.config_spec.apply(candidate)
+        except PluginConfigValidationError as exc:
+            return JSONResponse(
+                {"ok": False, "saved": False, "reloaded": False, "error": f"配置校验失败: {exc}"},
+                status_code=400,
+            )
+
+    try:
+        serialized = json.dumps(config_data, ensure_ascii=False, indent=2) + "\n"
+        await asyncio.to_thread(os.makedirs, os.path.dirname(config_path), exist_ok=True)
+        await asyncio.to_thread(replace_text_files_atomically, [(config_path, serialized)])
+    except Exception as exc:
+        return JSONResponse(
+            {"ok": False, "saved": False, "reloaded": False, "error": f"写入配置失败: {exc}"},
+            status_code=500,
+        )
+
     reload_msg = ""
-    if runtime and runtime.registry.get(plugin_name):
+    reloaded = False
+    if runtime and loaded_module is not None:
         result = await runtime.reload_config(plugin_name, handler=host)
         reload_msg = result.message
+        reloaded = bool(result.ok)
+        if not result.ok:
+            return JSONResponse(
+                {
+                    "ok": False,
+                    "saved": True,
+                    "reloaded": False,
+                    "reload": reload_msg,
+                    "error": reload_msg or "配置已保存，但热重载失败",
+                },
+                status_code=400,
+            )
 
-    return JSONResponse({"ok": True, "message": "配置已保存", "reload": reload_msg})
+    return JSONResponse({
+        "ok": True,
+        "saved": True,
+        "reloaded": reloaded,
+        "message": "配置已保存",
+        "reload": reload_msg,
+    })
 
 __all__ = ["router"]

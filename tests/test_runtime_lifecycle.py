@@ -419,9 +419,11 @@ class MusicListenerLifecycleTest(unittest.IsolatedAsyncioTestCase):
         redis_client = BlockingRedis()
         handler = cast(Any, music_module.MusicHandler.__new__(music_module.MusicHandler))
         handler._service_stop_event = asyncio.Event()
+        handler._playback_generation = 0
         handler._auto_play_task = None
         handler._web_command_task = None
         handler._liked_refresh_task = None
+        handler._stream_tasks = set()
         handler._cover_prefetch = {}
         handler.platforms = AsyncMock()
         handler.voice = None

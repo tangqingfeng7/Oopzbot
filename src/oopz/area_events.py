@@ -32,35 +32,101 @@ def parse_member_event(event: int, data: dict) -> tuple[str, str, str] | None:
     body = EventParser.safe_json_parse(body_raw)
     inner = EventParser.safe_json_parse(body.get("data")) or body
 
-    def _str_uid(v) -> str:
-        if v is None:
+    def _extract_id(value, *dict_keys: str) -> str:
+        if value is None or isinstance(value, bool):
             return ""
-        if isinstance(v, dict):
-            return str(v.get("id") or v.get("uid") or v.get("personId") or v.get("userId") or "").strip()
-        return str(v).strip()
+        if isinstance(value, dict):
+            for key in dict_keys:
+                nested = value.get(key)
+                if nested is not None and not isinstance(nested, (bool, dict, list)):
+                    text = str(nested).strip()
+                    if text:
+                        return text
+            return ""
+        if isinstance(value, (list, tuple, set)):
+            return ""
+        return str(value).strip()
+
+    def _first_id(candidates, *dict_keys: str) -> str:
+        for candidate in candidates:
+            extracted = _extract_id(candidate, *dict_keys)
+            if extracted:
+                return extracted
+        return ""
+
+    def _first_action(candidates) -> str:
+        for candidate in candidates:
+            if candidate is None or isinstance(candidate, (bool, dict, list, tuple, set)):
+                continue
+            text = str(candidate).strip().lower()
+            if text:
+                return text
+        return ""
 
     top = data if isinstance(data, dict) else {}
-    area = (inner.get("area") or inner.get("areaId") or body.get("area") or body.get("areaId") or top.get("area") or top.get("areaId") or "").strip()
-    if not area and isinstance(inner.get("area"), dict):
-        area = str(inner["area"].get("id") or inner["area"].get("areaId") or "").strip()
-    uid = _str_uid(inner.get("person")) or _str_uid(inner.get("uid")) or _str_uid(inner.get("target")) or inner.get("userId") or _str_uid(body.get("person")) or body.get("uid") or body.get("userId") or _str_uid(top.get("person")) or top.get("uid") or ""
+    area = _first_id(
+        (
+            inner.get("area"),
+            inner.get("areaId"),
+            body.get("area"),
+            body.get("areaId"),
+            top.get("area"),
+            top.get("areaId"),
+        ),
+        "id",
+        "areaId",
+    )
+    uid = _first_id(
+        (
+            inner.get("person"),
+            inner.get("uid"),
+            inner.get("target"),
+            inner.get("userId"),
+            body.get("person"),
+            body.get("uid"),
+            body.get("userId"),
+            top.get("person"),
+            top.get("uid"),
+        ),
+        "id",
+        "uid",
+        "personId",
+        "userId",
+    )
     if not uid:
         persons = body.get("persons") or inner.get("persons") or []
         if isinstance(persons, list) and persons:
-            uid = _str_uid(persons[0]) if isinstance(persons[0], dict) else str(persons[0]).strip()
-        else:
-            uid = ""
+            uid = _extract_id(persons[0], "id", "uid", "personId", "userId")
 
-    action_raw = (inner.get("action") or inner.get("type") or inner.get("event") or inner.get("actionType") or body.get("action") or body.get("type") or body.get("actionType") or top.get("action") or top.get("type") or "").strip().lower()
+    action_raw = _first_action(
+        (
+            inner.get("action"),
+            inner.get("type"),
+            inner.get("event"),
+            inner.get("actionType"),
+            body.get("action"),
+            body.get("type"),
+            body.get("actionType"),
+            top.get("action"),
+            top.get("type"),
+        )
+    )
 
     if not area or not uid:
         return None
 
-    channel_id = (inner.get("channel") or inner.get("channelId") or body.get("channel") or body.get("channelId") or top.get("channel") or top.get("channelId") or "")
-    if isinstance(channel_id, dict):
-        channel_id = str(channel_id.get("id") or channel_id.get("channelId") or "").strip()
-    else:
-        channel_id = str(channel_id).strip() if channel_id else ""
+    channel_id = _first_id(
+        (
+            inner.get("channel"),
+            inner.get("channelId"),
+            body.get("channel"),
+            body.get("channelId"),
+            top.get("channel"),
+            top.get("channelId"),
+        ),
+        "id",
+        "channelId",
+    )
     if channel_id:
         return None
 

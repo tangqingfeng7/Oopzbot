@@ -2,12 +2,7 @@ from app.infrastructure import PluginHost, build_bot_infrastructure
 from app.infrastructure.gateways.sender_gateway import SenderGateway
 from app.services.registry import build_command_service_registry
 from app.services.runtime import CommandRuntime
-from config import OOPZ_CONFIG
-from core.constants import build_mention
 from core.database import MessageStatsDB, cn_today
-
-_BOT_UID = OOPZ_CONFIG.get("person_uid", "")
-_BOT_MENTION = build_mention(_BOT_UID) if _BOT_UID else ""
 
 
 class CommandHandler:
@@ -21,8 +16,6 @@ class CommandHandler:
                 voice_client=voice_client,
                 supervisor=supervisor,
             ),
-            bot_uid=_BOT_UID,
-            bot_mention=_BOT_MENTION,
         )
         self.infrastructure = self._runtime.infrastructure
         self._service_registry = build_command_service_registry(self._runtime)

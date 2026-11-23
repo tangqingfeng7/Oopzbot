@@ -68,14 +68,15 @@ class LolBanPlugin(PluginCommandMixin, BotModule):
         )
 
     async def on_load(self, handler, config=None):
+        await self.on_unload()
         self._config = (config or {}).copy()
         from .query_service import LolQueryHandler
         self._handler = LolQueryHandler(self._config)
 
     async def on_unload(self) -> None:
-        if self._handler is not None:
-            await self._handler.close()
-        self._handler = None
+        query_handler, self._handler = self._handler, None
+        if query_handler is not None:
+            await query_handler.close()
 
     async def dispatch_command(self, command_text, channel, area, user, handler) -> None:
         keyword = command_text.strip()

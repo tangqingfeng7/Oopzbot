@@ -7,6 +7,7 @@ import copy
 import importlib
 import ipaddress
 import json
+import math
 import os
 
 import config as runtime_config
@@ -366,10 +367,14 @@ def coerce_config_value(meta: dict, raw: object) -> object:
     if value_type == "bool":
         return to_bool(raw)
     if value_type == "float":
+        if isinstance(raw, bool):
+            raise ValueError("浮点数格式无效")
         try:
             v = float(raw)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
             raise ValueError("浮点数格式无效") from exc
+        if not math.isfinite(v):
+            raise ValueError("浮点数必须是有限值")
         min_v = meta.get("min")
         max_v = meta.get("max")
         if min_v is not None and v < min_v:
@@ -378,6 +383,8 @@ def coerce_config_value(meta: dict, raw: object) -> object:
             raise ValueError(f"必须 <= {max_v}")
         return v
     if value_type == "int":
+        if isinstance(raw, bool):
+            raise ValueError("整数格式无效")
         try:
             v = int(raw)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
@@ -450,6 +457,12 @@ def apply_config_updates(updates: dict) -> tuple[dict, list[str], dict]:
             except Exception as e:
                 errors.append(f"配置项 {group_name}.{field} 校验失败: {e}")
                 continue
+            if (
+                field in target
+                and type(target[field]) is type(value)
+                and target[field] == value
+            ):
+                continue
             target[field] = value
             applied.setdefault(group_name, {})
             persist_payload.setdefault(group_name, {})
@@ -469,6 +482,8 @@ def _python_literal(value: object) -> str:
     if value is None:
         return "None"
     if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("浮点数必须是有限值")
         return repr(value)
     if isinstance(value, list):
         return "[" + ", ".join(_python_literal(item) for item in value) + "]"

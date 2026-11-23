@@ -146,17 +146,9 @@ class MentionCommandRouter:
         return bool(suggest_command_usages(text, limit=1))
 
     async def _reject_admin_only(self, text: str, channel: str, area: str, user: str) -> bool:
-        """第二层权限门：与 slash 侧 dispatch 里的 is_admin 判断对称。
-
-        第一层闸门在 CommandMessageService.reject_unauthorized_command，但插件可以用
-        公开前缀盖过内置管理命令的判定（见 CommandAccessService.is_public_command），
-        所以内置管理命令在真正执行前必须自己再确认一次身份。
-
-        管理命令名单同样从注册表派生，新增 admin=True 的命令自动纳入。
-        """
         if is_public_mention_text(text):
             return False
-        if self._services.routing.access.is_admin(user):
+        if self._services.routing.access.is_admin(user, area):
             return False
         await self._sender.send_message(
             f"{Msg.ERR} 无权限，仅管理员可使用该指令",

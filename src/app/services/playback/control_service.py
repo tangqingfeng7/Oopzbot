@@ -1,15 +1,9 @@
-"""播放控制应用服务。
-
-HTTP 路由、管理后台和测试都通过这一层提交播放命令与队列变更。服务只返回
-应用结果，不依赖 FastAPI；域解析失败使用稳定错误契约，Redis 命令始终编码为
-严格 JSON v1。
-"""
-
 from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any, cast
+from urllib.parse import urlsplit
 
 from core.queue_manager import (
     atomic_enqueue_song_and_notify,
@@ -37,6 +31,19 @@ from .area_resolution import PlaybackAreaUnavailable
 _AREA_COMMAND_ACTIONS = frozenset({"next", "stop", "pause", "resume", "seek"})
 _AREA_DIRECT_ACTIONS = frozenset({"clear", "mode"})
 _VALID_PLAY_MODES = frozenset({"list", "single", "shuffle", "stop"})
+
+
+def _sanitize_cover_url(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    try:
+        parsed = urlsplit(text)
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return text
 
 
 def playback_area_unavailable_result() -> dict[str, object]:
@@ -165,7 +172,7 @@ class PlaybackControlService:
         name = str(body.get("name") or "")
         artists = str(body.get("artists") or "")
         album = str(body.get("album") or "")
-        cover = str(body.get("cover") or "")
+        cover = _sanitize_cover_url(body.get("cover"))
         duration_ms = body.get("duration", 0)
         duration_text = str(body.get("durationText") or "")
         try:
