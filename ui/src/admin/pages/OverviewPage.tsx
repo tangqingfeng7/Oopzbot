@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import { ChevronRight } from "lucide-react";
 import { AnimatedNumber, EdButton } from "../components/EditorialPrimitives";
-import { apiReq, formatDuration } from "../lib/api";
+import { adminUrl, apiReq, formatDuration } from "../lib/api";
 import { useApp } from "../lib/context";
 
 interface OverviewData {
@@ -131,7 +131,7 @@ export function OverviewPage() {
     stopStream();
     setStatus("连接中", "warning");
     const connect = () => {
-      const es = new EventSource("/admin/api/overview/stream", { withCredentials: true });
+      const es = new EventSource(adminUrl("/admin/api/overview/stream"), { withCredentials: true });
       esRef.current = es;
       es.addEventListener("overview", (ev) => {
         try {

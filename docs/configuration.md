@@ -230,6 +230,7 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 | `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（使用 Nginx + SSL 时设为 `True`） |
 | `send_link_enabled` | 是否在点歌通知中发送 Web 播放器链接（默认 `True`） |
 | `link_idle_release_seconds` | 播放列表空闲超时后释放随机链接（秒，`0` 表示不释放） |
+| `admin_path` | 管理后台访问路径前缀（默认 `/admin`）；改为随机路径（如 `/ops-9f3k2m`）后，原 `/admin` 与后台前端产物均返回 `404`，不依赖 Nginx 即可隐藏后台入口 |
 | `trusted_proxy_cidrs` | 允许提供 `X-Forwarded-For` / `X-Real-IP` 的 TCP 对端网段；默认仅回环 |
 
 > **注意**：长期配置只认 `config.py`。管理后台 `/admin` -> 配置页面保存时会写回 `config.py`，并同步更新当前进程，不需要重启。
@@ -391,6 +392,7 @@ Compose 的宿主配置文件位于 `config/runtime.py` 与
 | `BOT_REDIS_CONNECT_TIMEOUT` / `BOT_REDIS_SOCKET_TIMEOUT` / `BOT_REDIS_HEALTH_CHECK_INTERVAL` | Redis 网络超时与健康检查 | 是 |
 | `BOT_NETEASE_BASE_URL` | 网易云 API 地址 | 是 |
 | `BOT_WEB_HOST` / `BOT_WEB_PORT` | Web 播放器监听；Compose 中固定为 `0.0.0.0:8080` | 固定注入 |
+| `BOT_WEB_ADMIN_PATH` | 覆盖 `WEB_PLAYER_CONFIG["admin_path"]` 自定义管理后台路径前缀（如 `/ops-9f3k2m`） | 是 |
 | `BOT_WEB_TRUSTED_PROXY_CIDRS` | 逗号分隔的可信反向代理 CIDR；Compose 根据两个 Nginx IP 生成 | 固定注入 |
 | `BOT_OOPZ_PROXY` | Oopz 代理地址 | 是 |
 | `OOPZ_PHONE` / `OOPZ_PASSWORD` | 启动及 HTTP/WS 认证失效时自动刷新 Oopz 凭据；两项分别优先于 `OOPZ_CONFIG.login_phone` / `login_password`，其次才是兼容字段 `phone` / `password` | 否 |

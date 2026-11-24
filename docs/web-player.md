@@ -73,12 +73,13 @@ HTTP (80) 自动 301 重定向到 HTTPS。Compose 会固定 Nginx 网络地址�
 
 ### 路由规则
 
-| 路径 | 转发目标 |
+| 路径 | 处理方式 |
 |------|----------|
-| `/` | Bot Web 播放器 + 管理后台 (`bot:8080`) |
-| `/admin/api/overview/stream` | SSE 端点，禁用缓冲以保证实时推送 |
+| `/` | 转发到 Bot Web 播放器与屏幕共享页面 (`bot:8080`) |
+| `/admin`、`/admin/*`、`/admin-assets/bundle/*` | 公网播放器入口默认返回 `404`，避免通过播放器链接发现后台 |
+| `/admin/api/overview/stream` | 在独立的管理后台子域名（见 Nginx 配置中的注释模板）内禁用缓冲以保证 SSE 实时推送 |
 
-> 网易云音乐 API (`netease-api:3000`) 仅供 Bot 在内部网络访问，不通过 Nginx 暴露到公网。管理后台会话 Cookie 作用域限定为 `Path=/admin`。
+> 网易云音乐 API (`netease-api:3000`) 仅供 Bot 在内部网络访问，不通过 Nginx 暴露到公网。管理后台默认不从公网播放器域名暴露，建议通过 SSH 隧道（裸机 `ssh -L 18080:127.0.0.1:8080 user@server`，Compose 可给 `bot` 增加 `127.0.0.1:18080:8080`）或启用配置中的独立隐藏子域名访问。若不使用 Nginx（如单端口直出或云平台单入口），可在 `WEB_PLAYER_CONFIG["admin_path"]`（或环境变量 `BOT_WEB_ADMIN_PATH`）设置自定义随机路径前缀（如 `/ops-9f3k2m`），应用层会自动拦截原 `/admin` 并返回 `404`。管理后台会话 Cookie 作用域会自动限定为当前 `admin_path`。
 
 ### SSL 证书
 

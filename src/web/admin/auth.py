@@ -60,7 +60,7 @@ async def admin_login(request: Request):
     response.set_cookie(
         key=cfg.admin_cookie_name(),
         value=token,
-        path="/admin",
+        path=cfg.admin_path(),
         httponly=True,
         samesite="lax",
         secure=cookie_secure_for(
@@ -77,7 +77,7 @@ async def admin_login(request: Request):
 async def admin_logout(request: Request):
     await _clear_admin_session_token(request.cookies.get(cfg.admin_cookie_name(), ""))
     response = JSONResponse({"ok": True})
-    response.delete_cookie(cfg.admin_cookie_name(), path="/admin")
+    response.delete_cookie(cfg.admin_cookie_name(), path=cfg.admin_path())
     return response
 
 

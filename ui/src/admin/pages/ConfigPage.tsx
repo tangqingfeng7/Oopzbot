@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { EdButton, EditorialSelect, ToggleSwitch } from "../components/EditorialPrimitives";
-import { apiReq } from "../lib/api";
+import { apiReq, getAdminBase } from "../lib/api";
 import { useApp } from "../lib/context";
 
 type TabKey = "basic" | "bot" | "music" | "schedule";
@@ -159,6 +159,7 @@ export function ConfigPage() {
         "web_player.link_idle_release_seconds": get("web_player.link_idle_release_seconds", true),
         "web_player.send_link_enabled": get("web_player.send_link_enabled"),
         "web_player.cookie_secure": get("web_player.cookie_secure"),
+        "web_player.admin_path": get("web_player.admin_path"),
         "web_player.admin_session_ttl_seconds": get("web_player.admin_session_ttl_seconds", true),
         "web_player.admin_cookie_secure": get("web_player.admin_cookie_secure"),
         "web_player.admin_password": "",
@@ -265,6 +266,7 @@ export function ConfigPage() {
         link_idle_release_seconds: num("web_player.link_idle_release_seconds"),
         send_link_enabled: !!vals["web_player.send_link_enabled"],
         cookie_secure: !!vals["web_player.cookie_secure"],
+        admin_path: str("web_player.admin_path") || "/admin",
         admin_session_ttl_seconds: num("web_player.admin_session_ttl_seconds"),
         admin_cookie_secure: !!vals["web_player.admin_cookie_secure"],
       },
@@ -353,6 +355,15 @@ export function ConfigPage() {
       } else {
         toast(data.message || "配置已保存并生效", "success");
       }
+      const savedAdminPath = String(data.config?.web_player?.admin_path || "").trim();
+      const currentBase = getAdminBase();
+      if (savedAdminPath && savedAdminPath !== currentBase) {
+        toast(`后台路径已切换为 ${savedAdminPath}，正在跳转...`, "success");
+        window.setTimeout(() => {
+          window.location.assign(`${savedAdminPath}/config`);
+        }, 450);
+        return;
+      }
       await loadConfig();
     } catch (e: any) {
       toast(e.message || "保存失败", "error");
@@ -365,6 +376,15 @@ export function ConfigPage() {
     try {
       const data = await apiReq<any>("/admin/api/config/reset", { method: "POST", body: "{}" });
       toast(data.message || "已恢复 config.py", "success");
+      const savedAdminPath = String(data.config?.web_player?.admin_path || "").trim();
+      const currentBase = getAdminBase();
+      if (savedAdminPath && savedAdminPath !== currentBase) {
+        toast(`后台路径已切换为 ${savedAdminPath}，正在跳转...`, "success");
+        window.setTimeout(() => {
+          window.location.assign(`${savedAdminPath}/config`);
+        }, 450);
+        return;
+      }
       await loadConfig();
     } catch (e: any) {
       toast(e.message, "error");
@@ -512,6 +532,15 @@ export function ConfigPage() {
                       <div className="ed-field">
                         <label className="ed-field__label">播放器 Cookie MaxAge（秒）</label>
                         <input className="ed-input" type="number" value={vals["web_player.cookie_max_age_seconds"] ?? ""} onChange={(e) => setField("web_player.cookie_max_age_seconds", e.target.value)} />
+                      </div>
+                      <div className="ed-field">
+                        <label className="ed-field__label">后台路径前缀</label>
+                        <input
+                          className="ed-input"
+                          value={vals["web_player.admin_path"] ?? ""}
+                          placeholder="/admin（改为随机路径如 /ops-9f3k 可隐藏默认入口）"
+                          onChange={(e) => setField("web_player.admin_path", e.target.value)}
+                        />
                       </div>
                       <div className="ed-field">
                         <label className="ed-field__label">后台会话 TTL（秒）</label>

@@ -330,6 +330,85 @@ async def _auth_web_api(request: Request, call_next):
     return await call_next(request)
 
 
+class _AdminPathRewriteMiddleware:
+    """支持通过 WEB_PLAYER_CONFIG['admin_path'] 自定义管理后台路径前缀。
+
+    当 admin_path 不是默认的 /admin 时：
+    - 外部访问 /admin、/admin/*、/admin-assets/bundle/* 与模板文件一律返回 404；
+    - 外部访问 <admin_path>、<admin_path>/* 重写为 /admin* 交给既有路由与插件；
+    - 外部访问 <admin_path>/_assets/* 重写为 /admin-assets/* 供后台前端加载静态产物。
+    """
+
+    def __init__(self, asgi_app):
+        self.app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        base = cfg.admin_path()
+        if base == "/admin":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path") or ""
+        if (
+            path == "/admin"
+            or path.startswith("/admin/")
+            or path.startswith("/admin-assets/bundle/")
+            or path == "/admin-assets/admin-shell-template.html"
+        ):
+            response = JSONResponse({"detail": "Not Found"}, status_code=404)
+            await response(scope, receive, send)
+            return
+
+        assets_prefix = f"{base}/_assets/"
+        rewritten_path: str | None = None
+        new_raw_path: bytes | None = None
+        raw_path = scope.get("raw_path")
+
+        if path.startswith(assets_prefix):
+            rewritten_path = "/admin-assets/" + path[len(assets_prefix):]
+            if isinstance(raw_path, bytes):
+                ap_bytes = assets_prefix.encode("ascii")
+                if raw_path.startswith(ap_bytes):
+                    new_raw_path = b"/admin-assets/" + raw_path[len(ap_bytes):]
+        elif path == base or path == f"{base}/":
+            rewritten_path = "/admin"
+            new_raw_path = b"/admin"
+        elif path.startswith(f"{base}/"):
+            suffix = path[len(base):]
+            if len(suffix) > 1 and suffix.endswith("/"):
+                suffix = suffix.rstrip("/")
+            rewritten_path = "/admin" + suffix
+            if isinstance(raw_path, bytes):
+                base_bytes = base.encode("ascii")
+                if raw_path.startswith(base_bytes + b"/"):
+                    raw_suffix = raw_path[len(base_bytes):]
+                    if len(raw_suffix) > 1 and raw_suffix.endswith(b"/"):
+                        raw_suffix = raw_suffix.rstrip(b"/")
+                    new_raw_path = b"/admin" + raw_suffix
+
+        if rewritten_path is not None:
+            new_scope = dict(scope)
+            new_scope["path"] = rewritten_path
+            if "raw_path" in new_scope:
+                new_scope["raw_path"] = (
+                    new_raw_path
+                    if new_raw_path is not None
+                    else rewritten_path.encode("utf-8")
+                )
+            await self.app(new_scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+# 注册在 _auth_web_api 之后，使其位于 Starlette 中间件栈最外层（最先执行）。
+app.add_middleware(_AdminPathRewriteMiddleware)
+
+
 # ---------------------------------------------------------------------------
 # 共享业务逻辑（admin 模块亦调用）
 # ---------------------------------------------------------------------------

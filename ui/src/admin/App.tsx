@@ -10,6 +10,7 @@ import {
   type ToastItem,
 } from "./components/EditorialPrimitives";
 import {
+  adminUrl,
   apiReq,
   buildNavItems,
   pageKeyFromPath,
@@ -115,7 +116,7 @@ export function App() {
 
   const refreshPluginNav = useCallback(async () => {
     try {
-      const resp = await fetch("/admin", { credentials: "include", cache: "no-store" });
+      const resp = await fetch(adminUrl("/admin"), { credentials: "include", cache: "no-store" });
       if (!resp.ok) return;
       const html = await resp.text();
       const match = html.match(/<script[^>]*id="pluginNavigation"[^>]*>([\s\S]*?)<\/script>/i);

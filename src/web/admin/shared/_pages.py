@@ -11,6 +11,7 @@ from typing import Any
 
 from fastapi.responses import HTMLResponse
 
+import web.web_player_config as cfg
 from core.paths import WEB_ASSETS_DIR
 from web.plugin_routes import admin_navigation
 
@@ -160,15 +161,33 @@ def _bundle_version() -> str:
         return "1"
 
 
+def _rewrite_admin_href(href: str, admin_base: str) -> str:
+    if admin_base == "/admin":
+        return href
+    if href == "/admin":
+        return admin_base
+    if href.startswith("/admin/"):
+        return admin_base + href[len("/admin"):]
+    return href
+
+
 def render_admin_page(meta: Mapping[str, Any], pages_dir: Path | None = None) -> HTMLResponse:
     if not _admin_enabled():
         return HTMLResponse("管理后台未启用，请在 WEB_PLAYER_CONFIG 中开启。", status_code=404)
+    admin_base = cfg.admin_path()
+    assets_base = "/admin-assets" if admin_base == "/admin" else f"{admin_base}/_assets"
+    nav_items = [
+        {**item, "href": _rewrite_admin_href(str(item.get("href", "")), admin_base)}
+        for item in admin_navigation()
+    ]
     tpl = _load_admin_template()
     html = tpl.safe_substitute(
         page_title=meta["page_title"],
         page_id=meta["page_id"],
+        admin_base=admin_base,
+        assets_base=assets_base,
         asset_version=_bundle_version(),
-        plugin_navigation=json.dumps(admin_navigation(), ensure_ascii=False).replace("<", "\\u003c"),
+        plugin_navigation=json.dumps(nav_items, ensure_ascii=False).replace("<", "\\u003c"),
     )
     return HTMLResponse(html)
 

@@ -1048,6 +1048,88 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(get_area_members.await_count, 2)
             self.assertEqual(get_area_info.await_count, 1)
 
+    def test_custom_admin_path_hides_default_admin_and_serves_custom_prefix(self) -> None:
+        cfg_mod = self.module.cfg
+        old_path = cfg_mod.WEB_PLAYER_CONFIG.get("admin_path", "/admin")
+        old_enabled = cfg_mod.WEB_PLAYER_CONFIG.get("admin_enabled", False)
+        old_pwd = cfg_mod.WEB_PLAYER_CONFIG.get("admin_password", "")
+        try:
+            cfg_mod.WEB_PLAYER_CONFIG["admin_enabled"] = True
+            cfg_mod.WEB_PLAYER_CONFIG["admin_password"] = "secret-pass"
+            cfg_mod.WEB_PLAYER_CONFIG["admin_path"] = "/ops-9f3k"
+
+            # 默认 /admin 与后台 bundle 全部返回 404
+            for blocked in (
+                "/admin",
+                "/admin/",
+                "/admin/config",
+                "/admin/api/me",
+                "/admin-assets/bundle/admin-app.js",
+                "/admin-assets/admin-shell-template.html",
+            ):
+                resp = self.client.get(blocked, follow_redirects=False)
+                self.assertEqual(resp.status_code, 404, blocked)
+
+            resp_login_blocked = self.client.post(
+                "/admin/api/login",
+                json={"password": "secret-pass"},
+            )
+            self.assertEqual(resp_login_blocked.status_code, 404)
+
+            # 屏幕共享页面依赖的 admin-shell.css 保持可访问
+            shell_css = self.client.get("/admin-assets/admin-shell.css")
+            self.assertEqual(shell_css.status_code, 200)
+
+            # 自定义路径页面与静态资源可正常访问，且尾斜杠不泄露 307 -> /admin
+            page = self.client.get("/ops-9f3k", follow_redirects=False)
+            self.assertEqual(page.status_code, 200)
+            self.assertIn('data-admin-base="/ops-9f3k"', page.text)
+            self.assertIn('/ops-9f3k/_assets/bundle/admin-app.js', page.text)
+
+            page_slash = self.client.get("/ops-9f3k/", follow_redirects=False)
+            self.assertEqual(page_slash.status_code, 200)
+
+            sub_slash = self.client.get("/ops-9f3k/config/", follow_redirects=False)
+            self.assertEqual(sub_slash.status_code, 200)
+
+            bundle = self.client.get("/ops-9f3k/_assets/bundle/admin-app.js")
+            self.assertEqual(bundle.status_code, 200)
+
+            # 登录 Cookie 作用域绑定到自定义前缀并可访问 API
+            login = self.client.post("/ops-9f3k/api/login", json={"password": "secret-pass"})
+            self.assertEqual(login.status_code, 200)
+            set_cookie = login.headers.get("set-cookie", "")
+            self.assertIn("Path=/ops-9f3k", set_cookie)
+
+            me = self.client.get("/ops-9f3k/api/me")
+            self.assertEqual(me.status_code, 200)
+            self.assertTrue(me.json()["ok"])
+
+            # 在后台保存新 admin_path 时立即迁移 Cookie 并生效
+            update = self.client.post(
+                "/ops-9f3k/api/config",
+                json={"updates": {"web_player": {"admin_path": "/ops-next"}}, "persist": False},
+            )
+            self.assertEqual(update.status_code, 200)
+            self.assertTrue(update.json()["ok"])
+            self.assertEqual(update.json()["config"]["web_player"]["admin_path"], "/ops-next")
+            self.assertIn("Path=/ops-next", update.headers.get("set-cookie", ""))
+            self.assertEqual(self.client.get("/ops-9f3k").status_code, 404)
+            self.assertEqual(self.client.get("/ops-next/api/me").status_code, 200)
+        finally:
+            cfg_mod.WEB_PLAYER_CONFIG["admin_path"] = old_path
+            cfg_mod.WEB_PLAYER_CONFIG["admin_enabled"] = old_enabled
+            cfg_mod.WEB_PLAYER_CONFIG["admin_password"] = old_pwd
+
+    def test_normalize_admin_path_rejects_invalid_and_reserved_paths(self) -> None:
+        normalize = self.module.cfg.normalize_admin_path
+        self.assertEqual(normalize(""), "/admin")
+        self.assertEqual(normalize("ops-abc/"), "/ops-abc")
+        self.assertEqual(normalize("/team/ops_1"), "/team/ops_1")
+        for invalid in ("/", "//ops", "/ops/../x", "/api", "/api/v1", "/w/abc", "/health", "/screen-share", "/bad space"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                normalize(invalid)
+
 
 if __name__ == "__main__":
     unittest.main()

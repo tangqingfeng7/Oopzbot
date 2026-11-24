@@ -12,6 +12,20 @@ export interface PluginNavSeed {
   label: string;
 }
 
+export function getAdminBase(): string {
+  const raw = document.body?.dataset?.adminBase?.trim() || "/admin";
+  const normalized = (raw.startsWith("/") ? raw : `/${raw}`).replace(/\/+$/, "");
+  return normalized || "/admin";
+}
+
+export function adminUrl(path: string): string {
+  const base = getAdminBase();
+  if (base === "/admin") return path;
+  if (path === "/admin") return base;
+  if (path.startsWith("/admin/")) return `${base}${path.slice("/admin".length)}`;
+  return path;
+}
+
 export const CORE_NAV_ITEMS: NavItem[] = [
   { key: "dashboard", href: "/admin", label: "总览", code: "OVERVIEW" },
   { key: "music", href: "/admin/music", label: "音乐", code: "AUDIO" },
@@ -34,18 +48,22 @@ export function readInitialPluginNav(): PluginNavSeed[] {
 }
 
 export function buildNavItems(plugins: PluginNavSeed[]): NavItem[] {
+  const core: NavItem[] = CORE_NAV_ITEMS.map((item) => ({
+    ...item,
+    href: adminUrl(item.href),
+  }));
   const mapped: NavItem[] = plugins.map((p) => ({
     key: p.key,
-    href: p.href,
+    href: adminUrl(p.href),
     label: p.label,
     code: p.key.toUpperCase().replace(/[^A-Z0-9]+/g, " "),
     isPlugin: true,
   }));
-  return [...CORE_NAV_ITEMS, ...mapped];
+  return [...core, ...mapped];
 }
 
 export function pageKeyFromPath(pathname: string, nav: NavItem[]): string {
-  const clean = pathname.replace(/\/+$/, "") || "/admin";
+  const clean = pathname.replace(/\/+$/, "") || getAdminBase();
   const matched = nav.find((item) => item.href.replace(/\/+$/, "") === clean);
   if (matched) return matched.key;
   const fromBody = document.body.dataset.adminPage;
@@ -54,7 +72,7 @@ export function pageKeyFromPath(pathname: string, nav: NavItem[]): string {
 }
 
 export async function apiReq<T = Record<string, any>>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, {
+  const response = await fetch(adminUrl(url), {
     credentials: "include",
     cache: "no-store",
     headers: {

@@ -37,6 +37,7 @@ from web.admin.shared import (
     logger,
     read_json_body,
 )
+from web.web_request_context import cookie_secure_for
 
 router = APIRouter()
 
@@ -58,6 +59,7 @@ async def admin_update_config(request: Request):
     body = await read_json_body(request)
     updates = body.get("updates", {})
     persist = bool(body.get("persist", True))
+    previous_admin_path = cfg.admin_path()
     applied, errors, persist_payload = cfg.apply_config_updates(updates)
     persisted = False
     music_runtime = {}
@@ -96,7 +98,7 @@ async def admin_update_config(request: Request):
             logger.exception("保存配置到 config.py 失败")
             errors.append(f"保存 config.py 失败: {exc}")
 
-    return JSONResponse({
+    response = JSONResponse({
         "ok": len(errors) == 0,
         "applied": applied,
         "errors": errors,
@@ -110,6 +112,26 @@ async def admin_update_config(request: Request):
             "music_platforms": music_runtime,
         },
     })
+    new_admin_path = cfg.admin_path()
+    if new_admin_path != previous_admin_path:
+        current_token = request.cookies.get(cfg.admin_cookie_name(), "")
+        if current_token:
+            ttl = cfg.admin_session_ttl_seconds()
+            response.set_cookie(
+                key=cfg.admin_cookie_name(),
+                value=current_token,
+                path=new_admin_path,
+                httponly=True,
+                samesite="lax",
+                secure=cookie_secure_for(
+                    request,
+                    cfg.admin_cookie_secure(),
+                    cfg.trusted_proxy_cidrs(),
+                ),
+                max_age=ttl if ttl > 0 else None,
+            )
+        response.delete_cookie(cfg.admin_cookie_name(), path=previous_admin_path)
+    return response
 
 
 @router.post("/admin/api/netease/login/qr")

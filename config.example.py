@@ -122,8 +122,9 @@ WEB_PLAYER_CONFIG = {
     "cookie_secure": False,  # True=仅 HTTPS 发送 cookie；使用 Nginx + SSL 时应设为 True
     "send_link_enabled": True,  # 点歌通知中是否发送 Web 播放器链接
     "link_idle_release_seconds": 1800,  # 播放列表空闲超过该秒数后，释放随机播放器链接（0=不释放）
-    # 管理后台（访问 /admin）
+    # 管理后台（默认访问 /admin，可通过 admin_path 改为自定义路径以隐藏默认入口）
     "admin_enabled": False,  # 是否启用管理后台
+    "admin_path": "/admin",  # 后台访问路径前缀（如 "/ops-9f3k2m"）；修改后原 /admin 将返回 404
     "admin_password": "",    # 后台登录密码（强烈建议设置强密码）
     "admin_session_ttl_seconds": 43200,  # 后台登录会话有效期（秒），0=不过期（不建议）
     "admin_cookie_secure": False,  # 后台 cookie 是否仅 HTTPS 发送；使用 Nginx + SSL 时应设为 True（纯 HTTP 访问时自动降级）
