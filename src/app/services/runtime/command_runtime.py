@@ -10,6 +10,8 @@ from app.infrastructure import (
     PluginRuntime,
     SenderGateway,
 )
+from config import OOPZ_CONFIG
+from core.constants import build_mention
 
 if TYPE_CHECKING:
     from app.services.registry import CommandServiceRegistry
@@ -78,11 +80,17 @@ class CommandRuntimeView(Protocol):
 
     infrastructure: BotInfrastructure
     services: ServiceRegistryProxy
-    bot_uid: str
-    bot_mention: str
     sender: Any
     music: Any
     plugins: Any
+
+    @property
+    def bot_uid(self) -> str:
+        ...
+
+    @property
+    def bot_mention(self) -> str:
+        ...
 
     @property
     def plugin_host(self) -> PluginHost:
@@ -93,6 +101,15 @@ class CommandRuntimeView(Protocol):
         ...
 
 
+def _resolve_live_bot_uid(sender: Any) -> str:
+    bot = getattr(sender, "bot", None)
+    bot_config = getattr(bot, "config", None)
+    uid = getattr(bot_config, "person_uid", None)
+    if isinstance(uid, str):
+        return uid.strip()
+    return str(OOPZ_CONFIG.get("person_uid") or "").strip()
+
+
 class CommandRuntime:
     """Owns mutable runtime state for the command processing pipeline."""
 
@@ -100,15 +117,28 @@ class CommandRuntime:
         self,
         infrastructure: BotInfrastructure,
         *,
-        bot_uid: str = "",
-        bot_mention: str = "",
+        bot_uid: str | None = None,
+        bot_mention: str | None = None,
     ) -> None:
         self.infrastructure = infrastructure
         self.services = ServiceRegistryProxy()
-        self.bot_uid = bot_uid
-        self.bot_mention = bot_mention
+        self._bot_uid_override = bot_uid
+        self._bot_mention_override = bot_mention
         self._recent_messages = RecentMessageStore()
         self._plugin_host: PluginHost | None = None
+
+    @property
+    def bot_uid(self) -> str:
+        if self._bot_uid_override is not None:
+            return self._bot_uid_override
+        return _resolve_live_bot_uid(self.infrastructure.sender)
+
+    @property
+    def bot_mention(self) -> str:
+        if self._bot_mention_override is not None:
+            return self._bot_mention_override
+        uid = self.bot_uid
+        return build_mention(uid) if uid else ""
 
     @property
     def sender(self):

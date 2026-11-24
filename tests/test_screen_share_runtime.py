@@ -47,7 +47,7 @@ class ScreenShareRuntimeTest(unittest.IsolatedAsyncioTestCase):
             send_message=AsyncMock(return_value=MessageSendResult(messageId="viewer-message")),
         )
         services = SimpleNamespace(
-            routing=SimpleNamespace(access=SimpleNamespace(is_admin=lambda _user: True))
+            routing=SimpleNamespace(access=SimpleNamespace(is_admin=lambda _user, _area="": True))
         )
         self.host = PluginHost(Mock(spec=BotInfrastructure, sender=self.sender), lambda: services)
         self.redis = FakeRedis()

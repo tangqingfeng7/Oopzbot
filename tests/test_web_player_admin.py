@@ -499,12 +499,23 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn('<meta name="referrer" content="no-referrer">', response.text)
-        self.assertNotIn('id="btnStop"', response.text)
-        self.assertIn("id:'stop'", response.text)
-        self.assertIn("label:'停止播放'", response.text)
-        self.assertIn("body:JSON.stringify({action:'mode',value:next.id})", response.text)
-        self.assertIn("fetchLyric(d.id,platform);", response.text)
-        self.assertIn("platform:normalizePlatform(platform)", response.text)
+        self.assertIn('id="player-root"', response.text)
+        self.assertIn("/player-assets/bundle/player-app.css", response.text)
+        self.assertIn("/player-assets/bundle/player-app.js", response.text)
+        self.assertNotIn("__PLAYER_ASSET_VERSION__", response.text)
+
+        js_resp = self.client.get("/player-assets/bundle/player-app.js")
+        css_resp = self.client.get("/player-assets/bundle/player-app.css")
+        self.assertEqual(js_resp.status_code, 200)
+        self.assertEqual(css_resp.status_code, 200)
+
+        api_src = (REPO_ROOT / "ui" / "src" / "player" / "lib" / "playerApi.ts").read_text(encoding="utf-8")
+        app_src = (REPO_ROOT / "ui" / "src" / "player" / "PlayerApp.tsx").read_text(encoding="utf-8")
+        self.assertIn('id: "stop"', api_src)
+        self.assertIn('label: "停止播放"', api_src)
+        self.assertIn("platform: normalizePlatform(platform)", api_src)
+        self.assertIn('sendControl({ action: "mode", value: next.id })', app_src)
+        self.assertIn("fetchPlayerLyric(d.id", app_src)
 
     async def test_public_playback_endpoints_return_exact_409_without_area(self) -> None:
         from core.queue_manager import _InMemoryRedis
@@ -877,6 +888,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             "/admin",
             "/admin/music",
             "/admin/config",
+            "/admin/articles",
             "/admin/screen-share",
             "/admin/activity",
             "/admin/scheduler",
@@ -890,21 +902,18 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
                 with self.subTest(path=path):
                     response = self.client.get(path)
                     self.assertEqual(response.status_code, 200)
-                    self.assertIn('/admin-assets/admin-shell.css', response.text)
-                    self.assertIn('/admin-assets/admin-shell.js', response.text)
-                    self.assertIn('class="shell-topbar"', response.text)
-                    self.assertIn('id="topNav"', response.text)
-                    self.assertIn('id="mobileNav"', response.text)
-                    self.assertIn('id="topStatus"', response.text)
+                    self.assertIn('/admin-assets/bundle/admin-app.css', response.text)
+                    self.assertIn('/admin-assets/bundle/admin-app.js', response.text)
+                    self.assertIn('id="admin-root"', response.text)
+                    self.assertIn('id="pluginNavigation"', response.text)
 
     def test_screen_share_page_includes_confirmation_modal(self) -> None:
         with patch.object(self.module, "_admin_enabled", return_value=True):
             response = self.client.get("/admin/screen-share")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn('id="modalDialog"', response.text)
-        self.assertIn('id="modalBody"', response.text)
-        self.assertIn('id="modalFooter"', response.text)
+        self.assertIn('data-admin-page="screen-share"', response.text)
+        self.assertIn('/admin-assets/bundle/admin-app.js', response.text)
 
     def test_setup_page_and_diagnostics_api_are_removed(self) -> None:
         with (
@@ -942,6 +951,506 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["id"], 99)
         create_task.assert_called_once()
+
+    def test_admin_logs_filters_noise_by_default(self) -> None:
+        from web.admin.shared._snapshots import _tail_file
+
+        sample = "\n".join([
+            "2026-11-24 05:18:59 [aiosqlite] DEBUG: executing functools.partial(...)",
+            "2026-11-24 05:18:59 [urllib3.connectionpool] DEBUG: Starting new HTTP connection",
+            "2026-11-24 05:18:59 [httpx] INFO: HTTP Request: GET http://testserver/admin",
+            "2026-11-24 05:19:00 [Music] INFO: 开始播放 晴天",
+            "2026-11-24 05:19:01 [WebPlayerAdmin] WARNING: 后台登录密码错误",
+            "2026-11-24 05:19:02 [Bot] ERROR: 推送失败",
+            "Traceback (most recent call last):",
+            "  RuntimeError: boom",
+        ])
+        with tempfile.TemporaryDirectory() as tmpdir:
+            log_path = Path(tmpdir) / "oopz_bot.log"
+            log_path.write_text(sample, encoding="utf-8")
+
+            important = _tail_file(str(log_path), lines=50, level="important")
+            self.assertEqual(
+                important,
+                [
+                    "2026-11-24 05:19:00 [Music] INFO: 开始播放 晴天",
+                    "2026-11-24 05:19:01 [WebPlayerAdmin] WARNING: 后台登录密码错误",
+                    "2026-11-24 05:19:02 [Bot] ERROR: 推送失败",
+                    "Traceback (most recent call last):",
+                    "  RuntimeError: boom",
+                ],
+            )
+
+            warn_only = _tail_file(str(log_path), lines=50, level="warn")
+            self.assertEqual(len(warn_only), 4)
+            self.assertTrue(warn_only[0].startswith("2026-11-24 05:19:01 [WebPlayerAdmin] WARNING:"))
+
+            raw_all = _tail_file(str(log_path), lines=50, level="all")
+            self.assertEqual(len(raw_all), 8)
+
+    def test_members_endpoint_caches_area_meta_and_local_keyword_search(self) -> None:
+        from web.admin.members import _members as members_mod
+
+        fake_page = SimpleNamespace(
+            members=[
+                SimpleNamespace(
+                    uid="u1", online=1, role=10, role_sort=1, playing_state="", display_type=0,
+                ),
+                SimpleNamespace(
+                    uid="u2", online=0, role=10, role_sort=1, playing_state="", display_type=0,
+                ),
+            ],
+            total_count=2,
+            role_count=[SimpleNamespace(role=10, count=1)],
+        )
+        fake_area_info = SimpleNamespace(
+            home_page_channel_id="ch-1",
+            role_list=[SimpleNamespace(role_id=10, name="域主", sort=100, type=1)],
+        )
+        fake_persons = [
+            SimpleNamespace(uid="u1", name="Nami", avatar="", pid="1001"),
+            SimpleNamespace(uid="u2", name="Bot", avatar="", pid="1002"),
+        ]
+        get_area_members = AsyncMock(return_value=fake_page)
+        get_area_info = AsyncMock(return_value=fake_area_info)
+        get_person_infos_batch = AsyncMock(return_value=fake_persons)
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                areas=SimpleNamespace(get_area_members=get_area_members, get_area_info=get_area_info),
+                person=SimpleNamespace(get_person_infos_batch=get_person_infos_batch),
+            ),
+        )
+
+        members_mod._area_meta_cache.invalidate()
+        members_mod._members_resp_cache.invalidate()
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(members_mod, "_get_sender", return_value=fake_sender),
+            patch.object(members_mod, "get_resolver", return_value=SimpleNamespace(user_cached=lambda *_a, **_kw: "")),
+        ):
+            r1 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20")
+            self.assertEqual(r1.status_code, 200)
+            self.assertEqual(r1.json()["members"][0]["roleName"], "域主")
+            self.assertEqual(get_area_members.await_count, 1)
+            self.assertEqual(get_area_info.await_count, 1)
+
+            # 关键词搜索直接命中完整单域缓存，不再回源
+            r2 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20&keyword=nami")
+            self.assertEqual(r2.status_code, 200)
+            self.assertEqual(len(r2.json()["members"]), 1)
+            self.assertEqual(r2.json()["members"][0]["uid"], "u1")
+            self.assertEqual(get_area_members.await_count, 1)
+            self.assertEqual(get_area_info.await_count, 1)
+
+            # 强制刷新时角色元数据仍命中 _area_meta_cache，无需重复拉 /area/v3/info
+            r3 = self.client.get("/admin/api/members?area=area-fast&offset=0&limit=20&refresh=1")
+            self.assertEqual(r3.status_code, 200)
+            self.assertEqual(get_area_members.await_count, 2)
+            self.assertEqual(get_area_info.await_count, 1)
+
+    def test_custom_admin_path_hides_default_admin_and_serves_custom_prefix(self) -> None:
+        cfg_mod = self.module.cfg
+        old_path = cfg_mod.WEB_PLAYER_CONFIG.get("admin_path", "/admin")
+        old_enabled = cfg_mod.WEB_PLAYER_CONFIG.get("admin_enabled", False)
+        old_pwd = cfg_mod.WEB_PLAYER_CONFIG.get("admin_password", "")
+        try:
+            cfg_mod.WEB_PLAYER_CONFIG["admin_enabled"] = True
+            cfg_mod.WEB_PLAYER_CONFIG["admin_password"] = "secret-pass"
+            cfg_mod.WEB_PLAYER_CONFIG["admin_path"] = "/ops-9f3k"
+
+            # 默认 /admin 与后台 bundle 全部返回 404
+            for blocked in (
+                "/admin",
+                "/admin/",
+                "/admin/config",
+                "/admin/api/me",
+                "/admin-assets/bundle/admin-app.js",
+                "/admin-assets/admin-shell-template.html",
+            ):
+                resp = self.client.get(blocked, follow_redirects=False)
+                self.assertEqual(resp.status_code, 404, blocked)
+
+            resp_login_blocked = self.client.post(
+                "/admin/api/login",
+                json={"password": "secret-pass"},
+            )
+            self.assertEqual(resp_login_blocked.status_code, 404)
+
+            # 屏幕共享页面依赖的 admin-shell.css 保持可访问
+            shell_css = self.client.get("/admin-assets/admin-shell.css")
+            self.assertEqual(shell_css.status_code, 200)
+
+            # 自定义路径页面与静态资源可正常访问，且尾斜杠不泄露 307 -> /admin
+            page = self.client.get("/ops-9f3k", follow_redirects=False)
+            self.assertEqual(page.status_code, 200)
+            self.assertIn('data-admin-base="/ops-9f3k"', page.text)
+            self.assertIn('/ops-9f3k/_assets/bundle/admin-app.js', page.text)
+
+            page_slash = self.client.get("/ops-9f3k/", follow_redirects=False)
+            self.assertEqual(page_slash.status_code, 200)
+
+            sub_slash = self.client.get("/ops-9f3k/config/", follow_redirects=False)
+            self.assertEqual(sub_slash.status_code, 200)
+
+            bundle = self.client.get("/ops-9f3k/_assets/bundle/admin-app.js")
+            self.assertEqual(bundle.status_code, 200)
+
+            # 登录 Cookie 作用域绑定到自定义前缀并可访问 API
+            login = self.client.post("/ops-9f3k/api/login", json={"password": "secret-pass"})
+            self.assertEqual(login.status_code, 200)
+            set_cookie = login.headers.get("set-cookie", "")
+            self.assertIn("Path=/ops-9f3k", set_cookie)
+
+            me = self.client.get("/ops-9f3k/api/me")
+            self.assertEqual(me.status_code, 200)
+            self.assertTrue(me.json()["ok"])
+
+            # 在后台保存新 admin_path 时立即迁移 Cookie 并生效
+            update = self.client.post(
+                "/ops-9f3k/api/config",
+                json={"updates": {"web_player": {"admin_path": "/ops-next"}}, "persist": False},
+            )
+            self.assertEqual(update.status_code, 200)
+            self.assertTrue(update.json()["ok"])
+            self.assertEqual(update.json()["config"]["web_player"]["admin_path"], "/ops-next")
+            self.assertIn("Path=/ops-next", update.headers.get("set-cookie", ""))
+            self.assertEqual(self.client.get("/ops-9f3k").status_code, 404)
+            self.assertEqual(self.client.get("/ops-next/api/me").status_code, 200)
+        finally:
+            cfg_mod.WEB_PLAYER_CONFIG["admin_path"] = old_path
+            cfg_mod.WEB_PLAYER_CONFIG["admin_enabled"] = old_enabled
+            cfg_mod.WEB_PLAYER_CONFIG["admin_password"] = old_pwd
+
+    def test_normalize_admin_path_rejects_invalid_and_reserved_paths(self) -> None:
+        normalize = self.module.cfg.normalize_admin_path
+        self.assertEqual(normalize(""), "/admin")
+        self.assertEqual(normalize("ops-abc/"), "/ops-abc")
+        self.assertEqual(normalize("/team/ops_1"), "/team/ops_1")
+        for invalid in ("/", "//ops", "/ops/../x", "/api", "/api/v1", "/w/abc", "/health", "/screen-share", "/bad space"):
+            with self.subTest(invalid=invalid), self.assertRaises(ValueError):
+                normalize(invalid)
+
+    def test_admin_article_channel_create_and_settings_mapping(self) -> None:
+        from web.admin.members import _channels as channels_mod
+
+        create_channel = AsyncMock(return_value=SimpleNamespace(channel_id="ch-art", name="讨论区"))
+        update_channel = AsyncMock(return_value=SimpleNamespace(ok=True, message=""))
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                channels=SimpleNamespace(
+                    create_channel=create_channel,
+                    update_channel=update_channel,
+                )
+            )
+        )
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(channels_mod, "_require_sender", return_value=fake_sender),
+            patch("web.admin.shared._runtime._get_sender", return_value=fake_sender),
+        ):
+            resp_create = self.client.post(
+                "/admin/api/channels/create",
+                json={"area": "area-1", "name": "讨论区", "type": "article", "secret": True},
+            )
+            self.assertEqual(resp_create.status_code, 200)
+            self.assertTrue(resp_create.json()["ok"])
+            create_channel.assert_awaited_once_with(
+                area="area-1", name="讨论区", channel_type="article", group_id="", secret=True,
+            )
+
+            resp_edit = self.client.post(
+                "/admin/api/channels/ch-art/settings",
+                json={
+                    "area": "area-1",
+                    "name": "新讨论区",
+                    "articleGapSecond": 60,
+                    "commentGapSecond": 15,
+                    "articleControlEnabled": True,
+                    "articleRoles": [1, 2],
+                },
+            )
+            self.assertEqual(resp_edit.status_code, 200)
+            self.assertTrue(resp_edit.json()["ok"])
+            update_channel.assert_awaited_once_with(
+                area="area-1",
+                channel_id="ch-art",
+                name="新讨论区",
+                article_gap_second=60,
+                comment_gap_second=15,
+                article_control_enabled=True,
+                article_roles=[1, 2],
+            )
+
+    def test_admin_articles_sections_crud_and_browse_manage_flow(self) -> None:
+        from oopz_sdk.models import (
+            ArticleAttachment,
+            ArticleComment,
+            ArticleCommentCreateResult,
+            ArticleCommentListPage,
+            ArticleInfo,
+            ArticleListPage,
+            ArticlePublishResult,
+            ArticleSection,
+            OperationResult,
+        )
+
+        from web.admin.members import _articles as articles_mod
+
+        section = ArticleSection.from_api({"id": 101, "name": "攻略", "sort": 1})
+        article = ArticleInfo.from_api({
+            "articleId": "art-1",
+            "areaId": "area-1",
+            "channelId": "ch-art",
+            "sectionId": 101,
+            "title": "新手指南",
+            "summary": "摘要",
+            "content": "完整正文内容",
+            "authorUid": "u-author",
+            "likeCount": 3,
+            "liked": False,
+            "commentCount": 1,
+            "watchCount": 20,
+            "isTop": True,
+            "state": "PUBLISHED",
+            "publishTime": 1764000000,
+        })
+        own_article = ArticleInfo.from_api({
+            "articleId": "art-own",
+            "areaId": "area-1",
+            "channelId": "ch-art",
+            "sectionId": 101,
+            "title": "Bot 自发公告",
+            "summary": "摘要",
+            "content": "公告内容",
+            "authorUid": "u-bot",
+            "state": "PUBLISHED",
+        })
+        comment = ArticleComment.from_api({
+            "commentId": "cmt-1",
+            "articleId": "art-1",
+            "uid": "u-author",
+            "content": "沙发",
+            "likeCount": 2,
+            "liked": False,
+            "isArticleAuthor": True,
+            "createdAt": 1764000100,
+        })
+
+        async def fake_request_data(method: str, path: str, *, params=None, body=None):
+            if path == "/uni/area/article/comment/v1/list":
+                return {
+                    "commentCount": 2,
+                    "pageSize": 30,
+                    "nextCursor": 999999,
+                    "list": [
+                        {
+                            "commentId": "cmt-1",
+                            "articleId": "art-1",
+                            "uid": "u-author",
+                            "content": "沙发",
+                            "imageList": None,
+                            "likeCount": 2,
+                            "childCount": 1,
+                            "liked": False,
+                            "isArticleAuthor": True,
+                            "createdAt": 1764000100,
+                            "subComments": [
+                                {
+                                    "commentId": "cmt-sub-1",
+                                    "articleId": "art-1",
+                                    "uid": "u-bot",
+                                    "content": "Bot 回复",
+                                    "imageList": None,
+                                    "parentId": "cmt-1",
+                                    "replyId": "cmt-1",
+                                    "replyToUid": "u-author",
+                                    "likeCount": 0,
+                                    "childCount": 0,
+                                    "liked": False,
+                                    "createdAt": 1764000200,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            if path == "/uni/area/article/comment/v1/subList":
+                return {
+                    "articleId": "art-1",
+                    "parentId": "cmt-1",
+                    "childCount": 1,
+                    "pageSize": 30,
+                    "nextCursor": 0,
+                    "list": [
+                        {
+                            "commentId": "cmt-sub-1",
+                            "articleId": "art-1",
+                            "uid": "u-bot",
+                            "content": "Bot 回复",
+                            "parentId": "cmt-1",
+                            "replyId": "cmt-1",
+                            "replyToUid": "u-author",
+                            "createdAt": 1764000200,
+                        }
+                    ],
+                }
+            raise AssertionError(f"unexpected request_data: {method} {path}")
+
+        articles_svc = SimpleNamespace(
+            transport=SimpleNamespace(request_data=AsyncMock(side_effect=fake_request_data)),
+            get_sections=AsyncMock(return_value=[section]),
+            create_section=AsyncMock(return_value=ArticleSection.from_api({"id": 102, "name": "讨论", "sort": 2})),
+            edit_section=AsyncMock(return_value=ArticleSection.from_api({"id": 102, "name": "精选讨论", "sort": 2})),
+            delete_section=AsyncMock(return_value=OperationResult(ok=True)),
+            get_articles=AsyncMock(return_value=ArticleListPage(
+                list=[article, own_article], nextCursor=42, nextCursorState="next-state", pageSize=20,
+            )),
+            get_article_detail=AsyncMock(return_value=article),
+            create_article=AsyncMock(return_value=ArticlePublishResult(articleId="art-2", state="PUBLISHED")),
+            edit_article=AsyncMock(return_value=ArticlePublishResult(articleId="art-1", state="PUBLISHED")),
+            delete_article=AsyncMock(return_value=OperationResult(ok=True)),
+            like_article=AsyncMock(return_value=OperationResult(ok=True)),
+            upload_image=AsyncMock(return_value=ArticleAttachment(
+                attachmentType="IMAGE", resource="/community/area_article/test.png", width=100, height=80, size=12,
+            )),
+            get_comments=AsyncMock(return_value=ArticleCommentListPage(
+                commentCount=1, pageSize=30, list=[comment], nextCursor=0,
+            )),
+            create_comment=AsyncMock(return_value=ArticleCommentCreateResult(commentId="cmt-2")),
+            reply_comment=AsyncMock(return_value=ArticleCommentCreateResult(commentId="cmt-3")),
+            delete_comment=AsyncMock(return_value=OperationResult(ok=True)),
+            like_comment=AsyncMock(return_value=OperationResult(ok=True)),
+        )
+        person_svc = SimpleNamespace(
+            get_person_infos_batch=AsyncMock(return_value=[
+                SimpleNamespace(uid="u-author", name="发帖作者", avatar="https://example.com/a.png"),
+                SimpleNamespace(uid="u-bot", name="机器人", avatar="https://example.com/b.png"),
+            ])
+        )
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                config=SimpleNamespace(person_uid="u-bot"),
+                articles=articles_svc,
+                person=person_svc,
+            )
+        )
+
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(articles_mod, "_require_sender", return_value=fake_sender),
+            patch("web.admin.shared._runtime._get_sender", return_value=fake_sender),
+            patch.object(articles_mod, "get_resolver", return_value=SimpleNamespace(user_cached=lambda *_a, **_kw: "")),
+        ):
+            r_sec = self.client.get("/admin/api/articles/sections?area=area-1&channel=ch-art")
+            self.assertEqual(r_sec.status_code, 200)
+            self.assertEqual(r_sec.json()["sections"][0]["name"], "攻略")
+
+            r_sec_add = self.client.post("/admin/api/articles/sections", json={"area": "area-1", "channel": "ch-art", "name": "讨论"})
+            self.assertEqual(r_sec_add.status_code, 200)
+            self.assertEqual(r_sec_add.json()["section"]["id"], 102)
+
+            r_sec_edit = self.client.put("/admin/api/articles/sections/102", json={"area": "area-1", "channel": "ch-art", "name": "精选讨论"})
+            self.assertEqual(r_sec_edit.status_code, 200)
+            self.assertEqual(r_sec_edit.json()["section"]["name"], "精选讨论")
+
+            r_sec_del = self.client.request("DELETE", "/admin/api/articles/sections/102", json={"area": "area-1", "channel": "ch-art"})
+            self.assertEqual(r_sec_del.status_code, 200)
+
+            r_list = self.client.get("/admin/api/articles?area=area-1&channel=ch-art&section_id=101")
+            self.assertEqual(r_list.status_code, 200)
+            data_list = r_list.json()
+            self.assertTrue(data_list["hasMore"])
+            self.assertEqual(data_list["selfUid"], "u-bot")
+            self.assertEqual(data_list["items"][0]["authorName"], "发帖作者")
+            self.assertFalse(data_list["items"][0]["canEdit"])
+            self.assertFalse(data_list["items"][0]["isOwn"])
+            self.assertTrue(data_list["items"][1]["canEdit"])
+            self.assertTrue(data_list["items"][1]["isOwn"])
+            self.assertEqual(data_list["items"][0]["title"], "新手指南")
+
+            r_detail = self.client.get("/admin/api/articles/art-1?area=area-1&channel=ch-art")
+            self.assertEqual(r_detail.status_code, 200)
+            self.assertEqual(r_detail.json()["article"]["content"], "完整正文内容")
+            self.assertFalse(r_detail.json()["article"]["canEdit"])
+
+            r_upload = self.client.post(
+                "/admin/api/articles/upload-image",
+                data={"area": "area-1", "channel": "ch-art"},
+                files={"file": ("demo.png", b"png-bytes", "image/png")},
+            )
+            self.assertEqual(r_upload.status_code, 200)
+            self.assertEqual(r_upload.json()["attachment"]["resource"], "/community/area_article/test.png")
+            articles_svc.upload_image.assert_awaited_once_with("area-1", "ch-art", b"png-bytes")
+
+            r_create = self.client.post(
+                "/admin/api/articles",
+                json={"area": "area-1", "channel": "ch-art", "title": "新帖", "content": "正文", "sectionId": 101},
+            )
+            self.assertEqual(r_create.status_code, 200)
+            self.assertEqual(r_create.json()["articleId"], "art-2")
+
+            r_edit = self.client.put(
+                "/admin/api/articles/art-1",
+                json={"area": "area-1", "channel": "ch-art", "title": "修改标题", "showCover": False},
+            )
+            self.assertEqual(r_edit.status_code, 200)
+            articles_svc.edit_article.assert_awaited_once_with(
+                "area-1", "ch-art", "art-1", title="修改标题", show_cover=False,
+            )
+
+            r_like = self.client.post("/admin/api/articles/art-1/like", json={"area": "area-1", "channel": "ch-art", "liked": True})
+            self.assertEqual(r_like.status_code, 200)
+            self.assertTrue(r_like.json()["liked"])
+
+            r_cmts = self.client.get("/admin/api/articles/art-1/comments?area=area-1&channel=ch-art")
+            self.assertEqual(r_cmts.status_code, 200)
+            cmts_data = r_cmts.json()
+            self.assertFalse(cmts_data["hasMore"])
+            self.assertEqual(cmts_data["items"][0]["authorName"], "发帖作者")
+            self.assertFalse(cmts_data["items"][0]["canDelete"])
+            self.assertEqual(len(cmts_data["items"][0]["subComments"]), 1)
+            sub_cmt = cmts_data["items"][0]["subComments"][0]
+            self.assertEqual(sub_cmt["authorName"], "机器人")
+            self.assertEqual(sub_cmt["replyToName"], "发帖作者")
+            self.assertTrue(sub_cmt["canDelete"])
+            self.assertTrue(sub_cmt["isOwn"])
+
+            r_replies = self.client.get("/admin/api/articles/art-1/comments/cmt-1/replies?area=area-1&channel=ch-art")
+            self.assertEqual(r_replies.status_code, 200)
+            self.assertEqual(r_replies.json()["items"][0]["commentId"], "cmt-sub-1")
+            self.assertTrue(r_replies.json()["items"][0]["canDelete"])
+
+            r_cmt_add = self.client.post(
+                "/admin/api/articles/art-1/comments",
+                json={"area": "area-1", "channel": "ch-art", "content": "顶一下"},
+            )
+            self.assertEqual(r_cmt_add.status_code, 200)
+            self.assertEqual(r_cmt_add.json()["commentId"], "cmt-2")
+
+            r_cmt_reply = self.client.post(
+                "/admin/api/articles/art-1/comments",
+                json={"area": "area-1", "channel": "ch-art", "content": "回复你", "parentId": "cmt-1", "replyId": "cmt-1"},
+            )
+            self.assertEqual(r_cmt_reply.status_code, 200)
+            self.assertEqual(r_cmt_reply.json()["commentId"], "cmt-3")
+
+            r_cmt_like = self.client.post(
+                "/admin/api/articles/art-1/comments/cmt-1/like",
+                json={"area": "area-1", "channel": "ch-art", "liked": True},
+            )
+            self.assertEqual(r_cmt_like.status_code, 200)
+
+            r_cmt_del = self.client.request(
+                "DELETE",
+                "/admin/api/articles/art-1/comments/cmt-1",
+                json={"area": "area-1", "channel": "ch-art"},
+            )
+            self.assertEqual(r_cmt_del.status_code, 200)
+
+            r_del = self.client.request("DELETE", "/admin/api/articles/art-1", json={"area": "area-1", "channel": "ch-art"})
+            self.assertEqual(r_del.status_code, 200)
 
 
 if __name__ == "__main__":

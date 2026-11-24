@@ -75,9 +75,8 @@ class LolFa8Plugin(PluginCommandMixin, BotModule):
         )
 
     async def on_load(self, handler, config=None):
+        await self.on_unload()
         self._config = (config or {}).copy()
-        self._handler = None
-        self._recent_queries.clear()
 
     async def on_unload(self) -> None:
         if self._handler is not None:

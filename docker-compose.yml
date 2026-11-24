@@ -22,9 +22,26 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
-    command: ["redis-server", "--appendonly", "yes"]
+    environment:
+      BOT_REDIS_PASSWORD: "${BOT_REDIS_PASSWORD:-}"
+    command:
+      - sh
+      - -c
+      - >-
+        if [ -n "$$BOT_REDIS_PASSWORD" ]; then
+          exec redis-server --appendonly yes --requirepass "$$BOT_REDIS_PASSWORD";
+        else
+          exec redis-server --appendonly yes;
+        fi
     healthcheck:
-      test: ["CMD", "redis-cli", "ping"]
+      test:
+        - CMD-SHELL
+        - >-
+          if [ -n "$$BOT_REDIS_PASSWORD" ]; then
+            REDISCLI_AUTH="$$BOT_REDIS_PASSWORD" redis-cli ping;
+          else
+            redis-cli ping;
+          fi
       interval: 5s
       timeout: 3s
       retries: 10
@@ -66,6 +83,7 @@ services:
       # Compose 的 Nginx 与健康检查固定连接容器内 8080 端口。
       BOT_WEB_HOST: "0.0.0.0"
       BOT_WEB_PORT: "8080"
+      BOT_WEB_ADMIN_PATH:
       BOT_WEB_TRUSTED_PROXY_CIDRS: "${BOT_NGINX_IP:-172.30.255.2}/32,${BOT_NGINX_BACKEND_IP:-172.30.254.5}/32"
       BOT_REDIS_CONNECT_TIMEOUT: "${BOT_REDIS_CONNECT_TIMEOUT:-3.0}"
       BOT_REDIS_SOCKET_TIMEOUT: "${BOT_REDIS_SOCKET_TIMEOUT:-5.0}"

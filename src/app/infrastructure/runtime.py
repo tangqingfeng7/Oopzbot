@@ -54,11 +54,11 @@ class MusicGateway:
     def __getattr__(self, name: str):
         return getattr(self.handler, name)
 
-    def refresh_platforms(self) -> dict:
+    async def refresh_platforms(self, changed_groups=None) -> dict:
         """配置热更新时刷新已创建的音乐平台实例。"""
         if self._handler is None:
             return {"available": True, "refreshed": False, "reason": "音乐处理器尚未初始化"}
-        return self._handler.refresh_platforms()
+        return await self._handler.refresh_platforms(changed_groups)
 
 
 class PluginRuntime:

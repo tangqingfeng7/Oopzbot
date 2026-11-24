@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 
 _PREFIX = "screen_share"
 _HEARTBEAT_TIMEOUT_SECONDS = 60
+_CLAIM_TIMEOUT_SECONDS = 120
 _SESSION_STORAGE_GRACE_SECONDS = 60
 _CREATE_LUA = """
 if redis.call('exists', KEYS[1]) == 1 then return 'USER_BUSY' end
@@ -762,24 +763,38 @@ class ScreenShareService:
         self,
         *,
         heartbeat_timeout: int = _HEARTBEAT_TIMEOUT_SECONDS,
+        claim_timeout: int = _CLAIM_TIMEOUT_SECONDS,
     ) -> list[dict[str, Any]]:
         expired: list[dict[str, Any]] = []
         now = int(time.time())
         async for session in self._sessions():
-            if session.get("status") != "active":
-                continue
+            status = session.get("status")
             expires_at = redis_int(
                 session.get("expires_at") or 0,
                 field="screen share expiration",
             )
-            last = redis_int(
-                session.get("last_heartbeat") or session.get("ready_at") or 0,
-                field="screen share heartbeat timestamp",
-            )
-            if expires_at and now >= expires_at:
-                reason = "session_expired"
-            elif last and now - last > heartbeat_timeout:
-                reason = "heartbeat_timeout"
+            if status == "active":
+                last = redis_int(
+                    session.get("last_heartbeat") or session.get("ready_at") or 0,
+                    field="screen share heartbeat timestamp",
+                )
+                if expires_at and now >= expires_at:
+                    reason = "session_expired"
+                elif last and now - last > heartbeat_timeout:
+                    reason = "heartbeat_timeout"
+                else:
+                    continue
+            elif status == "claimed":
+                claimed_at = redis_int(
+                    session.get("claimed_at") or session.get("created_at") or 0,
+                    field="screen share claim timestamp",
+                )
+                if expires_at and now >= expires_at:
+                    reason = "session_expired"
+                elif claimed_at and now - claimed_at >= claim_timeout:
+                    reason = "claim_timeout"
+                else:
+                    continue
             else:
                 continue
             stopped = await self.stop(session, reason=reason)

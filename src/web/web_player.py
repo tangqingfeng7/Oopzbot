@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import functools
 import json
 import math
 import os
@@ -24,6 +23,7 @@ from app.services.playback import (
     PlaybackControlService,
 )
 from core.logger_config import get_logger
+from core.paths import WEB_ASSETS_DIR as _WEB_ASSETS_DIR
 from core.queue_manager import (
     KEY_CURRENT,
     KEY_PLAY_MODE,
@@ -61,12 +61,15 @@ logger = get_logger("WebPlayer")
 
 app = FastAPI(title="Oopz Music Player", docs_url=None, redoc_url=None)
 
-_WEB_ASSETS_DIR = os.path.join(cfg.PROJECT_ROOT, "src", "web", "assets")
 _ADMIN_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "admin")
+_PLAYER_ASSETS_DIR = os.path.join(_WEB_ASSETS_DIR, "player")
+os.makedirs(os.path.join(_PLAYER_ASSETS_DIR, "bundle"), exist_ok=True)
 if os.path.isdir(_ADMIN_ASSETS_DIR):
     app.mount("/admin-assets", StaticFiles(directory=_ADMIN_ASSETS_DIR), name="admin-assets")
 else:
     logger.warning("Static assets directory missing, skip mount: %s", _ADMIN_ASSETS_DIR)
+if os.path.isdir(_PLAYER_ASSETS_DIR):
+    app.mount("/player-assets", StaticFiles(directory=_PLAYER_ASSETS_DIR), name="player-assets")
 
 # ---------------------------------------------------------------------------
 # 共享状态（admin 模块通过公共函数访问）
@@ -232,13 +235,43 @@ def register_runtime_dependencies(*, music=None, plugins=None, plugin_host=None)
         set_plugin_runtime(plugins, plugin_host)
 
 
-def refresh_music_platforms() -> dict:
-    """在配置热更新后刷新已创建的音乐平台实例。"""
-    reset_netease()
-    _platform_cache.clear()
+async def refresh_music_platforms(changed_groups=None) -> dict:
+    """在配置热更新后仅刷新实际变化的音乐平台实例，并关闭旧客户端。"""
+    group_to_platform = {
+        "netease": "netease",
+        "qq_music": "qq",
+        "bilibili_music": "bilibili",
+    }
+    groups = (
+        set(group_to_platform)
+        if changed_groups is None
+        else (set(changed_groups) & set(group_to_platform))
+    )
+    if not groups:
+        return {"available": _music_dependency is not None, "refreshed": False}
+
+    old_cached = []
+    if "netease" in groups:
+        if _netease is not None:
+            old_cached.append(_netease)
+        reset_netease()
+    for group in groups:
+        cached = _platform_cache.pop(group_to_platform[group], None)
+        if cached is not None:
+            old_cached.append(cached)
+
+    seen_ids: set[int] = set()
+    for client in old_cached:
+        if id(client) in seen_ids:
+            continue
+        seen_ids.add(id(client))
+        closer = getattr(client, "close", None)
+        if closer is not None:
+            await closer()
+
     if _music_dependency is None:
         return {"available": False, "reason": "music 未注册"}
-    return _music_dependency.refresh_platforms()
+    return await _music_dependency.refresh_platforms(groups)
 
 
 def _admin_enabled() -> bool:
@@ -295,6 +328,85 @@ async def _auth_web_api(request: Request, call_next):
         if not await _is_admin_authorized(request):
             return JSONResponse({"ok": False, "error": "后台未登录或会话失效"}, status_code=401)
     return await call_next(request)
+
+
+class _AdminPathRewriteMiddleware:
+    """支持通过 WEB_PLAYER_CONFIG['admin_path'] 自定义管理后台路径前缀。
+
+    当 admin_path 不是默认的 /admin 时：
+    - 外部访问 /admin、/admin/*、/admin-assets/bundle/* 与模板文件一律返回 404；
+    - 外部访问 <admin_path>、<admin_path>/* 重写为 /admin* 交给既有路由与插件；
+    - 外部访问 <admin_path>/_assets/* 重写为 /admin-assets/* 供后台前端加载静态产物。
+    """
+
+    def __init__(self, asgi_app):
+        self.app = asgi_app
+
+    async def __call__(self, scope, receive, send):
+        if scope.get("type") != "http":
+            await self.app(scope, receive, send)
+            return
+
+        base = cfg.admin_path()
+        if base == "/admin":
+            await self.app(scope, receive, send)
+            return
+
+        path = scope.get("path") or ""
+        if (
+            path == "/admin"
+            or path.startswith("/admin/")
+            or path.startswith("/admin-assets/bundle/")
+            or path == "/admin-assets/admin-shell-template.html"
+        ):
+            response = JSONResponse({"detail": "Not Found"}, status_code=404)
+            await response(scope, receive, send)
+            return
+
+        assets_prefix = f"{base}/_assets/"
+        rewritten_path: str | None = None
+        new_raw_path: bytes | None = None
+        raw_path = scope.get("raw_path")
+
+        if path.startswith(assets_prefix):
+            rewritten_path = "/admin-assets/" + path[len(assets_prefix):]
+            if isinstance(raw_path, bytes):
+                ap_bytes = assets_prefix.encode("ascii")
+                if raw_path.startswith(ap_bytes):
+                    new_raw_path = b"/admin-assets/" + raw_path[len(ap_bytes):]
+        elif path == base or path == f"{base}/":
+            rewritten_path = "/admin"
+            new_raw_path = b"/admin"
+        elif path.startswith(f"{base}/"):
+            suffix = path[len(base):]
+            if len(suffix) > 1 and suffix.endswith("/"):
+                suffix = suffix.rstrip("/")
+            rewritten_path = "/admin" + suffix
+            if isinstance(raw_path, bytes):
+                base_bytes = base.encode("ascii")
+                if raw_path.startswith(base_bytes + b"/"):
+                    raw_suffix = raw_path[len(base_bytes):]
+                    if len(raw_suffix) > 1 and raw_suffix.endswith(b"/"):
+                        raw_suffix = raw_suffix.rstrip(b"/")
+                    new_raw_path = b"/admin" + raw_suffix
+
+        if rewritten_path is not None:
+            new_scope = dict(scope)
+            new_scope["path"] = rewritten_path
+            if "raw_path" in new_scope:
+                new_scope["raw_path"] = (
+                    new_raw_path
+                    if new_raw_path is not None
+                    else rewritten_path.encode("utf-8")
+                )
+            await self.app(new_scope, receive, send)
+            return
+
+        await self.app(scope, receive, send)
+
+
+# 注册在 _auth_web_api 之后，使其位于 Starlette 中间件栈最外层（最先执行）。
+app.add_middleware(_AdminPathRewriteMiddleware)
 
 
 # ---------------------------------------------------------------------------
@@ -758,10 +870,25 @@ def index():
     return HTMLResponse("请使用 Bot 发送的网页播放器链接访问。", status_code=403)
 
 
-@functools.cache
+_PLAYER_HTML_CACHE: tuple[float, str] | None = None
+
+
+def _player_bundle_version() -> str:
+    js_path = os.path.join(_PLAYER_ASSETS_DIR, "bundle", "player-app.js")
+    try:
+        return str(int(os.path.getmtime(js_path)))
+    except OSError:
+        return "1"
+
+
 def _player_html() -> str:
-    with open(os.path.join(_WEB_ASSETS_DIR, "player.html"), encoding="utf-8") as f:
-        return f.read()
+    global _PLAYER_HTML_CACHE
+    html_path = os.path.join(_WEB_ASSETS_DIR, "player.html")
+    mtime = os.path.getmtime(html_path)
+    if _PLAYER_HTML_CACHE is None or _PLAYER_HTML_CACHE[0] != mtime:
+        with open(html_path, encoding="utf-8") as f:
+            _PLAYER_HTML_CACHE = (mtime, f.read())
+    return _PLAYER_HTML_CACHE[1].replace("__PLAYER_ASSET_VERSION__", _player_bundle_version())
 
 
 @app.get("/w/{token}", response_class=HTMLResponse)
@@ -772,9 +899,15 @@ async def index_with_token(token: str, request: Request):
         return HTMLResponse("播放器链接无效或已失效，请重新让 Bot 发送最新链接。", status_code=403)
     await set_token(token, redis_client=r, ttl_seconds=cfg.token_ttl_seconds())
     area = (request.query_params.get("area") or "").strip()
+    area_json = (
+        json.dumps(area)
+        .replace("&", "\\u0026")
+        .replace("<", "\\u003c")
+        .replace(">", "\\u003e")
+    )
     html = _player_html().replace(
         "</head>",
-        f"<script>window.__OOPZ_AREA__={json.dumps(area)};</script></head>",
+        f"<script>window.__OOPZ_AREA__={area_json};</script></head>",
         1,
     )
     resp = HTMLResponse(html)

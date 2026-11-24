@@ -139,6 +139,7 @@ class MusicHandler(PlaybackMixin):
         self._service_stop_event = asyncio.Event()
         self._auto_play_task: asyncio.Task[None] | None = None
         self._web_command_task: asyncio.Task[None] | None = None
+        self._stream_tasks: set[asyncio.Task[None]] = set()
         self._background_area_cache: tuple[str, float] = ("", 0.0)
         self._liked_cache: list = []
         self._liked_ids_cache: list = []
@@ -265,15 +266,69 @@ class MusicHandler(PlaybackMixin):
         except Exception as e:
             logger.debug("B 站音乐平台初始化跳过: %s", e)
 
-    def refresh_platforms(self) -> dict:
-        """后台配置变更后刷新平台实例，让新 Cookie 立即用于当前进程。"""
-        self.netease = NeteaseCloud()
-        self.platforms = PlatformRegistry()
-        self.platforms.register(self.netease)
-        self._init_extra_platforms()
+    async def refresh_platforms(self, changed_groups=None) -> dict:
+        """后台配置变更后仅刷新实际变化的平台实例，并安全关闭旧客户端。"""
+        all_groups = {"netease", "qq_music", "bilibili_music"}
+        groups = all_groups if changed_groups is None else (set(changed_groups) & all_groups)
+        if not groups:
+            return {
+                "available": True,
+                "refreshed": False,
+                "platforms": list(self.platforms.available.keys()),
+            }
+
+        old_clients: list[Any] = []
+        if "netease" in groups:
+            old_netease = getattr(self, "netease", None)
+            if old_netease is not None:
+                old_clients.append(old_netease)
+            old_registered = self.platforms.unregister("netease")
+            if old_registered is not None:
+                old_clients.append(old_registered)
+            self.netease = NeteaseCloud()
+            self.platforms.register(self.netease)
+
+        if "qq_music" in groups:
+            old_qq = self.platforms.unregister("qq")
+            if old_qq is not None:
+                old_clients.append(old_qq)
+            try:
+                from music.qq_music import QQMusic
+
+                qq = QQMusic()
+                if qq.enabled:
+                    self.platforms.register(qq)
+                    logger.info("QQ 音乐平台已注册")
+            except Exception as e:
+                logger.debug("QQ 音乐平台初始化跳过: %s", e)
+
+        if "bilibili_music" in groups:
+            old_bili = self.platforms.unregister("bilibili")
+            if old_bili is not None:
+                old_clients.append(old_bili)
+            try:
+                from music.bilibili_music import BilibiliMusic
+
+                bili = BilibiliMusic()
+                if bili.enabled:
+                    self.platforms.register(bili)
+                    logger.info("B 站音乐平台已注册")
+            except Exception as e:
+                logger.debug("B 站音乐平台初始化跳过: %s", e)
+
+        seen_ids: set[int] = set()
+        for client in old_clients:
+            if id(client) in seen_ids:
+                continue
+            seen_ids.add(id(client))
+            closer = getattr(client, "close", None)
+            if closer is not None:
+                await closer()
+
         return {
             "available": True,
             "refreshed": True,
+            "refreshed_groups": sorted(groups),
             "platforms": list(self.platforms.available.keys()),
         }
 
@@ -355,7 +410,7 @@ class MusicHandler(PlaybackMixin):
                 self._voice_channel_id != voice_channel_id
                 or self._voice_channel_area != area
             ):
-                await self._leave_current_voice_channel()
+                await self._leave_current_voice_channel_locked()
             if not self._voice_channel_id:
                 await self._cleanup_stale_voice_membership(area)
             try:
@@ -378,11 +433,6 @@ class MusicHandler(PlaybackMixin):
             return {"status": True, "sign": sign}
 
     async def _check_and_enter_voice_channel(self, user: str, channel: str, area: str) -> bool:
-        """
-        检查用户是否在语音频道，若在则 Bot 进入该频道。
-        若用户不在任何语音频道，发送提示并返回 False。
-        若 Bot 正在其他频道播放，拒绝切换并提示。
-        """
         if not self.voice or not self.voice.available:
             await self.sender.send_message(
                 "语音推流功能未启用或初始化失败，无法播放音乐。",
@@ -443,12 +493,6 @@ class MusicHandler(PlaybackMixin):
         return await self._do_enter_voice(voice_channel_id, area)
 
     async def _restore_volume_from_redis(self) -> None:
-        """从 Redis 恢复用户上次设置的播放音量。
-
-        浏览器进程重启或重新加入 Agora 房间后，agora_player.html 内的
-        `_currentVolume` 会回到默认值。这里把 Redis 持久化的音量回灌到浏览器，
-        避免用户每次重连后都得手动重新拉一遍音量条。
-        """
         if not self.voice or not self.voice.available:
             return
         try:
@@ -469,14 +513,16 @@ class MusicHandler(PlaybackMixin):
         except Exception as e:
             logger.debug(f"恢复音量失败: {e}")
 
-    async def _cleanup_stale_voice_membership(self, area: str) -> None:
-        """清理服务端残留的 bot 语音频道成员状态。
+    def _current_bot_uid(self) -> str:
+        bot = getattr(self.sender, "bot", None)
+        bot_config = getattr(bot, "config", None)
+        uid = getattr(bot_config, "person_uid", None)
+        if isinstance(uid, str):
+            return uid.strip()
+        return str(OOPZ_CONFIG.get("person_uid") or "").strip()
 
-        bot 进程上次未正常退出时，服务端可能仍把 bot 挂在某个语音频道里。
-        新一次 enter_channel 会被当作重复进入，不会广播"成员加入"事件，
-        其他客户端因此看不到 bot。这里在进入前主动 leave 一次。
-        """
-        bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
+    async def _cleanup_stale_voice_membership(self, area: str) -> None:
+        bot_uid = self._current_bot_uid()
         if not bot_uid:
             return
         try:
@@ -495,14 +541,7 @@ class MusicHandler(PlaybackMixin):
             logger.warning(f"清理残留语音状态失败: {e}")
 
     async def _still_registered_in_voice(self, channel: str, area: str) -> bool:
-        """确认服务端仍把 bot 记在这个语音频道里。
-
-        Agora 只负责音频，Oopz 的频道成员身份是另一套，身份心跳走 Agora 信令
-        并不维持它。成员身份掉了之后本地仍以为在频道里，就不会重新进入——
-        表现就是听得到歌声、看不到 bot。查询失败按「仍在」处理，免得一次网络
-        抖动引发无谓的退出重进。
-        """
-        bot_uid = (OOPZ_CONFIG.get("person_uid") or "").strip()
+        bot_uid = self._current_bot_uid()
         if not bot_uid:
             return True
         try:
@@ -513,7 +552,12 @@ class MusicHandler(PlaybackMixin):
         return str(actual or "") == channel
 
     async def _leave_current_voice_channel(self) -> None:
-        """退出 Bot 当前所在的语音频道。"""
+        """退出 Bot 当前所在的语音频道（与进房共用 _voice_lock 串行化）。"""
+        async with self._voice_lock:
+            await self._leave_current_voice_channel_locked()
+
+    async def _leave_current_voice_channel_locked(self) -> None:
+        """调用方须已持有 _voice_lock：退出 Bot 当前所在的语音频道。"""
         if not self._voice_channel_id:
             return
 
@@ -1164,9 +1208,15 @@ class MusicHandler(PlaybackMixin):
     async def stop(self, timeout: float = 5.0) -> None:
         """停止音乐后台服务；可重复调用。"""
         self._service_stop_event.set()
+        self._playback_generation += 1
         tasks = [
             task
-            for task in (self._auto_play_task, self._web_command_task, self._liked_refresh_task)
+            for task in (
+                self._auto_play_task,
+                self._web_command_task,
+                self._liked_refresh_task,
+                *tuple(self._stream_tasks),
+            )
             if task is not None and not task.done()
         ]
         for task in tasks:
@@ -1182,6 +1232,7 @@ class MusicHandler(PlaybackMixin):
         self._auto_play_task = None
         self._web_command_task = None
         self._liked_refresh_task = None
+        self._stream_tasks.clear()
         for task in tuple(self._cover_prefetch.values()):
             task.cancel()
         if self._cover_prefetch:
@@ -1192,11 +1243,6 @@ class MusicHandler(PlaybackMixin):
             await self.voice.destroy(timeout=max(0.1, timeout))
 
     async def _consume_web_command(self, cmd_raw) -> bool:
-        """解码一条 Web 控制命令并按域决定是否执行。返回是否执行了。
-
-        从监听线程的循环体里抽出来，好让「跨域命令会被跳过」这件事能被直接测到 ——
-        埋在 while 循环 + BLPOP 里的话，把域校验整段删掉测试也照样绿。
-        """
         try:
             command = decode_web_command(cmd_raw)
         except WebCommandDecodeError as exc:
@@ -1246,13 +1292,6 @@ class MusicHandler(PlaybackMixin):
         command,
         snapshot: PlaybackSessionSnapshot | None = None,
     ) -> bool:
-        """命令是否该由当前正在播放的域执行。
-
-        命令队列是全局单键，Web 端按自己看到的那个域下发 —— 不校验的话，B 域
-        视图上按「切歌」会把 A 域正在播的歌切掉。
-        空域只允许全局音量命令；播放控制必须显式带域，且当前正在播放的域必须
-        与之完全一致。
-        """
         if isinstance(command, GlobalWebCommand):
             return command.action == "volume"
         if not isinstance(command, AreaWebCommand):

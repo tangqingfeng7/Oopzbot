@@ -17,7 +17,8 @@ DATA_DIR: str = str(PROJECT_ROOT_PATH / "data")
 LOGS_DIR: str = str(PROJECT_ROOT_PATH / "logs")
 PLUGINS_DIR: str = str(PROJECT_ROOT_PATH / "plugins")
 CONFIG_PLUGINS_DIR: str = str(PROJECT_ROOT_PATH / "config" / "plugins")
-WEB_ASSETS_DIR: str = str(PROJECT_ROOT_PATH / "src" / "web" / "assets")
+UI_DIR: str = str(PROJECT_ROOT_PATH / "ui")
+WEB_ASSETS_DIR: str = str(PROJECT_ROOT_PATH / "ui" / "public")
 LOG_FILE: str = str(PROJECT_ROOT_PATH / "logs" / "oopz_bot.log")
 
 

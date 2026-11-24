@@ -60,12 +60,20 @@ def apply_runtime_overrides() -> None:
     if isinstance(web_cfg, dict):
         web_host = os.environ.get("BOT_WEB_HOST")
         web_port = os.environ.get("BOT_WEB_PORT")
+        web_url = os.environ.get("BOT_WEB_URL")
+        web_admin_path = os.environ.get("BOT_WEB_ADMIN_PATH")
         trusted_proxy_cidrs = os.environ.get("BOT_WEB_TRUSTED_PROXY_CIDRS")
         if web_host:
             web_cfg["host"] = web_host.strip()
         if web_port:
             with contextlib.suppress(ValueError):
                 web_cfg["port"] = int(web_port)
+        if web_url is not None:
+            # 容器化/反代部署时对外地址由编排决定，
+            # 显式空值恢复自动检测。
+            web_cfg["url"] = web_url.strip()
+        if web_admin_path is not None and web_admin_path.strip():
+            web_cfg["admin_path"] = web_admin_path.strip()
         if trusted_proxy_cidrs is not None:
             web_cfg["trusted_proxy_cidrs"] = [
                 item.strip()
@@ -125,3 +133,7 @@ def validate_runtime_config() -> None:
                 ipaddress.ip_network(str(raw).strip(), strict=False)
             except ValueError as exc:
                 raise ValueError(f"无效的可信代理网段: {raw}") from exc
+        if "admin_path" in web_cfg:
+            from web.web_player_config import normalize_admin_path
+
+            web_cfg["admin_path"] = normalize_admin_path(web_cfg.get("admin_path"))

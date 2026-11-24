@@ -8,6 +8,10 @@ config.py
 private_key.py
 config/runtime.py
 config/private_key.py
+config/plugins/*.json
+!config/plugins/*.example.json
+!config/plugins/*.schema.json
+config/plugins/*/config.json
 .config.py.*.tmp
 .config.py.*.bak
 .private_key.py.*.tmp
@@ -16,16 +20,18 @@ config/.runtime.py.*.tmp
 config/.runtime.py.*.bak
 config/.private_key.py.*.tmp
 config/.private_key.py.*.bak
+nginx/ssl/
 .env
 .env.local
 test-account.local.env
 
 # Runtime data (mounted at runtime)
 data/
+src/data/
 logs/
 
 # Python artifacts
-__pycache__/
+**/__pycache__/
 *.py[cod]
 *.pyo
 *.egg-info/
@@ -33,12 +39,16 @@ dist/
 build/
 .venv/
 venv/
-node_modules/
+**/node_modules/
 
 # IDE
 .vscode/
 .idea/
 .cursor/
+
+# Frontend source (only compiled ui/public/ is needed in container)
+ui/*
+!ui/public/
 
 # External dependencies
 NeteaseAPI_tmp/

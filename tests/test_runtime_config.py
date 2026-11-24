@@ -1,4 +1,5 @@
 import sys
+import types
 import unittest
 from pathlib import Path
 from unittest import mock
@@ -135,6 +136,15 @@ class NginxCompatibilityConfigTest(unittest.TestCase):
                 self.assertIn("listen 443 ssl http2;", content)
                 self.assertNotRegex(content, r"(?m)^\s*http2\s+on\s*;")
 
+    def test_public_server_hides_admin_routes_with_404(self) -> None:
+        for relative_path in ("nginx/nginx.conf", "nginx/nginx.docker.conf"):
+            with self.subTest(path=relative_path):
+                content = (REPO_ROOT / relative_path).read_text(encoding="utf-8")
+                self.assertIn("location ~ ^/admin(/|$) {", content)
+                self.assertIn("location ^~ /admin-assets/bundle/ {", content)
+                self.assertIn("location = /admin-assets/admin-shell-template.html {", content)
+                self.assertIn("return 404;", content)
+
 
 class DockerRuntimeConfigTest(unittest.TestCase):
     def test_image_installs_both_chromium_variants_in_shared_path(self) -> None:
@@ -215,9 +225,40 @@ class DockerRuntimeConfigTest(unittest.TestCase):
                 self.assertIn(f'{variable}: "${{{variable}:-', compose)
 
         # 空 YAML 值由 Compose 从 shell / .env 解析，区分未设置与显式空字符串。
-        for variable in ("BOT_OOPZ_BASE_URL", "BOT_OOPZ_WS_URL"):
+        for variable in ("BOT_OOPZ_BASE_URL", "BOT_OOPZ_WS_URL", "BOT_WEB_ADMIN_PATH"):
             with self.subTest(variable=variable):
                 self.assertIn(f"      {variable}:\n", compose)
+
+    def test_bot_web_admin_path_override_and_validation(self) -> None:
+        fake_config = types.SimpleNamespace(
+            REDIS_CONFIG={},
+            NETEASE_CLOUD={},
+            WEB_PLAYER_CONFIG={"admin_path": "/admin"},
+            OOPZ_CONFIG={},
+        )
+        with (
+            mock.patch.object(runtime, "runtime_config", fake_config),
+            mock.patch.dict(
+                "os.environ",
+                {"BOT_WEB_ADMIN_PATH": "ops-9f3k/"},
+                clear=False,
+            ),
+        ):
+            runtime.apply_runtime_overrides()
+            runtime.validate_runtime_config()
+            self.assertEqual(fake_config.WEB_PLAYER_CONFIG["admin_path"], "/ops-9f3k")
+
+        bad_config = types.SimpleNamespace(
+            REDIS_CONFIG={},
+            NETEASE_CLOUD={},
+            WEB_PLAYER_CONFIG={"admin_path": "/api/secret"},
+            OOPZ_CONFIG={},
+        )
+        with (
+            mock.patch.object(runtime, "runtime_config", bad_config),
+            self.assertRaisesRegex(ValueError, "保留路径"),
+        ):
+            runtime.validate_runtime_config()
 
     def test_docker_ci_runs_real_browsers_and_bind_mount_write(self) -> None:
         workflow = (REPO_ROOT / ".github/workflows/docker-build.yml").read_text(

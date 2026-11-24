@@ -15,8 +15,8 @@ class ScreenShareCommandService:
         self._sender = host.sender
         self._service = service
 
-    def _is_bot_admin(self, user: str) -> bool:
-        return self._host.services.routing.access.is_admin(user)
+    def _is_bot_admin(self, user: str, area: str = "") -> bool:
+        return bool(self._host.services.routing.access.is_admin(user, area))
 
     async def start(self, channel: str, area: str, user: str) -> None:
         try:
@@ -37,7 +37,7 @@ class ScreenShareCommandService:
             user=user,
             area=area,
             channel=channel,
-            is_bot_admin=self._is_bot_admin(user),
+            is_bot_admin=self._is_bot_admin(user, area),
         )
         try:
             await self._sender.bot.messages.send_private_message("屏幕共享【发起端专用链接】（不是观看链接，单次使用）：\n"
@@ -84,7 +84,7 @@ class ScreenShareCommandService:
                 self._sender,
                 user=user,
                 area=area,
-                is_bot_admin=self._is_bot_admin(user),
+                is_bot_admin=self._is_bot_admin(user, area),
             ):
                 await self._sender.send_message("你的域角色没有停止该共享的权限", channel=channel, area=area)
                 return

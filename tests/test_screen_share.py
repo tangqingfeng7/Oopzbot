@@ -948,31 +948,22 @@ class ScreenShareAssetContractTest(unittest.TestCase):
         self.assertIn('body[data-mode="viewer"] .app-shell', style)
         self.assertIn('body[data-mode="viewer"] .stage { aspect-ratio: auto;', style)
         self.assertIn("expire_stale(heartbeat_timeout=60)", plugin_source)
-        config_script = (
-            REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "config_script.js"
-        ).read_text(encoding="utf-8")
         config_page = (
-            REPO_ROOT / "src" / "web" / "assets" / "admin" / "pages" / "config_content.html"
+            REPO_ROOT / "ui" / "src" / "admin" / "pages" / "ConfigPage.tsx"
         ).read_text(encoding="utf-8")
-        admin_share_script = (
-            REPO_ROOT / "plugins" / "screen_share" / "admin_assets" / "screen-share_script.js"
+        plugin_pages = (
+            REPO_ROOT / "ui" / "src" / "admin" / "pages" / "PluginPages.tsx"
         ).read_text(encoding="utf-8")
-        admin_share_page = (
-            REPO_ROOT / "plugins" / "screen_share" / "admin_assets" / "screen-share_content.html"
+        admin_api = (
+            REPO_ROOT / "ui" / "src" / "admin" / "lib" / "api.ts"
         ).read_text(encoding="utf-8")
-        admin_shell = (
-            REPO_ROOT / "src" / "web" / "assets" / "admin" / "admin-shell.js"
-        ).read_text(encoding="utf-8")
-        self.assertIn('AdminShell.upgradeSelect("cfg_screen_share_quality")', config_script)
+        self.assertIn('screen_share.default_quality', config_page)
+        self.assertIn('hasPlugin("screen-share")', config_page)
         self.assertNotIn("当前屏幕共享", config_page)
-        self.assertIn('id="screenShareSessions"', admin_share_page)
-        self.assertIn("同一文字频道支持多人同时共享", admin_share_page)
-        self.assertNotIn("不同文字频道可同时进行共享", admin_share_page)
-        self.assertIn('/admin/api/screen-shares', admin_share_script)
-        self.assertIn('data-action="stop-screen-share"', admin_share_script)
-        self.assertIn('/screen-shares/" + encodeURIComponent(sessionId) + "/stop', admin_share_script)
+        self.assertIn('/admin/api/screen-shares', plugin_pages)
+        self.assertIn('/stop', plugin_pages)
         self.assertIn('"/admin/screen-share"', plugin_source)
-        self.assertNotIn('"/admin/screen-share"', admin_shell)
+        self.assertNotIn('"/admin/screen-share"', admin_api)
         self.assertIn('grid-template-columns: minmax(0, 1fr) 350px', style)
         self.assertIn('/admin-assets/admin-shell.css', page)
         self.assertIn('/screen-share/assets/style.css?v=', page)

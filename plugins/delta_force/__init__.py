@@ -233,8 +233,11 @@ class DeltaForcePlugin(PluginCommandMixin, BotModule):
         )
 
     async def on_load(self, handler, config=None) -> None:
+        await self.on_unload()
         self._handler = handler
         self._config = (config or {}).copy()
+        if not self._config.get("enabled", False):
+            return
         self._api = DeltaForceApiClient(self._config)
         self._renderer = DeltaForceRenderer(self._config)
         self._login = DeltaForceLoginManager(self._config, self._api, self._store)
@@ -257,18 +260,31 @@ class DeltaForcePlugin(PluginCommandMixin, BotModule):
                 logger.warning("DeltaForcePlugin: place push preload skipped: %s", exc)
 
     async def on_unload(self) -> None:
-        if self._login:
-            await self._login.cancel_all()
-        if self._daily_push:
-            await self._daily_push.stop()
-        if self._push:
-            await self._push.stop()
-        if self._api:
-            await self._api.close()
-        if self._renderer:
-            await self._renderer.close()
+        login, self._login = self._login, None
+        daily_push, self._daily_push = self._daily_push, None
+        push, self._push = self._push, None
+        api, self._api = self._api, None
+        renderer, self._renderer = self._renderer, None
+        if login:
+            await login.cancel_all()
+        if daily_push:
+            await daily_push.stop()
+        if push:
+            await push.stop()
+        if api:
+            await api.close()
+        if renderer:
+            await renderer.close()
 
     async def dispatch_command(self, command_text: str, channel: str, area: str, user: str, handler) -> None:
+        if not self._config.get("enabled", False):
+            await self._send(
+                handler,
+                "delta_force 插件当前未启用，请在 config/plugins/delta_force/config.json 中设置 enabled=true 后重载插件配置。",
+                channel,
+                area,
+            )
+            return
         command_text = command_text.strip()
         lower = command_text.lower()
 

@@ -8,7 +8,7 @@ import ipaddress
 import logging
 import os
 from dataclasses import dataclass
-from urllib.parse import unquote, urlparse
+from urllib.parse import quote, unquote, urlparse
 
 _log = logging.getLogger("ProxyUtils")
 
@@ -174,12 +174,13 @@ def _parse_proxy_url(proxy_url: str) -> ProxySettings:
     port = parsed.port or _DEFAULT_PORTS[scheme]
     username = unquote(parsed.username) if parsed.username else None
     password = unquote(parsed.password) if parsed.password else None
-    server = f"{scheme}://{parsed.hostname}:{port}"
+    host_for_url = f"[{parsed.hostname}]" if ":" in parsed.hostname else parsed.hostname
+    server = f"{scheme}://{host_for_url}:{port}"
     if username:
-        auth = username
+        auth = quote(username, safe="")
         if password is not None:
-            auth = f"{auth}:{password}"
-        server = f"{scheme}://{auth}@{parsed.hostname}:{port}"
+            auth = f"{auth}:{quote(password, safe='')}"
+        server = f"{scheme}://{auth}@{host_for_url}:{port}"
 
     return ProxySettings(
         mode="explicit",

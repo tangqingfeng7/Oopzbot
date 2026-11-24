@@ -32,6 +32,27 @@ _initialized = False
 _file_handler: RotatingFileHandler | None = None
 
 
+_QUIET_THIRD_PARTY_LOGGERS = (
+    "aiosqlite",
+    "urllib3",
+    "httpcore",
+    "httpx",
+    "aiohttp",
+    "asyncio",
+    "websockets",
+    "charset_normalizer",
+    "PIL",
+    "multipart",
+    "watchfiles",
+)
+
+
+def _silence_noisy_loggers() -> None:
+    """将高频第三方底层库日志收紧到 WARNING，避免调试噪声淹没业务日志。"""
+    for name in _QUIET_THIRD_PARTY_LOGGERS:
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def _cleanup_old_logs(log_dir: str) -> None:
     """删除超过 LOG_RETENTION_DAYS 天的日志文件。"""
     if not os.path.isdir(log_dir):
@@ -77,6 +98,7 @@ def setup_logger(name: str, level=logging.DEBUG) -> logging.Logger:
         root.addHandler(console_handler)
 
         _attach_sdk_logger(console_handler)
+        _silence_noisy_loggers()
         _initialized = True
 
     return logger
@@ -107,6 +129,7 @@ def enable_file_logging(log_file: str = LOG_FILE) -> logging.Handler:
     root.setLevel(min(root.level or logging.WARNING, file_level))
     root.addHandler(handler)
     _attach_sdk_logger(handler)
+    _silence_noisy_loggers()
     _file_handler = handler
     return handler
 

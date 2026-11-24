@@ -47,7 +47,6 @@ class MessageContext:
 class CommandMessageService:
     def __init__(self, runtime: CommandRuntimeView):
         self._runtime = runtime
-        self._bot_mention = runtime.bot_mention
         self._sender = runtime.sender
 
     def build_context(self, msg_data: dict) -> MessageContext:
@@ -70,11 +69,11 @@ class CommandMessageService:
         )
 
     async def reject_unauthorized_command(self, ctx: MessageContext) -> bool:
-        if not ctx.is_command(self._bot_mention):
+        if not ctx.is_command(self._runtime.bot_mention):
             return False
 
         if (
-            self._runtime.services.routing.access.is_admin(ctx.user)
+            self._runtime.services.routing.access.is_admin(ctx.user, ctx.area)
             or self._runtime.services.routing.access.is_public_command(ctx.content)
         ):
             return False

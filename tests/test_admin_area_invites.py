@@ -306,19 +306,14 @@ class AdminAreaInviteApiTest(unittest.TestCase):
 
 class AreaInviteUiContractTest(unittest.TestCase):
     def test_area_admin_page_exposes_private_message_approval_flow(self) -> None:
-        content = (SRC_ROOT / "web/assets/admin/pages/areas_content.html").read_text(encoding="utf-8")
-        script = (SRC_ROOT / "web/assets/admin/pages/areas_script.js").read_text(encoding="utf-8")
+        areas_page = (REPO_ROOT / "ui/src/admin/pages/AreasPage.tsx").read_text(encoding="utf-8")
 
-        self.assertIn('id="areaInviteList"', content)
-        self.assertIn("Bot 从收到的私信中自动识别", content)
-        self.assertNotIn('id="areaInviteInput"', content)
-        for modal_id in ("modalOverlay", "modalDialog", "modalTitle", "modalBody", "modalFooter"):
-            with self.subTest(modal_id=modal_id):
-                self.assertIn(f'id="{modal_id}"', content)
-        self.assertIn('AdminShell.req("/admin/api/area-invites")', script)
-        self.assertIn('/admin/api/area-invites/accept', script)
-        self.assertIn('/admin/api/area-invites/reject', script)
-        self.assertIn('AdminShell.confirm(', script)
+        self.assertIn("/admin/api/area-invites", areas_page)
+        self.assertIn("/admin/api/area-invites/accept", areas_page)
+        self.assertIn("/admin/api/area-invites/reject", areas_page)
+        self.assertIn("接受域邀请", areas_page)
+        self.assertIn("拒绝域邀请", areas_page)
+        self.assertIn("confirm(", areas_page)
 
 
 if __name__ == "__main__":

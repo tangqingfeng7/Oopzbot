@@ -45,9 +45,12 @@ COPY plugins /app/plugins
 COPY tools /app/tools
 COPY docs /app/docs
 COPY config /app/config
+COPY ui/public /app/ui/public
 
-# 屏幕共享使用仓库内已编译的前端产物，生产镜像不安装 Node.js。
-RUN test -s /app/plugins/screen_share/assets/index.html \
+# 管理后台、Web 播放器与屏幕共享均使用仓库内已编译的前端产物，生产镜像不安装 Node.js。
+RUN test -s /app/ui/public/admin/bundle/admin-app.js \
+    && test -s /app/ui/public/player/bundle/player-app.js \
+    && test -s /app/plugins/screen_share/assets/index.html \
     && test -s /app/plugins/screen_share/assets/style.css \
     && test -s /app/plugins/screen_share/assets/app.js
 

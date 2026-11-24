@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import time
 from collections import deque
 
@@ -78,14 +79,63 @@ async def _overview_payload() -> dict:
     }
 
 
-def _tail_file(path: str, lines: int = 200) -> list[str]:
+_LOG_HEADER_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2}:\d{2}\s+\[([^\]]+)\]\s+(DEBUG|INFO|WARNING|ERROR|CRITICAL):"
+)
+
+_NOISY_LOG_SOURCES = frozenset({
+    "aiosqlite",
+    "urllib3",
+    "urllib3.connectionpool",
+    "httpcore",
+    "httpx",
+    "httpx2",
+    "uvicorn.access",
+    "asyncio",
+    "websockets",
+    "charset_normalizer",
+    "watchfiles",
+    "multipart",
+    "PIL",
+})
+
+
+def _is_noisy_source(source: str) -> bool:
+    if source in _NOISY_LOG_SOURCES:
+        return True
+    prefix = source.split(".", 1)[0]
+    return prefix in _NOISY_LOG_SOURCES
+
+
+def _should_keep_log_record(source: str, level: str, mode: str) -> bool:
+    if mode == "all":
+        return True
+    if mode == "warn":
+        return level in ("WARNING", "ERROR", "CRITICAL")
+    # 默认 important 模式：保留核心业务 INFO 及全部 WARNING/ERROR/CRITICAL，过滤 DEBUG 与底层库噪声
+    if level == "DEBUG":
+        return False
+    return not (level == "INFO" and _is_noisy_source(source))
+
+
+def _tail_file(path: str, lines: int = 200, level: str = "important") -> list[str]:
     if not os.path.exists(path):
         return []
     max_lines = max(1, min(int(lines), 2000))
+    mode = level if level in ("important", "warn", "all") else "important"
     dq: deque[str] = deque(maxlen=max_lines)
+    keep_current = mode == "all"
     with open(path, encoding="utf-8", errors="replace") as f:
-        for line in f:
-            dq.append(line.rstrip("\n"))
+        for raw in f:
+            line = raw.rstrip("\r\n")
+            if mode == "all":
+                dq.append(line)
+                continue
+            m = _LOG_HEADER_RE.match(line)
+            if m:
+                keep_current = _should_keep_log_record(m.group(1), m.group(2), mode)
+            if keep_current:
+                dq.append(line)
     return list(dq)
 
 

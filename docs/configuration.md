@@ -165,7 +165,7 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 
 | 配置项 | 说明 |
 |--------|------|
-| `enabled` | 是否启用（默认 `true`，代码当前主要依赖是否存在配置与凭据） |
+| `enabled` | 是否启用（配置规范默认 `false`，`example.json` 默认 `true`；设为 `false` 时不启动推送并拒绝执行命令） |
 | `api_key` | 三角洲后端 API Key（必填） |
 | `client_id` | 三角洲后端 client ID（必填） |
 | `api_mode` | API 地址选择模式，默认 `auto` |
@@ -188,7 +188,7 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 
 - `login_delivery_mode` 默认为 `private_message`。
 - 设为 `temp_channel` 时，插件会创建仅登录用户可见的临时文字频道发送二维码；登录成功、超时、过期或其他终止场景提示后会自动删频道。
-- 若所选投递方式失败，插件会回退到当前频道发送提示或二维码，避免登录流程直接中断。
+- 若所选私密投递方式（私信或受限临时频道）失败，插件会中止本次登录并清理二维码与临时频道，不会回退到公屏发送二维码。
 - `temp_dir/qrs` 会在插件加载时自动清理过期二维码文件。
 - 每日密码定时推送会按 `daily_keyword_push_time` 在所有已订阅频道每日推送一次。
 - 特勤处制造完成推送会按 `place_push_interval_sec` 周期轮询当前已订阅频道，并在检测到生产任务完成时推送到原频道。
@@ -230,6 +230,7 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 | `cookie_secure` | 是否仅在 HTTPS 下发送 cookie（使用 Nginx + SSL 时设为 `True`） |
 | `send_link_enabled` | 是否在点歌通知中发送 Web 播放器链接（默认 `True`） |
 | `link_idle_release_seconds` | 播放列表空闲超时后释放随机链接（秒，`0` 表示不释放） |
+| `admin_path` | 管理后台访问路径前缀（默认 `/admin`）；改为随机路径（如 `/ops-9f3k2m`）后，原 `/admin` 与后台前端产物均返回 `404`，不依赖 Nginx 即可隐藏后台入口 |
 | `trusted_proxy_cidrs` | 允许提供 `X-Forwarded-For` / `X-Real-IP` 的 TCP 对端网段；默认仅回环 |
 
 > **注意**：长期配置只认 `config.py`。管理后台 `/admin` -> 配置页面保存时会写回 `config.py`，并同步更新当前进程，不需要重启。
@@ -249,7 +250,7 @@ HTTP 返回 401/428 时仍应检查凭据或在后台重新登录。
 | `rtc_token_ttl_seconds` | RTC Token 有效期；网页会在过期前自动续期 |
 | `default_quality` | `2k` 最高画质、`1080p` 清晰优先或 `720p` 流畅优先 |
 
-此功能必须使用真实 Redis；Redis 降级为内存队列时会拒绝创建共享。对外 `WEB_PLAYER_CONFIG["url"]` 必须是 HTTPS 地址（本机开发可用 localhost）。声网控制台还必须开启“连麦鉴权”，才能在服务端强制观看者只读。运行参数位于“配置 → 音乐与平台 → 网页屏幕共享”，域级角色权限位于“域管理 → 域配置”。同一文字频道支持多人同时共享，每个用户同时最多一个会话；独立的“屏幕共享”后台页可观看、复制链接或结束指定会话。完整部署和权限说明见[屏幕共享](screen-share.md)。
+此功能由 `screen_share` 插件提供，必须使用真实 Redis；Redis 降级为内存队列时会拒绝创建共享。对外 `WEB_PLAYER_CONFIG["url"]` 必须是 HTTPS 地址（本机开发可用 localhost）。声网控制台还必须开启“连麦鉴权”，才能在服务端强制观看者只读。运行参数位于“配置 → 音乐与平台 → 网页屏幕共享”，域级角色权限位于“域管理 → 域配置”。同一文字频道支持多人同时共享，每个用户同时最多一个会话；独立的“屏幕共享”后台页可观看、复制链接或结束指定会话。
 
 ### SDK 内置 OneBot v11 服务 (`ONEBOT_V11_CONFIG`)
 
@@ -391,6 +392,7 @@ Compose 的宿主配置文件位于 `config/runtime.py` 与
 | `BOT_REDIS_CONNECT_TIMEOUT` / `BOT_REDIS_SOCKET_TIMEOUT` / `BOT_REDIS_HEALTH_CHECK_INTERVAL` | Redis 网络超时与健康检查 | 是 |
 | `BOT_NETEASE_BASE_URL` | 网易云 API 地址 | 是 |
 | `BOT_WEB_HOST` / `BOT_WEB_PORT` | Web 播放器监听；Compose 中固定为 `0.0.0.0:8080` | 固定注入 |
+| `BOT_WEB_ADMIN_PATH` | 覆盖 `WEB_PLAYER_CONFIG["admin_path"]` 自定义管理后台路径前缀（如 `/ops-9f3k2m`） | 是 |
 | `BOT_WEB_TRUSTED_PROXY_CIDRS` | 逗号分隔的可信反向代理 CIDR；Compose 根据两个 Nginx IP 生成 | 固定注入 |
 | `BOT_OOPZ_PROXY` | Oopz 代理地址 | 是 |
 | `OOPZ_PHONE` / `OOPZ_PASSWORD` | 启动及 HTTP/WS 认证失效时自动刷新 Oopz 凭据；两项分别优先于 `OOPZ_CONFIG.login_phone` / `login_password`，其次才是兼容字段 `phone` / `password` | 否 |

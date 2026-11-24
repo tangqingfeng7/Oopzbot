@@ -33,7 +33,7 @@ class SchedulerCommands:
         if group == "remind":
             await self._run_remind(action, arg, channel, area, user)
             return
-        if not self._handler.services.routing.access.is_admin(user):
+        if not self._handler.services.routing.access.is_admin(user, area):
             await self._reply(f"{Msg.ERR} 无权限，仅管理员可使用该指令", channel, area)
             return
         await self._run_schedule(action, arg, channel, area)
@@ -108,7 +108,7 @@ class SchedulerCommands:
         m = re.match(r"(\d{1,2})[:\uff1a](\d{2})\s+(.+)", raw.strip(), re.DOTALL)
         if not m:
             await self._reply(
-                "用法: 添加定时消息 08:00 早上好\n或: 添加定时消息 08:00 [1,2,3,4,5] 工作日快乐",
+                "用法: 添加定时消息 08:00 早上好\n或: 添加定时消息 08:00 [0,1,2,3,4] 工作日快乐",
                 channel, area,
             )
             return

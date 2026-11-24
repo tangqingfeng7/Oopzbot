@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import functools
+import html
 import os
 from pathlib import Path
 from string import Template
+from urllib.parse import urlsplit
 
 from core.logger_config import get_logger
 from plugins._shared.browser import HeadlessBrowser
@@ -12,6 +14,21 @@ from plugins._shared.browser import HeadlessBrowser
 from .assets import TEMPLATES_DIR
 
 logger = get_logger("DeltaForceRender")
+
+
+def _safe_hero_image(raw: object) -> str:
+    text = str(raw or "").strip()
+    if not text:
+        return ""
+    if text.startswith("data:image/"):
+        return html.escape(text, quote=True)
+    try:
+        parsed = urlsplit(text)
+    except ValueError:
+        return ""
+    if parsed.scheme.lower() not in {"http", "https"} or not parsed.netloc:
+        return ""
+    return html.escape(text, quote=True)
 
 
 @functools.cache
@@ -253,11 +270,11 @@ class DeltaForceRenderer:
         try:
             theme_vars = {**_THEME_DEFAULTS, **THEMES[template_name]}
             tpl = await asyncio.to_thread(_base_template)
-            html = tpl.safe_substitute(
-                title=str(context.get("title") or ""),
-                subtitle=str(context.get("subtitle") or ""),
-                hero_name=str(context.get("hero_name") or ""),
-                hero_image=str(context.get("hero_image") or ""),
+            rendered_html = tpl.safe_substitute(
+                title=html.escape(str(context.get("title") or ""), quote=True),
+                subtitle=html.escape(str(context.get("subtitle") or ""), quote=True),
+                hero_name=html.escape(str(context.get("hero_name") or ""), quote=True),
+                hero_image=_safe_hero_image(context.get("hero_image")),
                 body_html=str(context.get("body_html") or ""),
                 **theme_vars,
             )
@@ -268,7 +285,7 @@ class DeltaForceRenderer:
         png_path = self._render_dir / f"{template_name}_{os.getpid()}_{id(context)}.png"
         try:
             async with self._browser.page(viewport={"width": self._width, "height": 2200}) as page:
-                await page.set_content(html, wait_until="networkidle", timeout=self._timeout_ms)
+                await page.set_content(rendered_html, wait_until="networkidle", timeout=self._timeout_ms)
                 await page.locator("#poster").screenshot(path=str(png_path))
         except Exception as exc:
             logger.warning("DeltaForceRender: screenshot failed: %s", exc)

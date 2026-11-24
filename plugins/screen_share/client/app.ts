@@ -299,10 +299,13 @@ async function startPresenter() {
   try {
     const credentials = await api<Credentials & { ok: true }>("/screen-share/api/presenter/claim", { token: rawLinkToken });
     history.replaceState({}, "", "/screen-share/p");
-    qualitySelect.value = ["2k", "720p"].includes(credentials.default_quality || "")
-      ? credentials.default_quality!
-      : "1080p";
-    customSelects.get(qualitySelect)?.sync();
+    if (!qualityUserSelected) {
+      qualitySelect.value = ["2k", "720p"].includes(credentials.default_quality || "")
+        ? credentials.default_quality!
+        : "1080p";
+      customSelects.get(qualitySelect)?.sync();
+      updateOutputProfile();
+    }
     client = AgoraRTC.createClient({ mode: "live", codec: "vp8" });
     await client.setClientRole("host");
     client.on("token-privilege-will-expire", () => void renewRtcToken());
@@ -470,9 +473,13 @@ startButton.hidden = !presenterPage;
 qualitySelect.parentElement!.hidden = !presenterPage;
 frameRateSelect.parentElement!.hidden = !presenterPage;
 stopButton.hidden = true;
+let qualityUserSelected = false;
 upgradeSelect(qualitySelect);
 upgradeSelect(frameRateSelect);
-qualitySelect.addEventListener("change", updateOutputProfile);
+qualitySelect.addEventListener("change", () => {
+  qualityUserSelected = true;
+  updateOutputProfile();
+});
 frameRateSelect.addEventListener("change", updateOutputProfile);
 updateOutputProfile();
 

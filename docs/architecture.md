@@ -68,9 +68,8 @@ NeteaseCloud API (:3000)
              │
         浏览器 (Web UI)
              │
-        player.html
-        搜索/点歌/控制
-        暂停/进度/音量
+        ui/public/ (React SPA)
+        Web 播放器 / Admin 后台
 ```
 
 ## 技术栈
@@ -86,7 +85,8 @@ NeteaseCloud API (:3000)
 |------|------|
 | 运行时 | Python 3.10+（CI 覆盖 3.10 / 3.11，镜像基于 3.11） |
 | 平台通信 |`oopz_sdk`（aiohttp WebSocket + HTTP） |
-| Web 服务 | FastAPI + Uvicorn（Web 播放器 :8080）+ Nginx / OpenResty（反向代理 :80/:443） |
+| Web 服务 | FastAPI + Uvicorn（Web 播放器与后台 :8080）+ Nginx / OpenResty（反向代理 :80/:443） |
+| 前端 UI | React 19 + TypeScript + Framer Motion + Vite（源码位于 `ui/src/`，编译产物位于 `ui/public/`） |
 | 队列 | `redis.asyncio`（播放队列 + 播放状态 + Web 命令通道），Redis 不可用时降级到进程内存 |
 | 数据库 | `aiosqlite`（缓存、统计） |
 | HTTP 客户端 | aiohttp（`core/async_http.py` 统一连接池、代理与超时） |
@@ -143,22 +143,30 @@ NeteaseCloud API (:3000)
 │   │   ├── remote_fetch.py      # 远端资源抓取
 │   │   └── name_resolver.py     # ID → 名称解析
 │   ├── services/                # 独立服务
-│   │   └── area_join_notifier.py # 域成员加入/退出通知
-│   ├── screen_share/            # 网页屏幕共享会话、Token、API 与客户端源码
-│   │   └── client/             # TypeScript 客户端和构建配置
-│   ├── web/                     # Web 播放器与 Admin 后台
-│   │   ├── web_player.py        # FastAPI 主应用
+│   │   ├── area_join_notifier.py # 域成员加入/退出通知
+│   │   └── area_invite_inbox.py  # 私信域邀请接收与规范化
+│   ├── web/                     # Web 播放器与 Admin 后台后端服务
+│   │   ├── web_player.py        # FastAPI 主应用（挂载 /admin-assets、/player-assets 与播放器 API）
 │   │   ├── web_player_admin.py  # Admin 路由入口（聚合 web.admin 包，对外稳定 facade）
 │   │   ├── web_player_config.py # Web / Admin 配置管理
 │   │   ├── web_link_token.py    # Web 播放器访问令牌
-│   │   ├── admin/               # Admin 后台路由包
-│   │   └── assets/              # Web 前端资源（插件页面在各插件的 admin_assets/）
-│   │       ├── player.html      # Web 播放器前端
-│   │       └── admin/           # Admin 后台外壳与核心页面
+│   │   └── admin/               # Admin 后台路由包
 │   │                            # （Agora RTC 页面位于
 │   │                            #   src/oopz/assets/voice/agora_player.html）
 │   ├── app/                     # 应用启动、运行时和服务编排
 │   └── domain/                  # 业务规则、插件契约和数据结构
+│
+├── ui/                          # 统一前端工程（React + TypeScript + Framer Motion + Vite）
+│   ├── package.json             # 前端依赖与双端构建脚本（npm run build）
+│   ├── vite.admin.config.ts     # 管理后台 Vite 构建配置
+│   ├── vite.player.config.ts    # Web 播放器 Vite 构建配置
+│   ├── src/
+│   │   ├── admin/               # 管理后台 SPA 源码（12 个核心与插件页面）
+│   │   └── player/              # Web 播放器 SPA 源码
+│   └── public/                  # 静态入口与编译产物（FastAPI 直接挂载，Docker 仅打包此目录）
+│       ├── player.html          # Web 播放器入口页
+│       ├── admin/               # 后台模板、背景图与 bundle/admin-app.{js,css}
+│       └── player/              # 播放器 bundle/player-app.{js,css}
 │
 ├── plugins/                     # 插件目录
 │   ├── delta_force/             # 三角洲插件
@@ -181,6 +189,7 @@ NeteaseCloud API (:3000)
 │   ├── stats/                   # 活跃排行、频道统计、点歌统计插件（含后台“活跃”页）
 │   ├── scheduler/               # 定时消息与用户提醒插件（含后台“定时”页）
 │   ├── keyword_reply/           # 普通聊天关键词自动回复插件（含后台“关键词”页）
+│   ├── screen_share/            # 网页屏幕共享插件（含客户端与后台“屏幕共享”页）
 │   ├── _shared/                 # 插件共享基类与小工具（IntervalWorker 后台任务 / JsonHttpClient）
 │   └── README.md                # 插件说明
 │
@@ -248,7 +257,7 @@ NeteaseCloud API (:3000)
 角色修改通过应用锁串行执行 SDK 的读改写操作，直接返回 `OperationResult` 并保留 SDK 异常；
 命令、后台与新人通知分别处理结果，成功后刷新成员展示缓存。角色查询直接读取 SDK 模型，
 禁言与禁麦的字符串毫秒截止时间在展示入口转换。启动名称填充直接调用 SDK 并写入名称解析器。
-默认域、频道分组、后台播放域和诊断使用 SDK 模型；自动选择通知频道时排除 `VOICE` 与 `AUDIO`。
+默认域、频道分组、后台播放域和诊断使用 SDK 模型；自动选择通知频道时仅选取 `TEXT` 文字频道。
 语音成员命令直接读取 SDK 字段，展示层保留名称映射、Bot 标记和空结果提示。
 成员列表、资料、搜索及封禁列表直接使用 SDK 模型；搜索将完整 UID 列表交给 SDK 批量查询，
 返回最多 50 个匹配成员，展示继续使用名称解析器。完整资料的 VIP、IP 属地和徽章由 `Profile` 提供。
@@ -265,7 +274,7 @@ NeteaseCloud API (:3000)
 原生图片接口及必填 hash、邀请详情、退出域参数修正、域操作日志权限处理，以及
 代理、语音预热、播放结束回调和配置凭据写回由项目扩展承担。
 
-SDK 0.16 的 WebSocket 代理选择器只处理 HTTP/HTTPS，因此项目握手显式传入 HTTP 代理，
+SDK 0.17 的 WebSocket 代理选择器只处理 HTTP/HTTPS，因此项目握手显式传入 HTTP 代理，
 SOCKS 代理使用连接器。Playwright 初始化还负责代理和项目页面加载；该页面提供 Agora
 身份消息确认、流式播放、播放结束状态和每首歌的音量恢复。手动网页登录工具保留交互式
 凭据捕获，共用 `oopz.credentials.save_credentials()` 保存配置；部分捕获只更新取得的字段，
@@ -325,14 +334,14 @@ Steam 插件按需创建自己的表，OneBot v11 的 ID 与消息映射由 SDK 
 
 ### 架构总览
 
-Web 播放器通过 FastAPI 提供 HTTP API，前端 `player.html` 通过轮询获取状态、歌词、队列，通过 POST 请求发送控制命令。Admin 后台路由由 `src/web/admin/` 包组装，`src/web/web_player_admin.py` 只作为稳定 facade，配置管理由 `src/web/web_player_config.py` 集中处理。
+Web 播放器与管理后台的前端均统一在根目录 `ui/`（React + TypeScript + Framer Motion + Vite），编译产物输出到 `ui/public/`，由 FastAPI 分别挂载为 `/player-assets` 与 `/admin-assets`。Web 播放器通过轮询获取状态、歌词、队列并发送 POST 控制命令；Admin 后台路由由 `src/web/admin/` 包组装，`src/web/web_player_admin.py` 只作为稳定 facade，配置管理由 `src/web/web_player_config.py` 集中处理。
 
 ```
-浏览器 (player.html / admin 页面)
+浏览器 (ui/public/player.html · ui/public/admin/)
   │
   ▼
 Nginx / OpenResty (:80 HTTP, :443 HTTPS)
-  │  / → bot:8080,  /netease-api/ → netease-api:3000
+  │  / → bot:8080,  /admin/api/overview/stream → bot:8080 (SSE)
   ▼
 src/web/web_player.py ──► src/web/web_player_admin.py (facade)
 (FastAPI :8080)        │     └── src/web/admin/ (实际 APIRouter)
@@ -361,7 +370,7 @@ plugins/screen_share/web.py ──► plugins/screen_share/service.py ──► 
   ▼
 Agora RTC 独立屏幕共享频道
   │
-  └── src/web/admin/screen_share.py 列出或结束指定会话
+  └── plugins/screen_share/admin.py 列出或结束指定会话
 ```
 
 ### Redis 键约定
@@ -407,10 +416,10 @@ Agora RTC 独立屏幕共享频道
 |------|------|------|
 | GET | `/api/status` | 当前播放状态（歌曲信息、进度、暂停、音量） |
 | GET | `/api/queue` | 播放队列 |
-| GET | `/api/lyric?id=<song_id>` | 歌词 + 翻译歌词 |
+| GET | `/api/lyric?id=<song_id>&platform=<platform>` | 歌词 + 翻译歌词（支持多平台参数） |
 | GET | `/api/search?keyword=<kw>&limit=<n>` | 搜索歌曲 |
 | GET | `/api/liked?page=<n>&limit=<n>[&keyword=<kw>]` | 喜欢的音乐（分页）；带 `keyword` 时在全部喜欢中搜索后分页 |
 | POST | `/api/add` | 添加歌曲到队列（同时发送频道通知） |
-| POST | `/api/control` | 播放控制（action: next/stop/pause/resume/seek/volume） |
+| POST | `/api/control` | 播放控制（action: next/clear/stop/pause/resume/seek/volume/mode） |
 | POST | `/api/queue/action` | 队列操作（action: remove/top, index） |
 | POST | `/api/liked/refresh` | 刷新喜欢列表缓存 |

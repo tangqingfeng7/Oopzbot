@@ -1,5 +1,3 @@
-from pathlib import Path
-
 from fastapi import APIRouter, Query
 from fastapi.responses import HTMLResponse, JSONResponse
 
@@ -24,7 +22,7 @@ _PAGE = {
 
 @router.get("/admin/activity", response_class=HTMLResponse)
 def admin_activity_page():
-    return render_admin_page(_PAGE, Path(__file__).with_name("admin_assets"))
+    return render_admin_page(_PAGE)
 
 
 @router.get("/admin/api/message-stats/daily")

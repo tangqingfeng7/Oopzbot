@@ -7,7 +7,9 @@ import copy
 import importlib
 import ipaddress
 import json
+import math
 import os
+import re
 
 import config as runtime_config
 from core.config_file_store import (
@@ -64,6 +66,7 @@ CONFIG_FIELD_SCHEMA: dict[str, dict[str, dict]] = {
         "send_link_enabled": {"type": "bool", "default": True},
         "link_idle_release_seconds": {"type": "int", "min": 0, "max": 30 * 24 * 3600, "default": 1800},
         "admin_enabled": {"type": "bool", "default": False},
+        "admin_path": {"type": "str", "max_len": 100, "format": "admin_path", "default": "/admin"},
         "admin_password": {"type": "str", "max_len": 128, "sensitive": True, "default": ""},
         "admin_session_ttl_seconds": {"type": "int", "min": 0, "max": 30 * 24 * 3600, "default": 43200},
         "admin_cookie_secure": {"type": "bool", "default": False},
@@ -263,8 +266,45 @@ def cookie_secure() -> bool:
     return bool(WEB_PLAYER_CONFIG.get("cookie_secure", False))
 
 
+_ADMIN_PATH_RE = re.compile(r"^/[A-Za-z0-9][A-Za-z0-9/_-]{0,95}$")
+_RESERVED_ADMIN_PREFIXES = (
+    "/api",
+    "/w",
+    "/health",
+    "/player-assets",
+    "/admin-assets",
+    "/screen-share",
+)
+
+
+def normalize_admin_path(raw: object) -> str:
+    """规范化并校验管理后台路径前缀（默认 /admin）。"""
+    text = "" if raw is None else str(raw).strip()
+    if not text:
+        return "/admin"
+    if not text.startswith("/"):
+        text = "/" + text
+    text = text.rstrip("/")
+    if not text:
+        raise ValueError("后台路径不能为根路径 /")
+    if "//" in text or ".." in text.split("/"):
+        raise ValueError("后台路径不能包含连续斜杠或 ..")
+    if not _ADMIN_PATH_RE.fullmatch(text):
+        raise ValueError("后台路径仅支持字母、数字、/、-、_，且需以字母或数字开头")
+    lower = text.lower()
+    for prefix in _RESERVED_ADMIN_PREFIXES:
+        if lower == prefix or lower.startswith(prefix + "/"):
+            raise ValueError(f"后台路径不能与保留路径 {prefix} 冲突")
+    return text
+
+
 def admin_enabled() -> bool:
     return bool(WEB_PLAYER_CONFIG.get("admin_enabled", False))
+
+
+def admin_path() -> str:
+    default = config_default("web_player", "admin_path")
+    return normalize_admin_path(WEB_PLAYER_CONFIG.get("admin_path", default))
 
 
 def admin_password() -> str:
@@ -366,10 +406,14 @@ def coerce_config_value(meta: dict, raw: object) -> object:
     if value_type == "bool":
         return to_bool(raw)
     if value_type == "float":
+        if isinstance(raw, bool):
+            raise ValueError("浮点数格式无效")
         try:
             v = float(raw)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
             raise ValueError("浮点数格式无效") from exc
+        if not math.isfinite(v):
+            raise ValueError("浮点数必须是有限值")
         min_v = meta.get("min")
         max_v = meta.get("max")
         if min_v is not None and v < min_v:
@@ -378,6 +422,8 @@ def coerce_config_value(meta: dict, raw: object) -> object:
             raise ValueError(f"必须 <= {max_v}")
         return v
     if value_type == "int":
+        if isinstance(raw, bool):
+            raise ValueError("整数格式无效")
         try:
             v = int(raw)  # type: ignore[arg-type]
         except (TypeError, ValueError) as exc:
@@ -394,6 +440,8 @@ def coerce_config_value(meta: dict, raw: object) -> object:
         max_len = meta.get("max_len")
         if max_len is not None and len(text) > max_len:
             raise ValueError(f"长度不能超过 {max_len}")
+        if meta.get("format") == "admin_path":
+            return normalize_admin_path(text)
         return text
     if value_type == "str_list":
         if isinstance(raw, str):
@@ -450,6 +498,12 @@ def apply_config_updates(updates: dict) -> tuple[dict, list[str], dict]:
             except Exception as e:
                 errors.append(f"配置项 {group_name}.{field} 校验失败: {e}")
                 continue
+            if (
+                field in target
+                and type(target[field]) is type(value)
+                and target[field] == value
+            ):
+                continue
             target[field] = value
             applied.setdefault(group_name, {})
             persist_payload.setdefault(group_name, {})
@@ -469,6 +523,8 @@ def _python_literal(value: object) -> str:
     if value is None:
         return "None"
     if isinstance(value, (int, float)):
+        if isinstance(value, float) and not math.isfinite(value):
+            raise ValueError("浮点数必须是有限值")
         return repr(value)
     if isinstance(value, list):
         return "[" + ", ".join(_python_literal(item) for item in value) + "]"
