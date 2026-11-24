@@ -33,6 +33,7 @@ export const CORE_NAV_ITEMS: NavItem[] = [
   { key: "stats", href: "/admin/stats", label: "统计", code: "ARCHIVE" },
   { key: "members", href: "/admin/members", label: "成员", code: "ROSTER" },
   { key: "areas", href: "/admin/areas", label: "域管理", code: "SPACES" },
+  { key: "articles", href: "/admin/articles", label: "帖子", code: "ARTICLES" },
   { key: "plugins", href: "/admin/plugins", label: "插件", code: "MODULES" },
   { key: "system", href: "/admin/system", label: "系统", code: "RUNTIME" },
 ];
@@ -89,6 +90,45 @@ export async function apiReq<T = Record<string, any>>(url: string, options?: Req
     throw new Error(data.error || detail || `HTTP ${response.status}`);
   }
   return data as T;
+}
+
+export async function apiUpload<T = Record<string, any>>(url: string, formData: FormData): Promise<T> {
+  const response = await fetch(adminUrl(url), {
+    method: "POST",
+    credentials: "include",
+    cache: "no-store",
+    body: formData,
+  });
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || data.ok === false) {
+    throw new Error(data.error || `HTTP ${response.status}`);
+  }
+  return data as T;
+}
+
+const ARTICLE_TARGET_KEY = "adminArticleTarget";
+
+export function setPendingArticleTarget(area: string, channel: string): void {
+  try {
+    window.sessionStorage.setItem(ARTICLE_TARGET_KEY, JSON.stringify({ area, channel }));
+  } catch {
+    // ignore
+  }
+}
+
+export function consumePendingArticleTarget(): { area: string; channel: string } | null {
+  try {
+    const raw = window.sessionStorage.getItem(ARTICLE_TARGET_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(ARTICLE_TARGET_KEY);
+    const parsed = JSON.parse(raw);
+    if (parsed && typeof parsed.area === "string" && typeof parsed.channel === "string") {
+      return { area: parsed.area, channel: parsed.channel };
+    }
+  } catch {
+    // ignore
+  }
+  return null;
 }
 
 export async function copyText(value: string): Promise<void> {

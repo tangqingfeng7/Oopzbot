@@ -121,6 +121,18 @@ _ADMIN_PAGES: dict[str, dict[str, Any]] = {
         "login_copy": "",
         "login_button": "进入后台",
     },
+    "articles": {
+        "page_title": "帖子 · Oopz",
+        "page_id": "articles",
+        "brand_title": "帖子",
+        "brand_copy": "",
+        "topbar_actions": [
+            {"action": "refresh-articles", "label": "刷新"},
+        ],
+        "login_title": "验证身份",
+        "login_copy": "",
+        "login_button": "进入后台",
+    },
     "plugins": {
         "page_title": "插件 · Oopz",
         "page_id": "plugins",
