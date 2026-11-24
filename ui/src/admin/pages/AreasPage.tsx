@@ -6,11 +6,11 @@ import {
   SlideSheet,
   ToggleSwitch,
 } from "../components/EditorialPrimitives";
-import { apiReq, applyAreaOrder, saveAreaOrder, type AreaItem } from "../lib/api";
+import { apiReq, applyAreaOrder, saveAreaOrder, setPendingArticleTarget, type AreaItem } from "../lib/api";
 import { useApp } from "../lib/context";
 
 export function AreasPage() {
-  const { setStatus, toast, confirm, hasPlugin } = useApp();
+  const { setStatus, toast, confirm, hasPlugin, navigate } = useApp();
   const showScreenShare = hasPlugin("screen-share");
 
   const [areas, setAreas] = useState<AreaItem[]>([]);
@@ -466,7 +466,19 @@ export function AreasPage() {
                           </div>
                         </td>
                         <td>
-                          <div style={{ display: "flex", gap: 6 }}>
+                          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                            {isArticle && (
+                              <EdButton
+                                size="sm"
+                                variant="primary"
+                                onClick={() => {
+                                  setPendingArticleTarget(currentArea, ch.id);
+                                  navigate("articles");
+                                }}
+                              >
+                                浏览帖子
+                              </EdButton>
+                            )}
                             <EdButton size="sm" variant="ghost" onClick={() => openEditChannel(ch)}>编辑</EdButton>
                             <EdButton
                               size="sm"

@@ -41,6 +41,11 @@ def admin_areas_page():
     return _render_admin_page("areas")
 
 
+@router.get("/admin/articles", response_class=HTMLResponse)
+def admin_articles_page():
+    return _render_admin_page("articles")
+
+
 @router.get("/admin/plugins", response_class=HTMLResponse)
 def admin_plugins_page():
     return _render_admin_page("plugins")

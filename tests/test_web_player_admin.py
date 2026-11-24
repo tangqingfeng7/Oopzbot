@@ -888,6 +888,7 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             "/admin",
             "/admin/music",
             "/admin/config",
+            "/admin/articles",
             "/admin/screen-share",
             "/admin/activity",
             "/admin/scheduler",
@@ -1181,6 +1182,275 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
                 article_control_enabled=True,
                 article_roles=[1, 2],
             )
+
+    def test_admin_articles_sections_crud_and_browse_manage_flow(self) -> None:
+        from oopz_sdk.models import (
+            ArticleAttachment,
+            ArticleComment,
+            ArticleCommentCreateResult,
+            ArticleCommentListPage,
+            ArticleInfo,
+            ArticleListPage,
+            ArticlePublishResult,
+            ArticleSection,
+            OperationResult,
+        )
+
+        from web.admin.members import _articles as articles_mod
+
+        section = ArticleSection.from_api({"id": 101, "name": "攻略", "sort": 1})
+        article = ArticleInfo.from_api({
+            "articleId": "art-1",
+            "areaId": "area-1",
+            "channelId": "ch-art",
+            "sectionId": 101,
+            "title": "新手指南",
+            "summary": "摘要",
+            "content": "完整正文内容",
+            "authorUid": "u-author",
+            "likeCount": 3,
+            "liked": False,
+            "commentCount": 1,
+            "watchCount": 20,
+            "isTop": True,
+            "state": "PUBLISHED",
+            "publishTime": 1764000000,
+        })
+        own_article = ArticleInfo.from_api({
+            "articleId": "art-own",
+            "areaId": "area-1",
+            "channelId": "ch-art",
+            "sectionId": 101,
+            "title": "Bot 自发公告",
+            "summary": "摘要",
+            "content": "公告内容",
+            "authorUid": "u-bot",
+            "state": "PUBLISHED",
+        })
+        comment = ArticleComment.from_api({
+            "commentId": "cmt-1",
+            "articleId": "art-1",
+            "uid": "u-author",
+            "content": "沙发",
+            "likeCount": 2,
+            "liked": False,
+            "isArticleAuthor": True,
+            "createdAt": 1764000100,
+        })
+
+        async def fake_request_data(method: str, path: str, *, params=None, body=None):
+            if path == "/uni/area/article/comment/v1/list":
+                return {
+                    "commentCount": 2,
+                    "pageSize": 30,
+                    "nextCursor": 999999,
+                    "list": [
+                        {
+                            "commentId": "cmt-1",
+                            "articleId": "art-1",
+                            "uid": "u-author",
+                            "content": "沙发",
+                            "imageList": None,
+                            "likeCount": 2,
+                            "childCount": 1,
+                            "liked": False,
+                            "isArticleAuthor": True,
+                            "createdAt": 1764000100,
+                            "subComments": [
+                                {
+                                    "commentId": "cmt-sub-1",
+                                    "articleId": "art-1",
+                                    "uid": "u-bot",
+                                    "content": "Bot 回复",
+                                    "imageList": None,
+                                    "parentId": "cmt-1",
+                                    "replyId": "cmt-1",
+                                    "replyToUid": "u-author",
+                                    "likeCount": 0,
+                                    "childCount": 0,
+                                    "liked": False,
+                                    "createdAt": 1764000200,
+                                }
+                            ],
+                        }
+                    ],
+                }
+            if path == "/uni/area/article/comment/v1/subList":
+                return {
+                    "articleId": "art-1",
+                    "parentId": "cmt-1",
+                    "childCount": 1,
+                    "pageSize": 30,
+                    "nextCursor": 0,
+                    "list": [
+                        {
+                            "commentId": "cmt-sub-1",
+                            "articleId": "art-1",
+                            "uid": "u-bot",
+                            "content": "Bot 回复",
+                            "parentId": "cmt-1",
+                            "replyId": "cmt-1",
+                            "replyToUid": "u-author",
+                            "createdAt": 1764000200,
+                        }
+                    ],
+                }
+            raise AssertionError(f"unexpected request_data: {method} {path}")
+
+        articles_svc = SimpleNamespace(
+            transport=SimpleNamespace(request_data=AsyncMock(side_effect=fake_request_data)),
+            get_sections=AsyncMock(return_value=[section]),
+            create_section=AsyncMock(return_value=ArticleSection.from_api({"id": 102, "name": "讨论", "sort": 2})),
+            edit_section=AsyncMock(return_value=ArticleSection.from_api({"id": 102, "name": "精选讨论", "sort": 2})),
+            delete_section=AsyncMock(return_value=OperationResult(ok=True)),
+            get_articles=AsyncMock(return_value=ArticleListPage(
+                list=[article, own_article], nextCursor=42, nextCursorState="next-state", pageSize=20,
+            )),
+            get_article_detail=AsyncMock(return_value=article),
+            create_article=AsyncMock(return_value=ArticlePublishResult(articleId="art-2", state="PUBLISHED")),
+            edit_article=AsyncMock(return_value=ArticlePublishResult(articleId="art-1", state="PUBLISHED")),
+            delete_article=AsyncMock(return_value=OperationResult(ok=True)),
+            like_article=AsyncMock(return_value=OperationResult(ok=True)),
+            upload_image=AsyncMock(return_value=ArticleAttachment(
+                attachmentType="IMAGE", resource="/community/area_article/test.png", width=100, height=80, size=12,
+            )),
+            get_comments=AsyncMock(return_value=ArticleCommentListPage(
+                commentCount=1, pageSize=30, list=[comment], nextCursor=0,
+            )),
+            create_comment=AsyncMock(return_value=ArticleCommentCreateResult(commentId="cmt-2")),
+            reply_comment=AsyncMock(return_value=ArticleCommentCreateResult(commentId="cmt-3")),
+            delete_comment=AsyncMock(return_value=OperationResult(ok=True)),
+            like_comment=AsyncMock(return_value=OperationResult(ok=True)),
+        )
+        person_svc = SimpleNamespace(
+            get_person_infos_batch=AsyncMock(return_value=[
+                SimpleNamespace(uid="u-author", name="发帖作者", avatar="https://example.com/a.png"),
+                SimpleNamespace(uid="u-bot", name="机器人", avatar="https://example.com/b.png"),
+            ])
+        )
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                config=SimpleNamespace(person_uid="u-bot"),
+                articles=articles_svc,
+                person=person_svc,
+            )
+        )
+
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(articles_mod, "_require_sender", return_value=fake_sender),
+            patch("web.admin.shared._runtime._get_sender", return_value=fake_sender),
+            patch.object(articles_mod, "get_resolver", return_value=SimpleNamespace(user_cached=lambda *_a, **_kw: "")),
+        ):
+            r_sec = self.client.get("/admin/api/articles/sections?area=area-1&channel=ch-art")
+            self.assertEqual(r_sec.status_code, 200)
+            self.assertEqual(r_sec.json()["sections"][0]["name"], "攻略")
+
+            r_sec_add = self.client.post("/admin/api/articles/sections", json={"area": "area-1", "channel": "ch-art", "name": "讨论"})
+            self.assertEqual(r_sec_add.status_code, 200)
+            self.assertEqual(r_sec_add.json()["section"]["id"], 102)
+
+            r_sec_edit = self.client.put("/admin/api/articles/sections/102", json={"area": "area-1", "channel": "ch-art", "name": "精选讨论"})
+            self.assertEqual(r_sec_edit.status_code, 200)
+            self.assertEqual(r_sec_edit.json()["section"]["name"], "精选讨论")
+
+            r_sec_del = self.client.request("DELETE", "/admin/api/articles/sections/102", json={"area": "area-1", "channel": "ch-art"})
+            self.assertEqual(r_sec_del.status_code, 200)
+
+            r_list = self.client.get("/admin/api/articles?area=area-1&channel=ch-art&section_id=101")
+            self.assertEqual(r_list.status_code, 200)
+            data_list = r_list.json()
+            self.assertTrue(data_list["hasMore"])
+            self.assertEqual(data_list["selfUid"], "u-bot")
+            self.assertEqual(data_list["items"][0]["authorName"], "发帖作者")
+            self.assertFalse(data_list["items"][0]["canEdit"])
+            self.assertFalse(data_list["items"][0]["isOwn"])
+            self.assertTrue(data_list["items"][1]["canEdit"])
+            self.assertTrue(data_list["items"][1]["isOwn"])
+            self.assertEqual(data_list["items"][0]["title"], "新手指南")
+
+            r_detail = self.client.get("/admin/api/articles/art-1?area=area-1&channel=ch-art")
+            self.assertEqual(r_detail.status_code, 200)
+            self.assertEqual(r_detail.json()["article"]["content"], "完整正文内容")
+            self.assertFalse(r_detail.json()["article"]["canEdit"])
+
+            r_upload = self.client.post(
+                "/admin/api/articles/upload-image",
+                data={"area": "area-1", "channel": "ch-art"},
+                files={"file": ("demo.png", b"png-bytes", "image/png")},
+            )
+            self.assertEqual(r_upload.status_code, 200)
+            self.assertEqual(r_upload.json()["attachment"]["resource"], "/community/area_article/test.png")
+            articles_svc.upload_image.assert_awaited_once_with("area-1", "ch-art", b"png-bytes")
+
+            r_create = self.client.post(
+                "/admin/api/articles",
+                json={"area": "area-1", "channel": "ch-art", "title": "新帖", "content": "正文", "sectionId": 101},
+            )
+            self.assertEqual(r_create.status_code, 200)
+            self.assertEqual(r_create.json()["articleId"], "art-2")
+
+            r_edit = self.client.put(
+                "/admin/api/articles/art-1",
+                json={"area": "area-1", "channel": "ch-art", "title": "修改标题", "showCover": False},
+            )
+            self.assertEqual(r_edit.status_code, 200)
+            articles_svc.edit_article.assert_awaited_once_with(
+                "area-1", "ch-art", "art-1", title="修改标题", show_cover=False,
+            )
+
+            r_like = self.client.post("/admin/api/articles/art-1/like", json={"area": "area-1", "channel": "ch-art", "liked": True})
+            self.assertEqual(r_like.status_code, 200)
+            self.assertTrue(r_like.json()["liked"])
+
+            r_cmts = self.client.get("/admin/api/articles/art-1/comments?area=area-1&channel=ch-art")
+            self.assertEqual(r_cmts.status_code, 200)
+            cmts_data = r_cmts.json()
+            self.assertFalse(cmts_data["hasMore"])
+            self.assertEqual(cmts_data["items"][0]["authorName"], "发帖作者")
+            self.assertFalse(cmts_data["items"][0]["canDelete"])
+            self.assertEqual(len(cmts_data["items"][0]["subComments"]), 1)
+            sub_cmt = cmts_data["items"][0]["subComments"][0]
+            self.assertEqual(sub_cmt["authorName"], "机器人")
+            self.assertEqual(sub_cmt["replyToName"], "发帖作者")
+            self.assertTrue(sub_cmt["canDelete"])
+            self.assertTrue(sub_cmt["isOwn"])
+
+            r_replies = self.client.get("/admin/api/articles/art-1/comments/cmt-1/replies?area=area-1&channel=ch-art")
+            self.assertEqual(r_replies.status_code, 200)
+            self.assertEqual(r_replies.json()["items"][0]["commentId"], "cmt-sub-1")
+            self.assertTrue(r_replies.json()["items"][0]["canDelete"])
+
+            r_cmt_add = self.client.post(
+                "/admin/api/articles/art-1/comments",
+                json={"area": "area-1", "channel": "ch-art", "content": "顶一下"},
+            )
+            self.assertEqual(r_cmt_add.status_code, 200)
+            self.assertEqual(r_cmt_add.json()["commentId"], "cmt-2")
+
+            r_cmt_reply = self.client.post(
+                "/admin/api/articles/art-1/comments",
+                json={"area": "area-1", "channel": "ch-art", "content": "回复你", "parentId": "cmt-1", "replyId": "cmt-1"},
+            )
+            self.assertEqual(r_cmt_reply.status_code, 200)
+            self.assertEqual(r_cmt_reply.json()["commentId"], "cmt-3")
+
+            r_cmt_like = self.client.post(
+                "/admin/api/articles/art-1/comments/cmt-1/like",
+                json={"area": "area-1", "channel": "ch-art", "liked": True},
+            )
+            self.assertEqual(r_cmt_like.status_code, 200)
+
+            r_cmt_del = self.client.request(
+                "DELETE",
+                "/admin/api/articles/art-1/comments/cmt-1",
+                json={"area": "area-1", "channel": "ch-art"},
+            )
+            self.assertEqual(r_cmt_del.status_code, 200)
+
+            r_del = self.client.request("DELETE", "/admin/api/articles/art-1", json={"area": "area-1", "channel": "ch-art"})
+            self.assertEqual(r_del.status_code, 200)
 
 
 if __name__ == "__main__":

@@ -24,6 +24,7 @@ import { ConfigPage } from "./pages/ConfigPage";
 import { StatsPage } from "./pages/StatsPage";
 import { MembersPage } from "./pages/MembersPage";
 import { AreasPage } from "./pages/AreasPage";
+import { ArticlesPage } from "./pages/ArticlesPage";
 import { PluginsPage } from "./pages/PluginsPage";
 import { SystemPage } from "./pages/SystemPage";
 import {
@@ -217,6 +218,7 @@ export function App() {
       case "stats": return <StatsPage />;
       case "members": return <MembersPage />;
       case "areas": return <AreasPage />;
+      case "articles": return <ArticlesPage />;
       case "plugins": return <PluginsPage />;
       case "system": return <SystemPage />;
       case "keyword-reply": return <KeywordReplyPage />;
