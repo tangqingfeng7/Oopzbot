@@ -1,4 +1,4 @@
-oopz-sdk==0.16.0
+oopz-sdk==0.17.0
 requests[socks]>=2.32,<3
 urllib3>=2.7,<3
 brotli>=1.2,<2

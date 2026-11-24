@@ -138,6 +138,11 @@ def _store_area_channel_cache(area: str, channel: str, ts: float) -> None:
     _area_channel_cache.update(area=area, channel=channel, ts=ts)
 
 
+def _is_text_channel(channel_type: str) -> bool:
+    """仅将显式文字频道（TEXT）视作自动通知目标，避免未来新增频道类型被误选。"""
+    return channel_type.strip().upper() == "TEXT"
+
+
 async def _get_default_area_channel(
     sender: SenderGateway,
     quiet: bool = False,
@@ -160,7 +165,7 @@ async def _get_default_area_channel(
     if default_area:
         for group in await sender.bot.areas.get_area_channels(default_area):
             for ch in group.channels:
-                if ch.channel_type.upper() not in {"VOICE", "AUDIO"}:
+                if _is_text_channel(ch.channel_type):
                     default_channel = ch.channel_id.strip()
                     if default_channel:
                         _store_area_channel_cache(default_area, default_channel, now)
@@ -182,7 +187,7 @@ async def _resolve_area_channel(sender: SenderGateway, area: str) -> str:
         return channel
     for group in await sender.bot.areas.get_area_channels(area):
         for item in group.channels:
-            if item.channel_type.upper() not in {"VOICE", "AUDIO"}:
+            if _is_text_channel(item.channel_type):
                 channel = item.channel_id.strip()
                 if channel:
                     return channel

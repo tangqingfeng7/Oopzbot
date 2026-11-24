@@ -37,7 +37,7 @@ export function AreasPage() {
 
   // Modals / sheets
   const [createOpen, setCreateOpen] = useState(false);
-  const [newCh, setNewCh] = useState({ name: "", type: "text" });
+  const [newCh, setNewCh] = useState({ name: "", type: "text", secret: false });
 
   const [editCh, setEditCh] = useState<any | null>(null);
   const [onlineMembers, setOnlineMembers] = useState<any[]>([]);
@@ -165,6 +165,8 @@ export function AreasPage() {
         name: s.name || ch.name || "",
         maxMember: s.maxMember || 30000,
         textGapSecond: s.textGapSecond || 0,
+        articleGapSecond: s.articleGapSecond || 0,
+        commentGapSecond: s.commentGapSecond || 0,
         voiceQuality: s.voiceQuality || "64k",
         voiceDelay: s.voiceDelay || "LOW",
         secret: !!s.secret,
@@ -181,15 +183,21 @@ export function AreasPage() {
   const saveEditChannel = async () => {
     if (!editCh || !editCh.name.trim()) { toast("频道名不能为空", "warning"); return; }
     const isVoice = editCh.type === "VOICE" || editCh.type === "AUDIO";
+    const isArticle = editCh.type === "ARTICLE";
     const body: Record<string, any> = {
       area: currentArea,
       name: editCh.name.trim(),
-      maxMember: Number(editCh.maxMember) || 30000,
-      textGapSecond: Number(editCh.textGapSecond) || 0,
       secret: !!editCh.secret,
       hasPassword: !!editCh.hasPassword,
       password: editCh.hasPassword ? editCh.password : "",
     };
+    if (isArticle) {
+      body.articleGapSecond = Number(editCh.articleGapSecond) || 0;
+      body.commentGapSecond = Number(editCh.commentGapSecond) || 0;
+    } else {
+      body.maxMember = Number(editCh.maxMember) || 30000;
+      body.textGapSecond = Number(editCh.textGapSecond) || 0;
+    }
     if (body.secret) body.accessibleMembers = Array.from(selectedAccessUids);
     if (isVoice) {
       body.voiceQuality = editCh.voiceQuality;
@@ -424,7 +432,7 @@ export function AreasPage() {
         <section className="ed-cell ed-cell--flush">
           <div className="ed-cell-head">
             <div className="ed-label"><span>频道列表</span></div>
-            <EdButton size="sm" variant="primary" onClick={() => { setNewCh({ name: "", type: "text" }); setCreateOpen(true); }}>创建频道</EdButton>
+            <EdButton size="sm" variant="primary" onClick={() => { setNewCh({ name: "", type: "text", secret: false }); setCreateOpen(true); }}>创建频道</EdButton>
           </div>
           <div className="ed-table-wrap">
             <table className="ed-table">
@@ -440,7 +448,11 @@ export function AreasPage() {
                   <tr><td colSpan={3} className="ed-empty">暂无频道</td></tr>
                 ) : (
                   channels.map((ch) => {
-                    const isVoice = ["VOICE", "AUDIO"].includes(String(ch.type || "").toUpperCase());
+                    const chType = String(ch.type || "").toUpperCase();
+                    const isVoice = ["VOICE", "AUDIO"].includes(chType);
+                    const isArticle = chType === "ARTICLE";
+                    const tagClass = isVoice ? "ed-tag--gold" : isArticle ? "" : "ed-tag--ok";
+                    const tagLabel = isVoice ? "语音" : isArticle ? "帖子" : "文字";
                     return (
                       <tr key={ch.id}>
                         <td>
@@ -449,7 +461,7 @@ export function AreasPage() {
                         </td>
                         <td>
                           <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
-                            <span className={`ed-tag ${isVoice ? "ed-tag--gold" : "ed-tag--ok"}`}>{isVoice ? "语音" : "文字"}</span>
+                            <span className={`ed-tag ${tagClass}`}>{tagLabel}</span>
                             {ch.secret && <span className="ed-tag ed-tag--err">私密</span>}
                           </div>
                         </td>
@@ -537,7 +549,7 @@ export function AreasPage() {
                 if (!newCh.name.trim()) { toast("请输入频道名称", "warning"); return; }
                 await apiReq("/admin/api/channels/create", {
                   method: "POST",
-                  body: JSON.stringify({ area: currentArea, name: newCh.name.trim(), type: newCh.type }),
+                  body: JSON.stringify({ area: currentArea, name: newCh.name.trim(), type: newCh.type, secret: !!newCh.secret }),
                 });
                 setCreateOpen(false);
                 toast("频道已创建", "success");
@@ -562,8 +574,13 @@ export function AreasPage() {
               options={[
                 { value: "text", label: "文字频道" },
                 { value: "voice", label: "语音频道" },
+                { value: "article", label: "帖子频道" },
               ]}
             />
+          </div>
+          <div className="ed-switch-row">
+            <span className="ed-field__label">私密频道</span>
+            <ToggleSwitch checked={newCh.secret} onChange={(v) => setNewCh({ ...newCh, secret: v })} />
           </div>
         </div>
       </SlideSheet>
@@ -586,16 +603,29 @@ export function AreasPage() {
               <label className="ed-field__label">频道名称</label>
               <input className="ed-input" value={editCh.name} onChange={(e) => setEditCh({ ...editCh, name: e.target.value })} />
             </div>
-            <div className="ed-form-grid">
-              <div className="ed-field">
-                <label className="ed-field__label">人数上限</label>
-                <input className="ed-input" type="number" value={editCh.maxMember} onChange={(e) => setEditCh({ ...editCh, maxMember: e.target.value })} />
+            {editCh.type === "ARTICLE" ? (
+              <div className="ed-form-grid">
+                <div className="ed-field">
+                  <label className="ed-field__label">发帖间隔（秒）</label>
+                  <input className="ed-input" type="number" value={editCh.articleGapSecond} onChange={(e) => setEditCh({ ...editCh, articleGapSecond: e.target.value })} />
+                </div>
+                <div className="ed-field">
+                  <label className="ed-field__label">评论间隔（秒）</label>
+                  <input className="ed-input" type="number" value={editCh.commentGapSecond} onChange={(e) => setEditCh({ ...editCh, commentGapSecond: e.target.value })} />
+                </div>
               </div>
-              <div className="ed-field">
-                <label className="ed-field__label">慢速模式（秒）</label>
-                <input className="ed-input" type="number" value={editCh.textGapSecond} onChange={(e) => setEditCh({ ...editCh, textGapSecond: e.target.value })} />
+            ) : (
+              <div className="ed-form-grid">
+                <div className="ed-field">
+                  <label className="ed-field__label">人数上限</label>
+                  <input className="ed-input" type="number" value={editCh.maxMember} onChange={(e) => setEditCh({ ...editCh, maxMember: e.target.value })} />
+                </div>
+                <div className="ed-field">
+                  <label className="ed-field__label">慢速模式（秒）</label>
+                  <input className="ed-input" type="number" value={editCh.textGapSecond} onChange={(e) => setEditCh({ ...editCh, textGapSecond: e.target.value })} />
+                </div>
               </div>
-            </div>
+            )}
             {(editCh.type === "VOICE" || editCh.type === "AUDIO") && (
               <div className="ed-form-grid">
                 <div className="ed-field">

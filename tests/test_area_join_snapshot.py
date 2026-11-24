@@ -345,11 +345,13 @@ class AreaChannelResolutionTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual((area, channel), ("target-area", "text"))
         sender.bot.areas.get_joined_areas.assert_not_awaited()
 
-    async def test_automatic_area_with_only_voice_channels_has_no_notification_channel(self) -> None:
+    async def test_automatic_area_with_only_non_text_channels_has_no_notification_channel(self) -> None:
         sender = Mock()
         sender.bot.areas.get_joined_areas = AsyncMock(return_value=[AreaInfo.model_validate({"id": "area"})])
         sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({"channels": [
-            {"id": "voice", "type": "VOICE"}, {"id": "audio", "type": "AUDIO"},
+            {"id": "voice", "type": "VOICE"},
+            {"id": "audio", "type": "AUDIO"},
+            {"id": "article", "type": "ARTICLE"},
         ]})])
         with (
             patch("services.area_join_notifier.OOPZ_CONFIG", {}),
@@ -359,6 +361,21 @@ class AreaChannelResolutionTest(unittest.IsolatedAsyncioTestCase):
             result = await _get_default_area_channel(sender)
         self.assertEqual(result, ("area", ""))
         store.assert_not_called()
+
+    async def test_resolve_area_channel_only_selects_explicit_text_channels(self) -> None:
+        with patch.object(AreaConfigRegistry, "_load"):
+            registry = AreaConfigRegistry()
+        registry._global_default_area = ""
+        registry._global_default_channel = ""
+        sender = Mock()
+        sender.bot.areas.get_area_channels = AsyncMock(return_value=[ChannelGroupInfo.model_validate({"channels": [
+            {"id": "article", "type": "ARTICLE"},
+            {"id": "stage", "type": "STAGE"},
+            {"id": "text-1", "type": "TEXT"},
+        ]})])
+        with patch("core.area_config.get_area_registry", return_value=registry):
+            channel = await _resolve_area_channel(sender, "target-area")
+        self.assertEqual(channel, "text-1")
 
 
 if __name__ == "__main__":

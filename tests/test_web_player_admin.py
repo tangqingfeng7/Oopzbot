@@ -1130,6 +1130,58 @@ class WebPlayerAdminTest(unittest.IsolatedAsyncioTestCase):
             with self.subTest(invalid=invalid), self.assertRaises(ValueError):
                 normalize(invalid)
 
+    def test_admin_article_channel_create_and_settings_mapping(self) -> None:
+        from web.admin.members import _channels as channels_mod
+
+        create_channel = AsyncMock(return_value=SimpleNamespace(channel_id="ch-art", name="讨论区"))
+        update_channel = AsyncMock(return_value=SimpleNamespace(ok=True, message=""))
+        fake_sender = SimpleNamespace(
+            bot=SimpleNamespace(
+                channels=SimpleNamespace(
+                    create_channel=create_channel,
+                    update_channel=update_channel,
+                )
+            )
+        )
+        with (
+            patch.object(self.module, "_admin_enabled", return_value=True),
+            patch.object(self.module, "_is_admin_authorized", return_value=True),
+            patch.object(channels_mod, "_require_sender", return_value=fake_sender),
+            patch("web.admin.shared._runtime._get_sender", return_value=fake_sender),
+        ):
+            resp_create = self.client.post(
+                "/admin/api/channels/create",
+                json={"area": "area-1", "name": "讨论区", "type": "article", "secret": True},
+            )
+            self.assertEqual(resp_create.status_code, 200)
+            self.assertTrue(resp_create.json()["ok"])
+            create_channel.assert_awaited_once_with(
+                area="area-1", name="讨论区", channel_type="article", group_id="", secret=True,
+            )
+
+            resp_edit = self.client.post(
+                "/admin/api/channels/ch-art/settings",
+                json={
+                    "area": "area-1",
+                    "name": "新讨论区",
+                    "articleGapSecond": 60,
+                    "commentGapSecond": 15,
+                    "articleControlEnabled": True,
+                    "articleRoles": [1, 2],
+                },
+            )
+            self.assertEqual(resp_edit.status_code, 200)
+            self.assertTrue(resp_edit.json()["ok"])
+            update_channel.assert_awaited_once_with(
+                area="area-1",
+                channel_id="ch-art",
+                name="新讨论区",
+                article_gap_second=60,
+                comment_gap_second=15,
+                article_control_enabled=True,
+                article_roles=[1, 2],
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

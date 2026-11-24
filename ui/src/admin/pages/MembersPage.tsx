@@ -89,11 +89,16 @@ export function MembersPage() {
     if (!areaId) { setChannelOpts([]); return; }
     try {
       const data = await apiReq<any>(`/admin/api/channels?area=${encodeURIComponent(areaId)}`);
-      const opts: SelectOption[] = (data.channels || []).map((ch: any) => ({
-        value: ch.id,
-        label: (ch.name || ch.id) + (ch.type === "VOICE" ? " [语音]" : ""),
-        group: ch.group || undefined,
-      }));
+      const opts: SelectOption[] = (data.channels || [])
+        .filter((ch: any) => String(ch.type || "").toUpperCase() !== "ARTICLE")
+        .map((ch: any) => {
+          const chType = String(ch.type || "").toUpperCase();
+          return {
+            value: ch.id,
+            label: (ch.name || ch.id) + (chType === "VOICE" || chType === "AUDIO" ? " [语音]" : ""),
+            group: ch.group || undefined,
+          };
+        });
       setChannelOpts(opts);
     } catch {
       setChannelOpts([]);

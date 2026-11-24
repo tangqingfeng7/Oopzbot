@@ -220,5 +220,48 @@ class CredentialRefreshTest(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(await manager.ensure_fresh())
 
 
+class ProjectTransportWiringTest(unittest.IsolatedAsyncioTestCase):
+    async def test_install_project_transports_wires_all_services_including_future_ones(self) -> None:
+        from oopz_sdk import OopzBot
+        from oopz_sdk.models import ChannelType, CreateChannelResult
+        from oopz_sdk.services import BaseService
+        from oopz_sdk.testing.factories import make_config
+
+        import app.infrastructure.oopz_connection as module
+        from core.proxy_utils import ProxySettings
+
+        class _FutureService(BaseService):
+            pass
+
+        bot = OopzBot(make_config())
+        future_service = _FutureService(
+            bot, bot.config, bot.rest.transport, bot.rest.signer, bot.cache,
+        )
+        cast(Any, bot.rest).future_service = future_service
+
+        proxy = ProxySettings(mode="direct")
+        module.install_project_transports(bot, proxy, None)
+
+        self.assertIsInstance(bot.rest.transport, module.ProjectHttpTransport)
+        self.assertIs(bot.articles.transport, bot.rest.transport)
+        self.assertIs(bot.voice.transport, bot.rest.transport)
+        self.assertIs(future_service.transport, bot.rest.transport)
+        self.assertIsInstance(bot.channels, module.ProjectChannel)
+
+        module.channels_response_cache.set("area-1", {"ok": True, "channels": []})
+        created = CreateChannelResult.from_api({"id": "ch-art", "name": "帖子区", "type": "ARTICLE"})
+        with patch.object(module.Channel, "create_channel", AsyncMock(return_value=created)) as super_create:
+            result = await bot.articles.create_channel("area-1", "帖子区", group_id="g-1", secret=True)
+            self.assertEqual(result.channel_id, "ch-art")
+            await cast(Any, bot.channels).create_channel("area-1", "未来频道", channel_type="text", future_flag=True)
+
+        self.assertEqual(super_create.await_count, 2)
+        super_create.assert_any_await(
+            "area-1", name="帖子区", group_id="g-1", channel_type=ChannelType.ARTICLE, secret=True,
+        )
+        super_create.assert_any_await("area-1", "未来频道", channel_type="text", future_flag=True)
+        self.assertIsNone(module.channels_response_cache.get("area-1"))
+
+
 if __name__ == "__main__":
     unittest.main()

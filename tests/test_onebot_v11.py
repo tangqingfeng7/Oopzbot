@@ -53,7 +53,7 @@ def _listen_port(server: Any) -> int:
     return server.sockets[0].getsockname()[1]
 
 
-# SDK v0.16.0 的同步 IdStore/MessageStore 在 Python 3.14 会由 sqlite3 报告
+# SDK v0.17.0 的同步 IdStore/MessageStore 在 Python 3.14 会由 sqlite3 报告
 # ResourceWarning；项目使用安装版 SDK，因此测试仅屏蔽这一条上游告警。
 warnings.filterwarnings("ignore", message="unclosed database.*", category=ResourceWarning)
 

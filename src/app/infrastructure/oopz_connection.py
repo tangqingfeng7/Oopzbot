@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import Any
 
 import aiohttp
 from aiohttp_socks import ProxyConnector
@@ -14,8 +15,9 @@ from oopz_sdk.exceptions import (
     OopzAuthError,
     OopzConnectionError,
 )
-from oopz_sdk.models import ChannelType, CreateChannelResult, OperationResult
+from oopz_sdk.models import CreateChannelResult, OperationResult
 from oopz_sdk.models.event import ChannelCreateEvent, ChannelDeleteEvent, ChannelUpdateEvent
+from oopz_sdk.services import BaseService
 from oopz_sdk.services.channel import Channel
 from oopz_sdk.transport.http import HttpResponse, HttpTransport
 from oopz_sdk.transport.ws import WebSocketTransport
@@ -48,10 +50,9 @@ class ProjectChannel(Channel):
 
 
     async def create_channel(
-        self, area: str, name: str, group_id: str = "",
-        channel_type: ChannelType | str = ChannelType.TEXT,
+        self, area: str, *args: Any, **kwargs: Any,
     ) -> CreateChannelResult:
-        result = await super().create_channel(area, name, group_id, channel_type)
+        result = await super().create_channel(area, *args, **kwargs)
         self.invalidate_channel_caches(area)
         return result
 
@@ -85,7 +86,7 @@ class ProjectHttpTransport(HttpTransport):
         self.project_proxy = proxy
 
     async def request(self, method: str, url_path: str, body=None, **kwargs) -> HttpResponse:
-        # 退出域接口只接受 query 参数；SDK 0.16 将 area 放在 JSON body 中。
+        # 退出域接口只接受 query 参数；SDK 0.17 仍将 area 放在 JSON body 中。
         if method.upper() == "DELETE" and url_path == "/client/v1/area/v1/quit" and isinstance(body, dict):
             kwargs["params"] = {**body, **(kwargs.get("params") or {})}
             body = None
@@ -144,7 +145,7 @@ class ProjectWebSocketTransport(WebSocketTransport):
                 ),
             )
 
-        # SDK 0.16 的代理选择器不识别 ws/wss，HTTP 代理须显式传入握手。
+        # SDK 0.17 的代理选择器不识别 ws/wss，HTTP 代理须显式传入握手。
         proxy_url = None
         if self.project_proxy.enabled and not _socks_proxy(self.project_proxy):
             proxy_url = self.project_proxy.server
@@ -179,6 +180,21 @@ class ProjectWebSocketTransport(WebSocketTransport):
             ) from exc
 
 
+def _iter_sdk_services(bot: Any) -> list[BaseService]:
+    """发现 OopzBot 及其 REST 客户端上挂载的全部 SDK BaseService 实例。"""
+
+    seen: set[int] = set()
+    services: list[BaseService] = []
+    for container in (bot, getattr(bot, "rest", None)):
+        if container is None:
+            continue
+        for value in vars(container).values():
+            if isinstance(value, BaseService) and id(value) not in seen:
+                seen.add(id(value))
+                services.append(value)
+    return services
+
+
 def install_project_transports(bot, proxy: ProxySettings, proxy_value: object) -> None:
     """在 OopzBot 启动前替换各 service 共享的传输对象。"""
 
@@ -194,16 +210,7 @@ def install_project_transports(bot, proxy: ProxySettings, proxy_value: object) -
     )
     for event_name in ("channel.create", "channel.update", "channel.delete"):
         bot.on(event_name)(bot.channels.on_channel_changed)
-    for service in (
-        bot.messages,
-        bot.media,
-        bot.areas,
-        bot.channels,
-        bot.person,
-        bot.moderation,
-        bot.general,
-        bot.voice,
-    ):
+    for service in _iter_sdk_services(bot):
         service.transport = transport
 
     bot.ws.transport = ProjectWebSocketTransport(

@@ -65,10 +65,17 @@ async def admin_channel_create(request: Request):
     name = (body.get("name") or "").strip()
     ch_type = body.get("type", "text")
     group_id = (body.get("group_id") or "").strip()
+    secret = bool(body.get("secret", False))
     if not area or not name:
         return JSONResponse({"ok": False, "error": "area 和 name 不能为空"}, status_code=400)
     try:
-        result = await sender.bot.channels.create_channel(area=area, name=name, channel_type=ch_type, group_id=group_id)
+        result = await sender.bot.channels.create_channel(
+            area=area,
+            name=name,
+            channel_type=ch_type,
+            group_id=group_id,
+            secret=secret,
+        )
         _channels_cache.invalidate(area)
         return JSONResponse({"ok": True, "message": "频道已创建", "result": {"channel": result.channel_id, "name": result.name}})
     except Exception as e:
@@ -134,12 +141,22 @@ async def admin_channel_settings_edit(channel_id: str, request: Request):
     if not area:
         return JSONResponse({"ok": False, "error": "area 不能为空"}, status_code=400)
     mapping = {
-        "textGapSecond": "text_gap_second", "voiceQuality": "voice_quality",
-        "voiceDelay": "voice_delay", "maxMember": "max_member",
-        "voiceControlEnabled": "voice_control_enabled", "textControlEnabled": "text_control_enabled",
-        "accessControlEnabled": "access_control_enabled", "hasPassword": "has_password",
-        "textRoles": "text_roles", "voiceRoles": "voice_roles",
-        "accessible": "accessible_roles", "accessibleMembers": "accessible_members",
+        "textGapSecond": "text_gap_second",
+        "articleGapSecond": "article_gap_second",
+        "commentGapSecond": "comment_gap_second",
+        "voiceQuality": "voice_quality",
+        "voiceDelay": "voice_delay",
+        "maxMember": "max_member",
+        "voiceControlEnabled": "voice_control_enabled",
+        "textControlEnabled": "text_control_enabled",
+        "articleControlEnabled": "article_control_enabled",
+        "accessControlEnabled": "access_control_enabled",
+        "hasPassword": "has_password",
+        "textRoles": "text_roles",
+        "voiceRoles": "voice_roles",
+        "articleRoles": "article_roles",
+        "accessible": "accessible_roles",
+        "accessibleMembers": "accessible_members",
     }
     settings = {mapping.get(key, key): value for key, value in body.items()}
     try:
